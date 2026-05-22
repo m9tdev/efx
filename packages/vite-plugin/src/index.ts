@@ -1,7 +1,9 @@
+import { readFile } from "node:fs/promises"
 import type { Plugin } from "vite"
 import { transformEfx } from "@effx/compiler"
 
 const EFX_RE = /\.efx(?:\?[^.]*)?$/
+const EFX_PATH_RE = /\.efx$/
 
 /**
  * Vite plugin that handles `.efx` files.
@@ -26,6 +28,23 @@ export function efx(): Plugin {
           loader: "ts",
         },
       }
+    },
+    // Vite's static-asset middleware would otherwise intercept direct
+    // `<script src="/src/main.efx">` requests with an empty Content-Type
+    // (no recognized JS extension). Rewriting the URL to add `?import`
+    // forces the request through the module pipeline, where our
+    // `transform` hook fires and Vite sets the right MIME.
+    transformIndexHtml(html) {
+      return html.replace(
+        /(<script\b[^>]*\bsrc=")([^"]+\.efx)(")/g,
+        "$1$2?import$3",
+      )
+    },
+    // Explicit `load` hook for completeness — handles the `?import` form.
+    async load(id) {
+      const path = id.split("?")[0]
+      if (!path || !EFX_PATH_RE.test(path)) return null
+      return await readFile(path, "utf-8")
     },
     async transform(code, id) {
       if (!EFX_RE.test(id)) return null
