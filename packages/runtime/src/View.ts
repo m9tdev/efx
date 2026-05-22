@@ -16,7 +16,20 @@ export type View = Data.TaggedEnum<{
     // Source can carry any value; mount() normalizes it into a View at render time.
     readonly source: Atom.Atom<unknown> | AtomRef.ReadonlyRef<unknown>
   }
+  List: {
+    readonly source: AtomRef.Collection<unknown>
+    // Returns View or Effect<View, never, never> — mount's valueToView coerces.
+    readonly render: (item: AtomRef.AtomRef<unknown>, index: number) => unknown
+  }
   Empty: {}
 }>
 
 export const View = Data.taggedEnum<View>()
+
+export const VIEW_TAGS: ReadonlySet<View["_tag"]> = new Set<View["_tag"]>([
+  "Text", "Element", "Fragment", "Reactive", "List", "Empty",
+])
+
+export const isView = (u: unknown): u is View =>
+  typeof u === "object" && u !== null && "_tag" in u &&
+  VIEW_TAGS.has((u as { _tag: View["_tag"] })._tag)

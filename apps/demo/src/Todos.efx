@@ -1,0 +1,75 @@
+import { Effect } from "effect"
+import { AtomRef } from "effect/unstable/reactivity"
+import { h, list, type View } from "@effx/runtime"
+
+interface Todo {
+  readonly text: string
+  readonly done: boolean
+}
+
+// Reactive collection — each item is wrapped in its own AtomRef so per-row
+// updates don't tear down the whole list.
+const todos = AtomRef.collection<Todo>([
+  { text: "build a UI framework", done: true },
+  { text: "use it for something", done: false },
+  { text: "write a blog post", done: false },
+])
+
+const addTodo = () => todos.push({ text: "new todo", done: false })
+
+/**
+ * One row. Reads from a single item ref; toggling `done` updates only this
+ * row, not the rest of the list (because the framework's reactive bindings
+ * subscribe per-ref).
+ */
+const TodoRow = Effect.fn("TodoRow")(function* (props: {
+  readonly item: AtomRef.AtomRef<Todo>
+}) {
+  const ref = props.item
+
+  // Derived per-field refs: the checkbox + text update independently when
+  // `done`/`text` change, without re-rendering siblings.
+  const text = ref.map((t) => t.text)
+  const doneClass = ref.map((t) => (t.done ? "done" : ""))
+
+  const toggle = () => ref.update((t) => ({ ...t, done: !t.done }))
+  const remove = () => todos.remove(ref)
+
+  return yield* (
+    <li class={doneClass}>
+      <button class="toggle" onclick={toggle}>
+        {ref.map((t) => (t.done ? "✓" : "·"))}
+      </button>
+      <span class="text">{text}</span>
+      <button class="remove" onclick={remove}>×</button>
+    </li>
+  )
+})
+
+const remaining: AtomRef.ReadonlyRef<number> = todos.map((items) => {
+  let n = 0
+  for (const ref of items) if (!ref.value.done) n++
+  return n
+})
+
+/**
+ * The list. `list(todos, ...)` returns a `View.List` IR node; `mount`
+ * reconciles rows by ref identity on add/remove.
+ */
+export const Todos = Effect.fn("Todos")(function* (_props: {} = {}) {
+  return yield* (
+    <div class="todos">
+      <div class="controls">
+        <button onclick={addTodo}>+ add todo</button>
+        <span class="remaining">
+          {remaining} remaining
+        </span>
+      </div>
+      <ul>
+        {list(todos, (item): Effect.Effect<View, never, never> =>
+          TodoRow({ item }),
+        )}
+      </ul>
+    </div>
+  )
+})

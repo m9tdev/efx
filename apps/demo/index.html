@@ -26,6 +26,15 @@
       .user-page .bio { color: #aaa; font-style: italic; }
       .user-page .posts { padding-inline-start: 1rem; }
       .user-page .empty { color: #888; }
+      .todos ul { list-style: none; padding: 0; margin: 0.5rem 0; }
+      .todos li { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
+      .todos li.done .text { color: #666; text-decoration: line-through; }
+      .todos li .toggle, .todos li .remove { background: transparent; color: #aaa; border: 1px solid #333; padding: 0 0.5rem; min-width: 1.5rem; border-radius: 4px; cursor: pointer; }
+      .todos li .toggle:hover, .todos li .remove:hover { background: #222; color: #eee; }
+      .todos li .text { flex: 1; }
+      .todos .controls { display: flex; gap: 1rem; align-items: center; }
+      .todos .controls button { background: #222; color: #eee; border: 1px solid #444; padding: 0.25rem 0.75rem; border-radius: 4px; cursor: pointer; }
+      .todos .remaining { color: #888; font-variant-numeric: tabular-nums; }
     </style>
   </head>
   <body>

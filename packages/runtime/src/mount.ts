@@ -1,6 +1,6 @@
 import { Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { type Props, View } from "./View.ts"
+import { isView, type Props, View } from "./View.ts"
 
 const ATOM_REF_TYPE_ID = "~effect/reactivity/AtomRef"
 const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
@@ -12,11 +12,6 @@ type Rendered = {
 }
 
 const noop = () => {}
-
-const VIEW_TAGS = new Set(["Empty", "Text", "Element", "Fragment", "Reactive"])
-const isView = (u: unknown): u is View =>
-  typeof u === "object" && u !== null && "_tag" in u &&
-  VIEW_TAGS.has((u as { _tag: string })._tag)
 
 /**
  * Synchronously coerce an arbitrary value (typically read from a reactive
@@ -50,6 +45,19 @@ const valueToView = (v: unknown): View => {
 }
 
 const applyProp = (el: Element, key: string, value: unknown): (() => void) | undefined => {
+  // Reactive prop: AtomRef → subscribe and re-apply on changes.
+  if (isAtomRef(value)) {
+    const ref = value as AtomRef.ReadonlyRef<unknown>
+    let lastCleanup: (() => void) | undefined
+    const apply = (v: unknown) => {
+      lastCleanup?.()
+      lastCleanup = applyProp(el, key, v)
+    }
+    apply(ref.value)
+    const dispose = ref.subscribe(apply)
+    return () => { dispose(); lastCleanup?.() }
+  }
+
   if (value == null || value === false) return undefined
   // Event handler: onClick, onInput, etc.
   if (key.startsWith("on") && key.length > 2 && typeof value === "function") {
@@ -162,6 +170,72 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry): Rendered => 
       return {
         node: currentNode,
         cleanup: () => { dispose(); currentCleanup() },
+      }
+    }
+
+    case "List": {
+      // Wrapper element holds the rendered rows. `display: contents` makes the
+      // wrapper invisible to CSS so list items still get the right styling
+      // from their actual parent (e.g. `<ul>`).
+      const wrapper = document.createElement("span")
+      wrapper.style.display = "contents"
+
+      // Per-item: rendered DOM + cleanup, keyed by AtomRef identity so
+      // reactivity is preserved across reorders/inserts.
+      const rendered = new Map<AtomRef.AtomRef<unknown>, Rendered>()
+      // Snapshot the array (not just the reference!) — CollectionImpl mutates
+      // its internal array in place on push/remove, so comparing references
+      // would never detect structural changes.
+      let snapshot: Array<AtomRef.AtomRef<unknown>> = []
+
+      const reconcile = (next: ReadonlyArray<AtomRef.AtomRef<unknown>>): void => {
+        const nextSet = new Set(next)
+
+        // Drop rows whose ref is gone.
+        for (const [ref, r] of rendered) {
+          if (!nextSet.has(ref)) {
+            r.cleanup()
+            if (r.node.parentNode === wrapper) wrapper.removeChild(r.node)
+            rendered.delete(ref)
+          }
+        }
+
+        // Build any new rows and place each in its current position.
+        let cursor: ChildNode | null = wrapper.firstChild
+        next.forEach((ref, i) => {
+          let r = rendered.get(ref)
+          if (!r) {
+            r = buildDom(valueToView(view.render(ref, i)), registry)
+            rendered.set(ref, r)
+          }
+          if (cursor !== r.node) {
+            wrapper.insertBefore(r.node, cursor)
+          } else {
+            cursor = cursor.nextSibling
+          }
+        })
+
+        snapshot = Array.from(next)
+      }
+
+      reconcile(view.source.value)
+
+      const dispose = view.source.subscribe((next) => {
+        // Re-reconcile only on structural changes. CollectionImpl also
+        // notifies on per-item value updates (which are handled separately
+        // by each row's own reactive bindings) — those are no-ops here.
+        const structural =
+          next.length !== snapshot.length ||
+          next.some((ref, i) => ref !== snapshot[i])
+        if (structural) reconcile(next)
+      })
+
+      return {
+        node: wrapper,
+        cleanup: () => {
+          dispose()
+          for (const r of rendered.values()) r.cleanup()
+        },
       }
     }
   }
