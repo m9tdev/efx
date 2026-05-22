@@ -1,6 +1,6 @@
 import { Chunk, Effect, Option, Result } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
-import type { FoldE, FoldR } from "./types/Fold.ts"
+import type { FoldE, FoldR, TagE, TagR } from "./types/Fold.ts"
 import { type Props, View } from "./View.ts"
 
 const ATOM_REF_TYPE_ID = "~effect/reactivity/AtomRef"
@@ -109,8 +109,11 @@ const _h = (
     return View.Element({ tag, props, children: out })
   })
 
-export const h: <Cs extends readonly unknown[]>(
-  tag: string | ((props: any) => Effect.Effect<View, any, any>),
+export const h: <
+  T extends string | ((props: any) => Effect.Effect<View, any, any>),
+  Cs extends readonly unknown[],
+>(
+  tag: T,
   props: Props,
   ...children: Cs
-) => Effect.Effect<View, FoldE<Cs>, FoldR<Cs>> = _h as never
+) => Effect.Effect<View, FoldE<Cs> | TagE<T>, FoldR<Cs> | TagR<T>> = _h as never

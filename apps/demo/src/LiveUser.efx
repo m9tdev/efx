@@ -50,7 +50,7 @@ const loadingView = userAtom.pipe(
  * Inferred type: `Effect<View, never, AtomRegistry>`
  *   — AtomRegistry is needed for write operations from event handlers.
  */
-export const LiveUser = Effect.fn("LiveUser")(function* () {
+export const LiveUser = Effect.fn("LiveUser")(function* (_props: {} = {}) {
   const registry = yield* AtomRegistry.AtomRegistry
 
   return yield* (

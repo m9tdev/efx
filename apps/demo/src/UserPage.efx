@@ -11,10 +11,10 @@ import { Http, Theme } from "./services.ts"
  *
  * Inferred type: `Effect<View, HttpError, Http | Theme>`
  */
-export const UserPage = Effect.fn("UserPage")(function* (userId: string) {
+export const UserPage = Effect.fn("UserPage")(function* (props: { userId: string }) {
   const http = yield* Http
   const theme = yield* Theme
-  const user = yield* http.getUser(userId)
+  const user = yield* http.getUser(props.userId)
 
   return yield* (
     <article class={`user-page ${theme.mode}`}>

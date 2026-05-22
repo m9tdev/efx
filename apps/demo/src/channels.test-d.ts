@@ -29,7 +29,7 @@ assertEquals<CounterType, Effect.Effect<View, never, never>>()
 
 const Composed = h("div", {},
   Counter(),
-  UserPage("42"),
+  UserPage({ userId: "42" }),
 )
 
 type ComposedType = typeof Composed
@@ -40,16 +40,31 @@ assertEquals<ComposedType, Effect.Effect<View, HttpError, Http | Theme>>()
 // ─── Conditional render preserves channels ─────────────────────────────
 
 declare const flag: boolean
-const WithCond = h("div", {}, flag && UserPage("42"))
+const WithCond = h("div", {}, flag && UserPage({ userId: "42" }))
 type WithCondType = typeof WithCond
 assertEquals<WithCondType, Effect.Effect<View, HttpError, Http | Theme>>()
 
 // ─── Array of effects preserves channels ───────────────────────────────
 
 declare const ids: string[]
-const WithList = h("ul", {}, ids.map((id) => UserPage(id)))
+const WithList = h("ul", {}, ids.map((id) => UserPage({ userId: id })))
 type WithListType = typeof WithList
 assertEquals<WithListType, Effect.Effect<View, HttpError, Http | Theme>>()
+
+// ─── <Component /> form: h(Component, props) carries the component's E/R ─
+
+const CounterAsTag = h(Counter, {})
+assertEquals<typeof CounterAsTag, Effect.Effect<View, never, never>>()
+
+const UserPageAsTag = h(UserPage, { userId: "42" })
+assertEquals<typeof UserPageAsTag, Effect.Effect<View, HttpError, Http | Theme>>()
+
+// Tag E/R unions with child E/R
+const Mixed = h("div", {},
+  h(UserPage, { userId: "42" }),       // tag contributes HttpError + Http | Theme
+  h(Counter, {}),                       // contributes nothing
+)
+assertEquals<typeof Mixed, Effect.Effect<View, HttpError, Http | Theme>>()
 
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
