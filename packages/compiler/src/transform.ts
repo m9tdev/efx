@@ -33,6 +33,69 @@ const attrName = (id: t.JSXIdentifier | t.JSXNamespacedName): t.Identifier | t.S
     : t.stringLiteral(id.name)
 }
 
+/**
+ * Wrap a JSX-expression's value in a `h.track(() => expr)` call so the
+ * runtime can detect reactive reads inside it. Also rewrites every
+ * `x.value` member access within `expr` to `h.read(x)` so AtomRef reads
+ * are recorded against the current tracker.
+ */
+const wrapTracked = (expr: t.Expression): t.CallExpression => {
+  const rewritten = rewriteValueReads(expr)
+  return t.callExpression(
+    t.memberExpression(t.identifier("h"), t.identifier("track")),
+    [t.arrowFunctionExpression([], rewritten)],
+  )
+}
+
+const hMember = (name: "read" | "peek") =>
+  t.memberExpression(t.identifier("h"), t.identifier(name))
+
+const wrapPeek = (id: t.Identifier): t.CallExpression =>
+  t.callExpression(hMember("peek"), [id])
+
+/**
+ * In-place AST rewrites inside a tracked JSX expression:
+ *
+ *   - `x.value` (read) → `h.read(x)` — tracks AtomRef reads via `.value`.
+ *   - bare `x` in a test position (`x ? … : …`, `x && …`, `!x`, etc.) →
+ *     `h.peek(x)` — for non-AtomRef `x`, identity; for AtomRef, unwraps
+ *     value and tracks. Lets `{loading ? <A/> : <B/>}` work without `.value`.
+ *
+ * Both rewrites are leaf-local; composite expressions like `x.length > 0`
+ * are left alone (the user can add `.value` explicitly).
+ */
+const rewriteValueReads = (expr: t.Expression): t.Expression => {
+  const file = t.file(t.program([t.expressionStatement(expr)]))
+  traverse(file, {
+    MemberExpression(path) {
+      const n = path.node
+      if (
+        !n.computed &&
+        t.isIdentifier(n.property) &&
+        n.property.name === "value" &&
+        !(t.isAssignmentExpression(path.parent) && path.parent.left === n)
+      ) {
+        path.replaceWith(t.callExpression(hMember("read"), [n.object as t.Expression]))
+      }
+    },
+    ConditionalExpression(path) {
+      if (t.isIdentifier(path.node.test)) {
+        path.node.test = wrapPeek(path.node.test)
+      }
+    },
+    LogicalExpression(path) {
+      if (t.isIdentifier(path.node.left)) path.node.left = wrapPeek(path.node.left)
+      if (t.isIdentifier(path.node.right)) path.node.right = wrapPeek(path.node.right)
+    },
+    UnaryExpression(path) {
+      if (path.node.operator === "!" && t.isIdentifier(path.node.argument)) {
+        path.node.argument = wrapPeek(path.node.argument)
+      }
+    },
+  })
+  return (file.program.body[0] as t.ExpressionStatement).expression
+}
+
 /** Build the props object from JSX attributes. */
 const buildProps = (attrs: ReadonlyArray<t.JSXAttribute | t.JSXSpreadAttribute>): t.Expression => {
   const properties: Array<t.ObjectProperty | t.SpreadElement> = []
@@ -50,7 +113,7 @@ const buildProps = (attrs: ReadonlyArray<t.JSXAttribute | t.JSXSpreadAttribute>)
     } else if (t.isJSXExpressionContainer(attr.value)) {
       value = t.isJSXEmptyExpression(attr.value.expression)
         ? t.booleanLiteral(true)
-        : attr.value.expression
+        : wrapTracked(attr.value.expression)
     } else {
       // JSXElement/JSXFragment values are exotic — fall back to recursive transform
       value = transformJsxNode(attr.value as t.JSXElement | t.JSXFragment)
@@ -99,7 +162,9 @@ const transformChild = (
     return t.stringLiteral(text)
   }
   if (t.isJSXExpressionContainer(child)) {
-    return t.isJSXEmptyExpression(child.expression) ? null : child.expression
+    return t.isJSXEmptyExpression(child.expression)
+      ? null
+      : wrapTracked(child.expression)
   }
   if (t.isJSXSpreadChild(child)) {
     // Rare; treat as a passthrough spread.
