@@ -1,6 +1,6 @@
 import { Cause, Effect, Layer } from "effect"
 import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity"
-import { h, View } from "@effx/runtime"
+import { h } from "@effx/runtime"
 import { Http, HttpLive } from "./services.ts"
 
 // AtomRuntime baked with HttpLive — atoms below run effects in this context.
@@ -18,44 +18,29 @@ const userAtom = appRuntime.atom((get) =>
   }),
 )
 
-// Derived Atom<View>: maps the AsyncResult to a View.
-const userView: Atom.Atom<View> = userAtom.pipe(
+// Derived atom mapping the AsyncResult to JSX. Each match arm is itself
+// `Effect<View, never, never>` (what `h(...)` returns) — the runtime
+// auto-runSyncs them when rendering the Reactive node.
+const userView = userAtom.pipe(
   Atom.map(
     AsyncResult.match({
-      onInitial: () => View.Text({ value: "—" }),
-      onFailure: (f) =>
-        View.Element({
-          tag: "span", props: { class: "error" },
-          children: [View.Text({ value: `error: ${Cause.pretty(f.cause)}` })],
-        }),
-      onSuccess: (s) =>
-        View.Element({
-          tag: "div", props: { class: "user-card" },
-          children: [
-            View.Element({
-              tag: "strong", props: {},
-              children: [View.Text({ value: s.value.name })],
-            }),
-            s.value.bio
-              ? View.Element({
-                  tag: "p", props: { class: "bio" },
-                  children: [View.Text({ value: s.value.bio })],
-                })
-              : View.Empty(),
-          ],
-        }),
+      onInitial: () => <span>—</span>,
+      onFailure: (f) => (
+        <span class="error">error: {Cause.pretty(f.cause)}</span>
+      ),
+      onSuccess: (s) => (
+        <div class="user-card">
+          <strong>{s.value.name}</strong>
+          {s.value.bio && <p class="bio">{s.value.bio}</p>}
+        </div>
+      ),
     }),
   ),
 )
 
-const loadingView: Atom.Atom<View> = userAtom.pipe(
+const loadingView = userAtom.pipe(
   Atom.map((r) =>
-    AsyncResult.isWaiting(r)
-      ? View.Element({
-          tag: "span", props: { class: "loading" },
-          children: [View.Text({ value: "  loading…" })],
-        })
-      : View.Empty(),
+    AsyncResult.isWaiting(r) ? <span class="loading">  loading…</span> : null,
   ),
 )
 

@@ -1,4 +1,4 @@
-import { Effect, Scope } from "effect"
+import { Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { type Props, View } from "./View.ts"
 
@@ -20,8 +20,13 @@ const isView = (u: unknown): u is View =>
 
 /**
  * Synchronously coerce an arbitrary value (typically read from a reactive
- * source) into a View. Mirrors the leaf-case logic of `normalizeChild` but
- * without the Effect-yielding container paths.
+ * source) into a View.
+ *
+ * If the value is an `Effect<View, never, never>`, we `runSync` it — this
+ * lets users write JSX (which compiles to `h(...)` returning an `Effect`)
+ * inside e.g. `Atom.map(AsyncResult.match({...}))` matchers, instead of
+ * hand-building `View.Element` trees. Effects with E or R can't be runSync'd
+ * and surface as a Text node with a diagnostic.
  */
 const valueToView = (v: unknown): View => {
   if (v == null || v === false || v === true) return View.Empty()
@@ -30,6 +35,14 @@ const valueToView = (v: unknown): View => {
     return View.Text({ value: String(v) })
   }
   if (isView(v)) return v
+  if (Effect.isEffect(v)) {
+    const exit = Effect.runSyncExit(v as Effect.Effect<unknown, unknown, never>)
+    return Exit.match(exit, {
+      onSuccess: (val) => valueToView(val),
+      onFailure: (cause) =>
+        View.Text({ value: `[effect failed: ${String(cause)}]` }),
+    })
+  }
   if (Array.isArray(v)) {
     return View.Fragment({ children: v.map(valueToView) })
   }
