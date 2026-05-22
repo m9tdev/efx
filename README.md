@@ -109,6 +109,23 @@ write them by hand.
 | `pnpm build`       | Production build via Vite (`.efx` compiled first)             |
 | `pnpm -w run type <Name>` | Print the inferred type of any exported symbol in `apps/demo/src` — e.g. `pnpm -w run type UserPage` → `(props: { userId: string }) => Effect<View, HttpError, Http \| Theme>` |
 
+## Bundle size
+
+`pnpm build` on the demo produces:
+
+| Asset                 | Raw      | Gzipped  |
+|-----------------------|----------|----------|
+| `dist/index.html`     |  2.20 kB |  0.84 kB |
+| `dist/assets/index-*.js` | 93.34 kB | **31.20 kB** |
+
+The JS bundle contains: `effect@4.0.0-beta.70` runtime (~6 kB gzipped per
+upstream docs), `effect/unstable/reactivity` (`AtomRef`, `Atom`,
+`AtomRegistry`, `AsyncResult`), the `@efx/runtime` runtime (~500 LOC,
+contributes single-digit kB), plus all four demo components (`Counter`,
+`UserPage`, `LiveUser`, `Todos`) and their mock services. Verified
+interactive after build — Counter increments, LiveUser cycles
+`Initial`/`Success`/`Failure`, Todos add/remove/toggle.
+
 `.efx` files generate sibling `.ts` files (gitignored) for tsc to read; Vite
 serves the `.efx` files directly through the plugin at dev time.
 
