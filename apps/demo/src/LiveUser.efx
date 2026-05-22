@@ -1,6 +1,5 @@
 import { Cause, Effect, Layer } from "effect"
 import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity"
-import { h } from "@effx/runtime"
 import { Http, HttpLive } from "./services.ts"
 
 // AtomRuntime baked with HttpLive — atoms below run effects in this context.

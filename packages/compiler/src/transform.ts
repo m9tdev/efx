@@ -173,6 +173,46 @@ const transformChild = (
   return transformJsxNode(child)
 }
 
+const RUNTIME_PKG = "@effx/runtime"
+
+const ensureRuntimeImports = (program: t.Program, wantFragment: boolean): void => {
+  const wanted = new Set(["h"])
+  if (wantFragment) wanted.add("Fragment")
+
+  // First pass: find an existing import from the runtime; drop names that
+  // are already imported under their own identifier (no `as` alias).
+  let existing: t.ImportDeclaration | undefined
+  for (const node of program.body) {
+    if (!t.isImportDeclaration(node)) continue
+    if (node.source.value !== RUNTIME_PKG) continue
+    existing = node
+    for (const spec of node.specifiers) {
+      if (
+        t.isImportSpecifier(spec) &&
+        t.isIdentifier(spec.imported) &&
+        spec.imported.name === spec.local.name
+      ) {
+        wanted.delete(spec.local.name)
+      }
+    }
+    break
+  }
+
+  if (wanted.size === 0) return
+
+  const newSpecs = [...wanted].map((name) =>
+    t.importSpecifier(t.identifier(name), t.identifier(name)),
+  )
+
+  if (existing) {
+    existing.specifiers.push(...newSpecs)
+  } else {
+    program.body.unshift(
+      t.importDeclaration(newSpecs, t.stringLiteral(RUNTIME_PKG)),
+    )
+  }
+}
+
 /** Transform a JSX element or fragment node into an h(...) call expression. */
 const transformJsxNode = (node: t.JSXElement | t.JSXFragment): t.CallExpression => {
   const tag: t.Expression = t.isJSXFragment(node)
@@ -206,15 +246,26 @@ export const transformEfx = (source: string, filename: string): TransformResult 
     sourceFilename: filename,
   })
 
+  let usedH = false
+  let usedFragment = false
+
   traverse(ast, {
     JSXElement(path: NodePath<t.JSXElement>) {
-      // Replace the JSX expression with its h() call equivalent.
+      usedH = true
       path.replaceWith(transformJsxNode(path.node))
     },
     JSXFragment(path: NodePath<t.JSXFragment>) {
+      usedH = true
+      usedFragment = true
       path.replaceWith(transformJsxNode(path.node))
     },
   })
+
+  // Auto-inject the runtime imports the rewritten code now depends on.
+  // Looks for an existing `import … from "@effx/runtime"` and adds the
+  // missing names there; otherwise prepends a new import. Keeps the user's
+  // imports untouched and avoids duplicate specifiers.
+  if (usedH) ensureRuntimeImports(ast.program, usedFragment)
 
   const result = generate(
     ast,
