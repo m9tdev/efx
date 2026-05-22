@@ -7,7 +7,8 @@
     "dev": "pnpm --filter @efx/demo dev",
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
-    "type": "node scripts/print-type.mjs"
+    "type": "node scripts/print-type.mjs",
+    "size": "pnpm -r build 2>&1 | grep -E 'dist/.*\\.(js|html)' | sed 's/^.*demo build: //'"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
