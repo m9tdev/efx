@@ -1,0 +1,26 @@
+{
+  "name": "@effx/compiler",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "bin": {
+    "efx-compile": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.26.0",
+    "@babel/traverse": "^7.26.0",
+    "@babel/generator": "^7.26.0",
+    "@babel/types": "^7.26.0"
+  },
+  "devDependencies": {
+    "@types/babel__generator": "^7",
+    "@types/babel__traverse": "^7"
+  }
+}

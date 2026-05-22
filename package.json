@@ -1,0 +1,17 @@
+{
+  "name": "effx-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @effx/demo dev",
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm -r build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "playwright-core": "^1.60.0",
+    "typescript": "^5.7.2"
+  },
+  "packageManager": "pnpm@10.28.0"
+}
