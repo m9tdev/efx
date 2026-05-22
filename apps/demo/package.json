@@ -1,0 +1,21 @@
+{
+  "name": "@effx/demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "efx:compile": "node --experimental-strip-types ../../packages/compiler/src/cli.ts src",
+    "dev": "vite",
+    "build": "pnpm run efx:compile && vite build",
+    "typecheck": "pnpm run efx:compile && tsc --noEmit"
+  },
+  "dependencies": {
+    "@effx/runtime": "workspace:*",
+    "effect": "4.0.0-beta.70"
+  },
+  "devDependencies": {
+    "@effx/compiler": "workspace:*",
+    "@effx/vite-plugin": "workspace:*",
+    "vite": "^7.0.0"
+  }
+}

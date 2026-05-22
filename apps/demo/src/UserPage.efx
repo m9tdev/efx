@@ -1,0 +1,34 @@
+import { Effect } from "effect"
+import { h } from "@effx/runtime"
+import { Http, Theme } from "./services.ts"
+
+/**
+ * Demo component. Demonstrates:
+ *   - E channel: `HttpError` if user not found (handled at root)
+ *   - R channel: requires `Http | Theme` services
+ *   - Conditional render: `{user.bio && <p>...</p>}`
+ *   - List render: `{user.posts.map(p => <li>...</li>)}`
+ *
+ * Inferred type: `Effect<View, HttpError, Http | Theme>`
+ */
+export const UserPage = Effect.fn("UserPage")(function* (userId: string) {
+  const http = yield* Http
+  const theme = yield* Theme
+  const user = yield* http.getUser(userId)
+
+  return yield* (
+    <article class={`user-page ${theme.mode}`}>
+      <h1>{user.name}</h1>
+      {user.bio && <p class="bio">{user.bio}</p>}
+      {user.posts.length > 0 ? (
+        <ul class="posts">
+          {user.posts.map((p) => (
+            <li data-post-id={p.id}>{p.title}</li>
+          ))}
+        </ul>
+      ) : (
+        <p class="empty">No posts yet.</p>
+      )}
+    </article>
+  )
+})

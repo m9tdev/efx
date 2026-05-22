@@ -1,0 +1,84 @@
+import { Cause, Effect, Layer } from "effect"
+import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { h, View } from "@effx/runtime"
+import { Http, HttpLive } from "./services.ts"
+
+// AtomRuntime baked with HttpLive — atoms below run effects in this context.
+const appRuntime = Atom.runtime(Layer.mergeAll(HttpLive))
+
+// Which user to show. Writable.
+const userIdAtom = Atom.make("42")
+
+// AsyncResult<User, HttpError>. Re-runs whenever userIdAtom changes.
+const userAtom = appRuntime.atom((get) =>
+  Effect.gen(function* () {
+    const id = get(userIdAtom)
+    const http = yield* Http
+    return yield* http.getUser(id)
+  }),
+)
+
+// Derived Atom<View>: maps the AsyncResult to a View.
+const userView: Atom.Atom<View> = userAtom.pipe(
+  Atom.map(
+    AsyncResult.match({
+      onInitial: () => View.Text({ value: "—" }),
+      onFailure: (f) =>
+        View.Element({
+          tag: "span", props: { class: "error" },
+          children: [View.Text({ value: `error: ${Cause.pretty(f.cause)}` })],
+        }),
+      onSuccess: (s) =>
+        View.Element({
+          tag: "div", props: { class: "user-card" },
+          children: [
+            View.Element({
+              tag: "strong", props: {},
+              children: [View.Text({ value: s.value.name })],
+            }),
+            s.value.bio
+              ? View.Element({
+                  tag: "p", props: { class: "bio" },
+                  children: [View.Text({ value: s.value.bio })],
+                })
+              : View.Empty(),
+          ],
+        }),
+    }),
+  ),
+)
+
+const loadingView: Atom.Atom<View> = userAtom.pipe(
+  Atom.map((r) =>
+    AsyncResult.isWaiting(r)
+      ? View.Element({
+          tag: "span", props: { class: "loading" },
+          children: [View.Text({ value: "  loading…" })],
+        })
+      : View.Empty(),
+  ),
+)
+
+/**
+ * `Atom` wrapping an `Effect`, rendered through `AsyncResult`.
+ *
+ * Inferred type: `Effect<View, never, AtomRegistry>`
+ *   — AtomRegistry is needed for write operations from event handlers.
+ */
+export const LiveUser = Effect.fn("LiveUser")(function* () {
+  const registry = yield* AtomRegistry.AtomRegistry
+
+  return yield* (
+    <div class="live-user">
+      <h3>Atom + AsyncResult (live, reactive)</h3>
+      <div class="controls">
+        <button onclick={() => registry.set(userIdAtom, "42")}>Ada (42)</button>
+        <button onclick={() => registry.set(userIdAtom, "7")}>Grace (7)</button>
+        <button onclick={() => registry.set(userIdAtom, "999")}>Bad id</button>
+        <button onclick={() => registry.refresh(userAtom)}>Refresh</button>
+      </div>
+      {userView}
+      {loadingView}
+    </div>
+  )
+})

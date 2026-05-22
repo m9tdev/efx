@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>effx demo</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        background: #111;
+        color: #eee;
+        margin: 0;
+        padding: 2rem;
+        max-width: 720px;
+        margin-inline: auto;
+        line-height: 1.5;
+      }
+      h1 { font-size: 1.5rem; }
+      h2 { font-size: 1rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2rem; }
+      .section { border: 1px solid #333; padding: 1rem 1.25rem; border-radius: 8px; margin-block: 1rem; }
+      .counter button { background: #222; color: #eee; border: 1px solid #444; padding: 0.25rem 0.75rem; border-radius: 4px; cursor: pointer; }
+      .counter button:hover { background: #2a2a2a; }
+      .counter .count { font-variant-numeric: tabular-nums; }
+      .user-page h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+      .user-page .bio { color: #aaa; font-style: italic; }
+      .user-page .posts { padding-inline-start: 1rem; }
+      .user-page .empty { color: #888; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
