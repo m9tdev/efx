@@ -1,6 +1,5 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { h } from "@effx/runtime"
 
 /**
  * Small reactive component using `AtomRef` for local state.

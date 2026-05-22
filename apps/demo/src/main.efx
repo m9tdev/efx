@@ -1,5 +1,5 @@
 import { Cause, Effect, Layer } from "effect"
-import { EffxLive, h, mount } from "@effx/runtime"
+import { EffxLive, mount } from "@effx/runtime"
 import { Counter } from "./Counter"
 import { LiveUser } from "./LiveUser"
 import { HttpLive, ThemeLive } from "./services.ts"

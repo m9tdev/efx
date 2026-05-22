@@ -48,7 +48,6 @@ pattern matching, keyed reactive list.
 // counter.efx
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { h } from "@effx/runtime"
 
 export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
   const count = AtomRef.make(0)
