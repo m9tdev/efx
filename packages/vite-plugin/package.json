@@ -1,5 +1,5 @@
 {
-  "name": "@effx/vite-plugin",
+  "name": "@efx/vite-plugin",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@effx/compiler": "workspace:*"
+    "@efx/compiler": "workspace:*"
   },
   "peerDependencies": {
     "vite": "^7.0.0"

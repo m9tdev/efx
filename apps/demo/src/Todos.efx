@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { list, type View } from "@effx/runtime"
+import { list, type View } from "@efx/runtime"
 
 interface Todo {
   readonly text: string

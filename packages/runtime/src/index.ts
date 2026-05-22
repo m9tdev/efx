@@ -37,10 +37,10 @@ export const Fragment = (
   Effect.succeed(View.Fragment({ children: props.children ?? [] }))
 
 /**
- * The base Layer every effx app needs. Provides the `AtomRegistry` so any
+ * The base Layer every efx app needs. Provides the `AtomRegistry` so any
  * reactive children in the view tree have somewhere to live.
  *
  * Merge this with your app-specific Layers (Http, Db, Theme, etc.) before
  * passing to `Effect.provide`.
  */
-export const EffxLive: Layer.Layer<AtomRegistry.AtomRegistry> = AtomRegistry.layer
+export const EfxLive: Layer.Layer<AtomRegistry.AtomRegistry> = AtomRegistry.layer

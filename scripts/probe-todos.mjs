@@ -20,7 +20,7 @@ const initialTexts = await list.locator(".text").allInnerTexts()
 console.log("initial texts:", initialTexts)
 console.log("initial remaining:", (await page.locator(".todos .remaining").innerText()).trim())
 
-await page.screenshot({ path: "/tmp/effx-verify/08-todos-initial.png" })
+await page.screenshot({ path: "/tmp/efx-verify/08-todos-initial.png" })
 
 // Capture the DOM node of the first item BEFORE we touch anything else,
 // so we can confirm later that toggling didn't replace it.
@@ -55,7 +55,7 @@ console.log("after remove first, item count:", await list.count())
 const newFirstText = await list.first().locator(".text").innerText()
 console.log("new first text:", newFirstText)
 
-await page.screenshot({ path: "/tmp/effx-verify/09-todos-after.png" })
+await page.screenshot({ path: "/tmp/efx-verify/09-todos-after.png" })
 
 await browser.close()
 console.log("DONE")

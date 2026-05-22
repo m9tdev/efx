@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 import type { Plugin } from "vite"
-import { transformEfx } from "@effx/compiler"
+import { transformEfx } from "@efx/compiler"
 
 const EFX_RE = /\.efx(?:\?[^.]*)?$/
 const EFX_PATH_RE = /\.efx$/
@@ -12,7 +12,7 @@ const HAS_IMPORT_RE = /[?&]import(=|&|$)/
  * Vite plugin that handles `.efx` files.
  *
  * Pipeline per `.efx` request:
- *   1. Plugin's `transform` hook compiles JSX → `h()` calls via @effx/compiler.
+ *   1. Plugin's `transform` hook compiles JSX → `h()` calls via @efx/compiler.
  *      Output is plain TypeScript (no JSX nodes left).
  *   2. Vite's built-in esbuild step strips TypeScript types. We extend its
  *      `include` glob so .efx files go through the same TS pipeline as .ts.

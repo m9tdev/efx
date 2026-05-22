@@ -1,4 +1,4 @@
-# effx
+# efx
 
 An experimental TypeScript UI framework where Effect's `<A, E, R>` channels
 propagate from every leaf of the view tree to the root. Forgetting to provide
@@ -32,8 +32,8 @@ in [DESIGN.md](./DESIGN.md).
 ## Quick start
 
 ```bash
-git clone … effx
-cd effx
+git clone … efx
+cd efx
 pnpm install
 pnpm dev
 # open http://localhost:5173
@@ -64,7 +64,7 @@ export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
 ```ts
 // main.efx
 import { Effect, Layer } from "effect"
-import { EffxLive, mount } from "@effx/runtime"
+import { EfxLive, mount } from "@efx/runtime"
 import { Counter } from "./Counter"
 
 const program = Effect.gen(function* () {
@@ -72,7 +72,7 @@ const program = Effect.gen(function* () {
   yield* Effect.never
 }).pipe(
   Effect.scoped,
-  Effect.provide(EffxLive),
+  Effect.provide(EfxLive),
 )
 
 Effect.runFork(program)
@@ -93,7 +93,7 @@ apps/
 
 | You import from      | What you get                                                                              |
 |----------------------|-------------------------------------------------------------------------------------------|
-| `@effx/runtime`      | `h`, `mount`, `list`, `Fragment`, `View`, `EffxLive`                                      |
+| `@efx/runtime`      | `h`, `mount`, `list`, `Fragment`, `View`, `EfxLive`                                      |
 | `effect`             | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …  |
 | `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                  |
 

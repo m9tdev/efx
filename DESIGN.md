@@ -1,4 +1,4 @@
-# DESIGN — effx
+# DESIGN — efx
 
 Architecture reference for the framework as it stands. For an entry point
 and quick start, see [README.md](./README.md).
@@ -201,7 +201,7 @@ const program = Effect.gen(function* () {
 }).pipe(
   Effect.scoped,
   Effect.catchCause(cause => Effect.sync(() => console.error(Cause.pretty(cause)))),
-  Effect.provide(Layer.mergeAll(EffxLive, HttpLive, ThemeLive, …)),
+  Effect.provide(Layer.mergeAll(EfxLive, HttpLive, ThemeLive, …)),
 )
 Effect.runFork(program)
 ```
@@ -221,7 +221,7 @@ invalidation logic is Effect's.
 | `AtomRef.ReadonlyRef<T>`| Read-only view (`.map(f)` returns this)                                                   | Derived values                              |
 | `AtomRef.Collection<T>` | Reactive collection of `AtomRef<T>` items                                                 | Keyed reactive lists via `list(coll, …)`    |
 | `Atom<T>`               | Declarative reactive value with automatic dep tracking via `AtomRegistry`                 | Atom-runtime-backed queries                 |
-| `AtomRegistry`          | `Context.Service` holding the atoms' dep graph and cache                                  | Provided at root via `EffxLive` layer       |
+| `AtomRegistry`          | `Context.Service` holding the atoms' dep graph and cache                                  | Provided at root via `EfxLive` layer       |
 | `AsyncResult<A, E>`     | `Initial` / `Success` / `Failure` + `waiting` overlay; idiomatic shape for async UI state | Returned by `Atom`s wrapping `Effect`s      |
 
 The framework's reactive paths are minimal glue:

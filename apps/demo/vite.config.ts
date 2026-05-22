@@ -1,5 +1,5 @@
 import { defineConfig } from "vite"
-import { efx } from "@effx/vite-plugin"
+import { efx } from "@efx/vite-plugin"
 
 export default defineConfig({
   root: ".",

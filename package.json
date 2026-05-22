@@ -1,10 +1,10 @@
 {
-  "name": "effx-monorepo",
+  "name": "efx-monorepo",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @effx/demo dev",
+    "dev": "pnpm --filter @efx/demo dev",
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build"
   },

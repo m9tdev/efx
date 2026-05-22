@@ -6,7 +6,7 @@
  */
 import type { Effect } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { h, type View } from "@effx/runtime"
+import { h, type View } from "@efx/runtime"
 import { Counter } from "./Counter"
 import { HttpError, Http, Theme } from "./services.ts"
 import { UserPage } from "./UserPage"
