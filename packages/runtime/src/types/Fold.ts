@@ -74,3 +74,15 @@ export type FoldE<Cs extends readonly unknown[]> = ChildE<Cs[number]>
  * Fold a tuple of children to the union of their `R` channels.
  */
 export type FoldR<Cs extends readonly unknown[]> = ChildR<Cs[number]>
+
+/**
+ * When the JSX tag is a component function `(props) => Effect<View, E, R>`,
+ * extract its `E` channel so `h(Component, ...)` contributes it to the
+ * surrounding expression's type. String tags contribute `never`.
+ */
+export type TagE<T> = T extends (props: any) => Effect.Effect<any, infer E, any> ? E : never
+
+/**
+ * Same, for the tag's `R` channel.
+ */
+export type TagR<T> = T extends (props: any) => Effect.Effect<any, any, infer R> ? R : never

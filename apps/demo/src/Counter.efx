@@ -12,7 +12,7 @@ import { h } from "@effx/runtime"
  * Inferred type: `Effect<View, never, never>`
  *   — `AtomRegistry` is mount's concern, not the component's.
  */
-export const Counter = Effect.fn("Counter")(function* () {
+export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
   const count = AtomRef.make(0)
 
   return yield* (

@@ -10,15 +10,15 @@ const App = (
     <h1>effx demo — channels through the tree</h1>
     <section class="section">
       <h2>Reactive counter (AtomRef)</h2>
-      {Counter()}
+      <Counter />
     </section>
     <section class="section">
       <h2>Async data (Http effect, E + R channels)</h2>
-      {UserPage("42")}
+      <UserPage userId="42" />
     </section>
     <section class="section">
       <h2>Live atom (AsyncResult)</h2>
-      {LiveUser()}
+      <LiveUser />
     </section>
   </div>
 )
