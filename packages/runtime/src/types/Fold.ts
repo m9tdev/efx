@@ -86,3 +86,18 @@ export type TagE<T> = T extends (props: any) => Effect.Effect<any, infer E, any>
  * Same, for the tag's `R` channel.
  */
 export type TagR<T> = T extends (props: any) => Effect.Effect<any, any, infer R> ? R : never
+
+/**
+ * The props shape a component tag expects, with `children` stripped (the JSX
+ * factory threads children separately).
+ *
+ * For string tags ("div", "span", …) we fall back to the loose `Props` type;
+ * a future improvement could thread `JSX.IntrinsicElements`-style HTML
+ * attribute typing here.
+ */
+export type TagProps<T> =
+  T extends string
+    ? Readonly<Record<string, unknown>>
+    : T extends (props: infer P) => any
+      ? Omit<P, "children">
+      : Readonly<Record<string, unknown>>

@@ -5,7 +5,7 @@ import { type Props, View } from "./View.ts"
 export { h } from "./h.ts"
 export { mount } from "./mount.ts"
 export { type Props, View } from "./View.ts"
-export type { Child, ChildE, ChildR, FoldE, FoldR, TagE, TagR } from "./types/Fold.ts"
+export type { Child, ChildE, ChildR, FoldE, FoldR, TagE, TagProps, TagR } from "./types/Fold.ts"
 
 /**
  * Fragment component — the compile target for JSX `<>...</>` syntax.
