@@ -107,6 +107,7 @@ write them by hand.
 | `pnpm dev`         | Vite dev server with HMR on `.efx` files                      |
 | `pnpm typecheck`   | Compiles `.efx` to `.ts` siblings, runs `tsc --noEmit`        |
 | `pnpm build`       | Production build via Vite (`.efx` compiled first)             |
+| `pnpm -w run type <Name>` | Print the inferred type of any exported symbol in `apps/demo/src` — e.g. `pnpm -w run type UserPage` → `(props: { userId: string }) => Effect<View, HttpError, Http \| Theme>` |
 
 `.efx` files generate sibling `.ts` files (gitignored) for tsc to read; Vite
 serves the `.efx` files directly through the plugin at dev time.
