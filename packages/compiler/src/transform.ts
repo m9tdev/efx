@@ -173,7 +173,7 @@ const transformChild = (
   return transformJsxNode(child)
 }
 
-const RUNTIME_PKG = "@effx/runtime"
+const RUNTIME_PKG = "@efx/runtime"
 
 const ensureRuntimeImports = (program: t.Program, wantFragment: boolean): void => {
   const wanted = new Set(["h"])
@@ -262,7 +262,7 @@ export const transformEfx = (source: string, filename: string): TransformResult 
   })
 
   // Auto-inject the runtime imports the rewritten code now depends on.
-  // Looks for an existing `import … from "@effx/runtime"` and adds the
+  // Looks for an existing `import … from "@efx/runtime"` and adds the
   // missing names there; otherwise prepends a new import. Keeps the user's
   // imports untouched and avoids duplicate specifiers.
   if (usedH) ensureRuntimeImports(ast.program, usedFragment)

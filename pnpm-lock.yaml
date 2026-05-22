@@ -20,17 +20,17 @@ importers:
 
   apps/demo:
     dependencies:
-      '@effx/runtime':
+      '@efx/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
       effect:
         specifier: 4.0.0-beta.70
         version: 4.0.0-beta.70
     devDependencies:
-      '@effx/compiler':
+      '@efx/compiler':
         specifier: workspace:*
         version: link:../../packages/compiler
-      '@effx/vite-plugin':
+      '@efx/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       vite:
@@ -67,7 +67,7 @@ importers:
 
   packages/vite-plugin:
     dependencies:
-      '@effx/compiler':
+      '@efx/compiler':
         specifier: workspace:*
         version: link:../compiler
       vite:

@@ -2,7 +2,7 @@ import { transformEfx } from "../packages/compiler/src/index.ts"
 
 const src = `
 import { Effect } from "effect"
-import { h, Fragment } from "@effx/runtime"
+import { h, Fragment } from "@efx/runtime"
 
 export const Demo = (name: string) => Effect.gen(function*() {
   return yield* (
