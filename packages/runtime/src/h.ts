@@ -1,17 +1,12 @@
 import { Chunk, Effect, Option, Result } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { FoldE, FoldR, TagE, TagProps, TagR } from "./types/Fold.ts"
-import { type Props, View } from "./View.ts"
+import { isView, type Props, View } from "./View.ts"
 
 const ATOM_REF_TYPE_ID = "~effect/reactivity/AtomRef"
 
 const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
   typeof u === "object" && u !== null && ATOM_REF_TYPE_ID in u
-
-const isView = (u: unknown): u is View =>
-  typeof u === "object" && u !== null && "_tag" in u &&
-  (u._tag === "Text" || u._tag === "Element" || u._tag === "Fragment" ||
-   u._tag === "Reactive" || u._tag === "Empty")
 
 const Empty = View.Empty()
 
