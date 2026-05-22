@@ -5,20 +5,22 @@ import { LiveUser } from "./LiveUser"
 import { HttpLive, ThemeLive } from "./services.ts"
 import { UserPage } from "./UserPage"
 
-const App = h("div", { class: "app" },
-  h("h1", {}, "effx demo — channels through the tree"),
-  h("section", { class: "section" },
-    h("h2", {}, "Reactive counter (AtomRef)"),
-    Counter(),
-  ),
-  h("section", { class: "section" },
-    h("h2", {}, "Async data (Http effect, E + R channels)"),
-    UserPage("42"),
-  ),
-  h("section", { class: "section" },
-    h("h2", {}, "Live atom (AsyncResult)"),
-    LiveUser(),
-  ),
+const App = (
+  <div class="app">
+    <h1>effx demo — channels through the tree</h1>
+    <section class="section">
+      <h2>Reactive counter (AtomRef)</h2>
+      {Counter()}
+    </section>
+    <section class="section">
+      <h2>Async data (Http effect, E + R channels)</h2>
+      {UserPage("42")}
+    </section>
+    <section class="section">
+      <h2>Live atom (AsyncResult)</h2>
+      {LiveUser()}
+    </section>
+  </div>
 )
 
 const rootEl = document.getElementById("root")
