@@ -66,5 +66,25 @@ const Mixed = h("div", {},
 )
 assertEquals<typeof Mixed, Effect.Effect<View, HttpError, Http | Theme>>()
 
+// ─── Props are type-checked against the component's declared shape ───────
+
+// @ts-expect-error — missing required prop `userId`
+const Missing = h(UserPage, {})
+void Missing
+
+// @ts-expect-error — typo: `userid` is not in `{ userId: string }`
+const Typo = h(UserPage, { userid: "42" })
+void Typo
+
+// @ts-expect-error — wrong type: number not assignable to string
+const WrongType = h(UserPage, { userId: 42 })
+void WrongType
+
+// @ts-expect-error — extra prop not declared on component
+const Extra = h(UserPage, { userId: "42", nope: true })
+void Extra
+
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
+// The `@ts-expect-error` assertions above prove props are type-checked at
+// JSX call sites.
