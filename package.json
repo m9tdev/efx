@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "pnpm --filter @efx/demo dev",
     "typecheck": "pnpm -r typecheck",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "type": "node scripts/print-type.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
