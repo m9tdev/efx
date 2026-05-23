@@ -8,7 +8,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "bin": {
     "efx-compile": "./src/cli.ts"
@@ -20,6 +21,7 @@
     "@babel/types": "^7.26.0"
   },
   "devDependencies": {
+    "@effect/vitest": "4.0.0-beta.70",
     "@types/babel__generator": "^7",
     "@types/babel__traverse": "^7"
   }
