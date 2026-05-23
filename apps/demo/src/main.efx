@@ -1,6 +1,7 @@
 import { Cause, Effect, Layer } from "effect"
 import { EfxLive, mount } from "@efx/runtime"
 import { Counter } from "./Counter"
+import { Lifecycle } from "./Lifecycle"
 import { LiveUser } from "./LiveUser"
 import { HttpLive, ThemeLive } from "./services.ts"
 import { Todos } from "./Todos"
@@ -24,6 +25,10 @@ const App = (
     <section class="section">
       <h2>Keyed reactive list (AtomRef.collection)</h2>
       <Todos />
+    </section>
+    <section class="section">
+      <h2>Per-component lifecycle scopes</h2>
+      <Lifecycle />
     </section>
   </div>
 )

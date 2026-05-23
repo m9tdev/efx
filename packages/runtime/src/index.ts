@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Scope } from "effect"
 import { AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { type Props, View } from "./View.ts"
 
@@ -18,7 +18,10 @@ export type { Child, ChildE, ChildR, FoldE, FoldR, TagE, TagProps, TagR } from "
  */
 export const list = <T>(
   from: AtomRef.Collection<T>,
-  render: (item: AtomRef.AtomRef<T>, index: number) => View | Effect.Effect<View, never, never>,
+  render: (
+    item: AtomRef.AtomRef<T>,
+    index: number,
+  ) => View | Effect.Effect<View, never, Scope.Scope> | Effect.Effect<View, never, never>,
 ): View =>
   View.List({
     source: from as AtomRef.Collection<unknown>,

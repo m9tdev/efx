@@ -15,15 +15,11 @@ const noop = () => {}
 
 /**
  * Synchronously coerce an arbitrary value (typically read from a reactive
- * source) into a View.
- *
- * If the value is an `Effect<View, never, never>`, we `runSync` it — this
- * lets users write JSX (which compiles to `h(...)` returning an `Effect`)
- * inside e.g. `Atom.map(AsyncResult.match({...}))` matchers, instead of
- * hand-building `View.Element` trees. Effects with E or R can't be runSync'd
- * and surface as a Text node with a diagnostic.
+ * source) into a View. If `scope` is provided and the value is an Effect,
+ * the effect is run with that scope, so `Effect.acquireRelease` /
+ * `Effect.addFinalizer` inside the effect register releases against it.
  */
-const valueToView = (v: unknown): View => {
+const valueToView = (v: unknown, scope?: Scope.Closeable): View => {
   if (v == null || v === false || v === true) return View.Empty()
   if (typeof v === "string") return View.Text({ value: v })
   if (typeof v === "number" || typeof v === "bigint") {
@@ -31,15 +27,18 @@ const valueToView = (v: unknown): View => {
   }
   if (isView(v)) return v
   if (Effect.isEffect(v)) {
-    const exit = Effect.runSyncExit(v as Effect.Effect<unknown, unknown, never>)
+    const provided = scope
+      ? Effect.provideService(v as Effect.Effect<unknown, unknown, Scope.Scope>, Scope.Scope, scope)
+      : (v as Effect.Effect<unknown, unknown, never>)
+    const exit = Effect.runSyncExit(provided)
     return Exit.match(exit, {
-      onSuccess: (val) => valueToView(val),
+      onSuccess: (val) => valueToView(val, scope),
       onFailure: (cause) =>
         View.Text({ value: `[effect failed: ${String(cause)}]` }),
     })
   }
   if (Array.isArray(v)) {
-    return View.Fragment({ children: v.map(valueToView) })
+    return View.Fragment({ children: v.map((x) => valueToView(x, scope)) })
   }
   return View.Text({ value: String(v) })
 }
@@ -201,11 +200,24 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry): Rendered => 
         }
 
         // Build any new rows and place each in its current position.
+        // Each new row gets its own Scope so `Effect.acquireRelease` inside
+        // the row component registers releases that fire on row removal.
         let cursor: ChildNode | null = wrapper.firstChild
         next.forEach((ref, i) => {
           let r = rendered.get(ref)
           if (!r) {
-            r = buildDom(valueToView(view.render(ref, i)), registry)
+            const rowScope = Scope.makeUnsafe()
+            const rowView = valueToView(view.render(ref, i), rowScope)
+            const built = buildDom(rowView, registry)
+            r = {
+              node: built.node,
+              cleanup: () => {
+                built.cleanup()
+                // Close the row's scope, firing any acquireRelease releases.
+                const closeExit = Scope.closeUnsafe(rowScope, Exit.void)
+                if (closeExit) Effect.runFork(closeExit)
+              },
+            }
             rendered.set(ref, r)
           }
           if (cursor !== r.node) {
