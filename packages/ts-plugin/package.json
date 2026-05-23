@@ -1,0 +1,23 @@
+{
+  "name": "@efx/ts-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/index.cjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm run build && vitest run"
+  },
+  "dependencies": {
+    "@efx/compiler": "workspace:*",
+    "@jridgewell/sourcemap-codec": "^1.5.5"
+  },
+  "peerDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-beta.70",
+    "esbuild": "^0.27.0",
+    "typescript": "^5.7.0"
+  }
+}
