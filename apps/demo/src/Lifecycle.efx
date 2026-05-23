@@ -1,0 +1,57 @@
+import { Effect } from "effect"
+import { AtomRef } from "effect/unstable/reactivity"
+import { list } from "@efx/runtime"
+
+// Module-level event log, exposed on `window.__lifecycle` so the probe can
+// read it. Cleared on each fresh page load.
+const events: string[] = []
+;(globalThis as { __lifecycle?: string[] }).__lifecycle = events
+
+interface Item {
+  readonly id: number
+}
+
+const items = AtomRef.collection<Item>([{ id: 1 }, { id: 2 }])
+let nextId = 3
+
+const Row = Effect.fn("Row")(function* (props: {
+  readonly item: AtomRef.AtomRef<Item>
+}) {
+  const id = props.item.value.id
+  // The exact pattern we're claiming the framework should support:
+  // `Effect.acquireRelease` registers a finalizer against the current
+  // scope. Per-row scope means the release fires when this row's DOM
+  // is removed, not when the whole app unmounts.
+  yield* Effect.acquireRelease(
+    Effect.sync(() => events.push(`mount:${id}`)),
+    () => Effect.sync(() => events.push(`unmount:${id}`)),
+  )
+  return yield* (
+    <li data-id={id}>row {id}</li>
+  )
+})
+
+const addRow = () => items.push({ id: nextId++ })
+const removeLast = () => {
+  const current = items.value
+  if (current.length > 0) items.remove(current[current.length - 1]!)
+}
+
+export const Lifecycle = Effect.fn("Lifecycle")(function* (_props: {} = {}) {
+  return yield* (
+    <div class="lifecycle">
+      <h3>Per-component lifecycle (Effect.acquireRelease)</h3>
+      <div class="controls">
+        <button onclick={addRow}>+ add row</button>
+        <button onclick={removeLast}>− remove last</button>
+      </div>
+      <ul>
+        {list(items, (item) => Row({ item }))}
+      </ul>
+      <p class="hint">
+        Open devtools and inspect <code>__lifecycle</code> — expect a paired
+        <code>unmount:N</code> for every <code>mount:N</code> once that row is removed.
+      </p>
+    </div>
+  )
+})

@@ -66,9 +66,7 @@ export const Todos = Effect.fn("Todos")(function* (_props: {} = {}) {
         </span>
       </div>
       <ul>
-        {list(todos, (item): Effect.Effect<View, never, never> =>
-          TodoRow({ item }),
-        )}
+        {list(todos, (item) => TodoRow({ item }))}
       </ul>
     </div>
   )
