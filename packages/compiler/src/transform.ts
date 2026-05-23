@@ -34,13 +34,16 @@ const attrName = (id: t.JSXIdentifier | t.JSXNamespacedName): t.Identifier | t.S
 }
 
 /**
- * Wrap a JSX-expression's value in a `h.track(() => expr)` call so the
- * runtime can detect reactive reads inside it. Also rewrites every
- * `x.value` member access within `expr` to `h.read(x)` so AtomRef reads
- * are recorded against the current tracker.
+ * Wrap a JSX-expression's value in a `h.track(() => expr)` call **only when
+ * the rewriter found something to track** (a `.value` read or a bare
+ * identifier in a test position). Static expressions like `{item}` or
+ * `{"hello"}` pass through unchanged so their TypeScript type is preserved
+ * — h.track's return is `unknown`, which would otherwise destroy the typing
+ * of component props (`<Row item={item} />`, the prop's `item` type).
  */
-const wrapTracked = (expr: t.Expression): t.CallExpression => {
-  const rewritten = rewriteValueReads(expr)
+const wrapTracked = (expr: t.Expression): t.Expression => {
+  const { expr: rewritten, rewrote } = rewriteValueReads(expr)
+  if (!rewrote) return rewritten
   return t.callExpression(
     t.memberExpression(t.identifier("h"), t.identifier("track")),
     [t.arrowFunctionExpression([], rewritten)],
@@ -64,8 +67,9 @@ const wrapPeek = (id: t.Identifier): t.CallExpression =>
  * Both rewrites are leaf-local; composite expressions like `x.length > 0`
  * are left alone (the user can add `.value` explicitly).
  */
-const rewriteValueReads = (expr: t.Expression): t.Expression => {
+const rewriteValueReads = (expr: t.Expression): { expr: t.Expression; rewrote: boolean } => {
   const file = t.file(t.program([t.expressionStatement(expr)]))
+  let rewrote = false
   traverse(file, {
     MemberExpression(path) {
       const n = path.node
@@ -76,24 +80,36 @@ const rewriteValueReads = (expr: t.Expression): t.Expression => {
         !(t.isAssignmentExpression(path.parent) && path.parent.left === n)
       ) {
         path.replaceWith(t.callExpression(hMember("read"), [n.object as t.Expression]))
+        rewrote = true
       }
     },
     ConditionalExpression(path) {
       if (t.isIdentifier(path.node.test)) {
         path.node.test = wrapPeek(path.node.test)
+        rewrote = true
       }
     },
     LogicalExpression(path) {
-      if (t.isIdentifier(path.node.left)) path.node.left = wrapPeek(path.node.left)
-      if (t.isIdentifier(path.node.right)) path.node.right = wrapPeek(path.node.right)
+      if (t.isIdentifier(path.node.left)) {
+        path.node.left = wrapPeek(path.node.left)
+        rewrote = true
+      }
+      if (t.isIdentifier(path.node.right)) {
+        path.node.right = wrapPeek(path.node.right)
+        rewrote = true
+      }
     },
     UnaryExpression(path) {
       if (path.node.operator === "!" && t.isIdentifier(path.node.argument)) {
         path.node.argument = wrapPeek(path.node.argument)
+        rewrote = true
       }
     },
   })
-  return (file.program.body[0] as t.ExpressionStatement).expression
+  return {
+    expr: (file.program.body[0] as t.ExpressionStatement).expression,
+    rewrote,
+  }
 }
 
 /** Build the props object from JSX attributes. */

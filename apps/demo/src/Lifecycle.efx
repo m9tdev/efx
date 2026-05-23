@@ -46,7 +46,7 @@ export const Lifecycle = Effect.fn("Lifecycle")(function* (_props: {} = {}) {
         <button onclick={removeLast}>− remove last</button>
       </div>
       <ul>
-        {list(items, (item) => Row({ item }))}
+        {list(items, (item) => <Row item={item} />)}
       </ul>
       <p class="hint">
         Open devtools and inspect <code>__lifecycle</code> — expect a paired
