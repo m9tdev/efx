@@ -30,6 +30,9 @@ importers:
       '@efx/compiler':
         specifier: workspace:*
         version: link:../../packages/compiler
+      '@efx/ts-plugin':
+        specifier: workspace:*
+        version: link:../../packages/ts-plugin
       '@efx/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin
@@ -67,6 +70,25 @@ importers:
       effect:
         specifier: 4.0.0-beta.70
         version: 4.0.0-beta.70
+
+  packages/ts-plugin:
+    dependencies:
+      '@efx/compiler':
+        specifier: workspace:*
+        version: link:../compiler
+      '@jridgewell/sourcemap-codec':
+        specifier: ^1.5.5
+        version: 1.5.5
+    devDependencies:
+      '@effect/vitest':
+        specifier: 4.0.0-beta.70
+        version: 4.0.0-beta.70(effect@4.0.0-beta.70)(vitest@2.1.9(@types/node@25.9.1))
+      esbuild:
+        specifier: ^0.27.0
+        version: 0.27.7
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
 
   packages/vite-plugin:
     dependencies:

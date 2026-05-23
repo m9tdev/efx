@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // tsserver loads plugins via `require()`, so emit/bundle is CJS.
+    // Overrides the base config's ESM module setting just for this package.
+    "module": "CommonJS",
+    "moduleResolution": "Node10"
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -1,4 +1,14 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src/**/*.ts"]
+  "compilerOptions": {
+    // tsserver loads this plugin from node_modules when an editor attaches.
+    // Plain `tsc` (the `typecheck` script) ignores it — that path still uses
+    // the efx-compile pre-step to produce sibling .ts files for tsc.
+    "plugins": [{ "name": "@efx/ts-plugin" }]
+  },
+  // Include both the .efx sources (so tsserver type-checks them via the
+  // plugin) and the generated .ts files (so plain tsc / older editors
+  // without the plugin still work). The plugin handles .efx files
+  // specifically; .ts files go through the normal path.
+  "include": ["src/**/*.ts", "src/**/*.efx"]
 }

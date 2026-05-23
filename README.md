@@ -130,6 +130,37 @@ interactive after build — Counter increments, LiveUser cycles
 `.efx` files generate sibling `.ts` files (gitignored) for tsc to read; Vite
 serves the `.efx` files directly through the plugin at dev time.
 
+## Editor setup
+
+A TypeScript Language Service Plugin (`@efx/ts-plugin`) ships with the
+workspace and is wired into `apps/demo/tsconfig.json`'s `plugins` array.
+When tsserver attaches to a project that includes it, the plugin
+intercepts `.efx` reads, compiles them in-memory via `@efx/compiler`,
+and remaps diagnostic positions back to your `.efx` source coordinates
+via Babel's source map.
+
+### Neovim
+
+```vim
+" Treat .efx as TSX so your LSP attaches and treesitter highlights it
+autocmd BufRead,BufNewFile *.efx setfiletype typescriptreact
+```
+
+That plus `tsserver` already configured for `typescriptreact` is enough.
+First time opening the workspace you may want to ensure
+`packages/ts-plugin/dist/index.cjs` exists — run `pnpm install` from the
+repo root or `pnpm --filter @efx/ts-plugin build` directly.
+
+### VS Code
+
+`@efx/ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
+"TypeScript: Select TypeScript Version → Use Workspace Version" to make
+sure VS Code's TS extension picks up the plugin. `.efx` files won't be
+opened as TS-like out of the box — that's the Layer-2 VS-Code-extension
+work, deferred. Until then you can: open a `.ts` file that imports a
+`.efx` and you'll see diagnostics from the `.efx` surface at the import
+site.
+
 ## See also
 
 - [DESIGN.md](./DESIGN.md) — architecture, the compiler, the reactivity model, what we build vs consume, known limits.
