@@ -1,6 +1,7 @@
 import type { Chunk, Effect, Option, Result, Stream } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { View } from "../View.ts"
+import type { IntrinsicProps } from "./Html.ts"
 
 /**
  * Documentation-only type listing the leaf shapes a child can take. The
@@ -97,7 +98,7 @@ export type TagR<T> = T extends (props: any) => Effect.Effect<any, any, infer R>
  */
 export type TagProps<T> =
   T extends string
-    ? Readonly<Record<string, unknown>>
+    ? IntrinsicProps
     : T extends (props: infer P) => any
       ? Omit<P, "children">
       : Readonly<Record<string, unknown>>

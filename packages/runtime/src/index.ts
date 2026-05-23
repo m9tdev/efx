@@ -6,6 +6,7 @@ export { h } from "./h.ts"
 export { mount } from "./mount.ts"
 export { type Props, View } from "./View.ts"
 export type { Child, ChildE, ChildR, FoldE, FoldR, TagE, TagProps, TagR } from "./types/Fold.ts"
+export type { HtmlEventHandlers, IntrinsicProps } from "./types/Html.ts"
 
 /**
  * Reactive keyed list. Renders one row per item in `from`, keyed by the
