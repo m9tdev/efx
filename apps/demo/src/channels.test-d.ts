@@ -66,6 +66,45 @@ const Mixed = h("div", {},
 )
 assertEquals<typeof Mixed, Effect.Effect<View, HttpError, Http | Theme>>()
 
+// ─── Event handlers on intrinsic elements get typed event arguments ─────
+
+h("button", {
+  onclick: (e) => {
+    const _: number = e.button          // MouseEvent has .button
+    void _
+  },
+})
+
+h("input", {
+  oninput: (e) => {
+    const _: EventTarget | null = e.target  // Event
+    void _
+  },
+})
+
+h("input", {
+  onkeydown: (e) => {
+    const _: string = e.key             // KeyboardEvent has .key
+    void _
+  },
+})
+
+h("form", {
+  onsubmit: (e) => {
+    const _: HTMLElement | null = e.submitter as HTMLElement | null
+    void _
+  },
+})
+
+// @ts-expect-error — wrong event type: KeyboardEvent ↛ MouseEvent
+h("button", { onclick: (_e: KeyboardEvent) => {} })
+
+// Handlers may take fewer args than the event signature (function variance)
+h("button", { onclick: () => {} })
+
+// Arbitrary attributes still pass through (intersection with index signature)
+h("div", { "data-id": "x", "aria-hidden": "true", customX: 42 })
+
 // ─── Props are type-checked against the component's declared shape ───────
 
 // @ts-expect-error — missing required prop `userId`
