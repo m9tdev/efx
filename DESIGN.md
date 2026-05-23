@@ -50,13 +50,13 @@ packages/
   compiler/     .efx → .ts source transformer + CLI
   vite-plugin/  Vite integration
 apps/
-  demo/         Counter, UserPage, LiveUser, Todos
+  demo/         Counter, UserPage, LiveUser, Todos, Lifecycle
 refs/           Cloned reference repos (effect-smol, solid, vite-plugin-svelte) — gitignored
 ```
 
-The framework's *build* surface is ~900 LOC across runtime + compiler +
-plugin. Everything that's not view-tree mechanics is consumed from
-`effect@4.0.0-beta.70` (effect-smol).
+The framework's *build* surface is around 1 kLOC across runtime +
+compiler + plugin. Everything that's not view-tree mechanics is
+consumed from `effect@4.0.0-beta.70` (effect-smol).
 
 ---
 
@@ -104,10 +104,15 @@ Three conditional types do the work:
   to the surrounding expression's type. For string tags they evaluate to
   `never`.
 - `TagProps<T>` — when `T` is a component function, this is the component's
-  expected props type (with `children` stripped). For string tags it's the
-  loose `Readonly<Record<string, unknown>>`. This is what makes
-  `<UserPage userId="42" />` type-check the prop name and value type, and
-  `<UserPage userid="42" />` (typo) fail.
+  expected props type (with `children` stripped); makes
+  `<UserPage userid="42" />` (typo) fail. For string tags it's
+  `IntrinsicProps` (see `packages/runtime/src/types/Html.ts`) —
+  typed `on*` event handlers (`onclick: (e: MouseEvent) => void`,
+  `onsubmit: (e: SubmitEvent) => void`, etc.) intersected with a
+  permissive `Record<string, unknown>` index signature so `data-*`,
+  `aria-*`, `class`, `style`, and arbitrary attrs still pass through.
+  Tag-specific narrowing (`<input value>`, `<a href>`) is a future
+  extension.
 - `FoldE<Cs>` / `FoldR<Cs>` — distribute over the children tuple, peel
   every supported container layer (`Effect`, `Option`, `Result`, `Chunk`,
   `Stream`, `Atom`, `AtomRef`, `ReadonlyArray`, plus `false`/`null`/
@@ -123,12 +128,19 @@ negative cases for typed props).
 
 ### 3.3 Compiler-driven fine-grained reactivity: `h.track` / `h.read` / `h.peek`
 
-The compiler wraps every JSX expression in `h.track(() => …)` and rewrites
-two patterns inside:
+The compiler walks every JSX expression and rewrites two patterns:
 
 - `x.value` (read) → `h.read(x)`
 - bare identifier `x` in a *test position* (`x ? … : …`, `x && …`, `!x`)
   → `h.peek(x)`
+
+If at least one such rewrite happened, the expression is then wrapped in
+`h.track(() => …)`. If nothing was rewritten (the expression is static —
+`<Row item={item} />`, `<span>{count}</span>`, `{cond ? <A/> : <B/>}` where
+`cond` isn't a ref), the wrap is **skipped** so the original
+TypeScript type is preserved. (Wrapping would otherwise flatten static
+prop values to `unknown`, since `h.track`'s return is `T | AtomRef<T>` at
+the type level.)
 
 Runtime behavior:
 
@@ -191,8 +203,20 @@ variants:
   existing rows in their new order. Per-item value changes are picked
   up by the rows' own `Reactive` bindings, not by re-rendering the row.
 
-DOM event listeners and subscriptions are torn down via the surrounding
-`Scope`. Mounting in production looks like:
+**Per-component lifecycle scopes.** Each newly inserted list row gets
+its own `Scope.makeUnsafe()`, threaded into the row's Effect via
+`Effect.provideService(Scope.Scope, rowScope)`. When the row is later
+reconciled out of the list, the row's cleanup calls
+`Scope.closeUnsafe(rowScope, Exit.void)`, firing every
+`Effect.acquireRelease` / `Effect.addFinalizer` release the component
+registered. This is what lets a row open a subscription / timer /
+listener via `acquireRelease` and have it correctly torn down when
+*that specific row* unmounts — not when the whole app does.
+`valueToView` accepts an optional `scope` parameter so the same scope
+threads into nested effects.
+
+DOM event listeners and subscriptions outside list rows are torn down
+via the app-level `Scope`. Mounting in production looks like:
 
 ```ts
 const program = Effect.gen(function* () {
@@ -259,11 +283,10 @@ rewrites.
 | Source                              | Output                                                          |
 |-------------------------------------|-----------------------------------------------------------------|
 | `<tag attr="x">…</tag>`             | `h("tag", { attr: "x" }, …)`                                    |
-| `<Component prop={v} />`            | `h(Component, { prop: h.track(() => v) })`                      |
+| `<Component prop={v} />`            | `h(Component, { prop: v })` (no `h.track` if `v` is static)     |
 | `<>…</>`                            | `h(Fragment, {}, …)`                                            |
-| `{expr}` (JSX expression child)     | `h.track(() => exprRewritten)`                                  |
-| `{expr}` (JSX attribute value)      | `h.track(() => exprRewritten)`                                  |
-| `x.value` (inside a tracked expr)   | `h.read(x)`                                                     |
+| `{expr}` (child or attribute)       | `h.track(() => exprRewritten)` **only if a `.value`/identifier rewrite happened inside** — otherwise just `expr` |
+| `x.value` (inside a JSX expression) | `h.read(x)`                                                     |
 | bare `x` in test pos of `?:`/`&&`/`!` | `h.peek(x)`                                                   |
 | `data-foo="x"`                      | `{ ["data-foo"]: "x" }`                                         |
 
@@ -271,11 +294,34 @@ The `.value` and identifier rewrites are limited to expressions inside
 `JSXExpressionContainer` nodes — code in arrow bodies, statements, or
 module top-level is untouched.
 
+**Auto-imports.** If JSX was rewritten in a file, the compiler injects
+`import { h } from "@efx/runtime"` (and `Fragment` if any `<>…</>` is
+used) — added to an existing `@efx/runtime` import line if one exists,
+or prepended otherwise. Users don't have to remember to import `h`.
+
 ### 5.3 CLI: `efx-compile`
 
 Walks a directory, compiles every `.efx` file to a sibling `.ts` file
 with a `// @generated` banner. The demo's `pnpm typecheck` runs
 `efx-compile src` and then `tsc --noEmit` over the result.
+
+### 5.4 Tests
+
+`packages/compiler/src/transform.test.ts` (28 cases via
+`@effect/vitest`@4.0.0-beta.70) covers each rewrite:
+
+- JSX → h() for intrinsics, component tags, fragments, nested, `&&`,
+  ternaries, `.map(…)`, string/boolean/hyphenated/spread attributes
+- `.value` → `h.read` with `h.track` wrap; bare identifier in
+  `?:`/`&&`/`!` test positions → `h.peek` with wrap; LHS-of-assignment
+  on `.value` is NOT rewritten; static expressions pass through
+  WITHOUT wrap (type-preservation guard)
+- Auto-imports: `h`/`Fragment` injected when JSX present, existing
+  `@efx/runtime` import extended, unrelated imports preserved
+- TS syntax survives: type annotations, `function*`, `yield*`, generic
+  type parameters
+
+`pnpm -w run test` runs the suite.
 
 ### 5.4 Vite plugin
 
@@ -320,11 +366,15 @@ test or probe:
 | Channel fold over containers (Effect, Option, Result, Chunk, Stream, Atom, AtomRef, arrays, `false`-branch unions, ternary unions) | `packages/runtime/src/types/Fold.test-d.ts`                       |
 | End-to-end propagation through composed components + conditional + list     | `apps/demo/src/channels.test-d.ts`                                |
 | Typed props at JSX call sites (missing, typo, wrong type, excess)           | `apps/demo/src/channels.test-d.ts` (`@ts-expect-error` cases)     |
+| Typed event handlers on intrinsic tags (`onclick: MouseEvent`, `oninput: Event`, `onsubmit: SubmitEvent`, etc.) | `apps/demo/src/channels.test-d.ts` |
 | Removing a `Layer` from the root surfaces as TS error naming the service    | Manual probe: `Type 'Http' is not assignable to type 'never'`     |
+| Compiler rewrites: JSX → `h()`, `.value` → `h.read`, identifier → `h.peek`, smart-skip when no rewrite happened, auto-imports | `packages/compiler/src/transform.test.ts` (28 cases via `@effect/vitest`) |
 | Browser renders identical output from `.efx` sources                        | `scripts/probe.mjs`, `scripts/probe-liveuser.mjs`, `scripts/probe-todos.mjs` |
 | `AtomRef` updates patch only affected DOM (no full rebuild)                 | `scripts/probe-todos.mjs` tags row 1's DOM node and verifies survival across row 2 toggle |
 | `Atom`+`AsyncResult` cycles `Initial`/`Success`/`Failure` states correctly  | `scripts/probe-liveuser.mjs`                                      |
 | Keyed list adds/removes rows without rebuilding siblings                    | `scripts/probe-todos.mjs`                                         |
+| Per-component lifecycle: `Effect.acquireRelease` in a list-row component fires its release when the row is removed | `scripts/probe-lifecycle.mjs`                                     |
+| Production build works + bundle size is reasonable                          | `scripts/probe-prod.mjs` — 31 kB gzipped JS                       |
 | Vite HMR on `.efx` edits                                                    | `scripts/probe-hmr.mjs`                                           |
 | Zero JSX-related TS diagnostics                                             | `pnpm -r typecheck` — clean across workspace                      |
 
@@ -369,12 +419,16 @@ Editing `Counter.efx` re-evaluates the module and resets `count` to `0`.
 Real HMR-state-preservation needs `import.meta.hot.accept` plumbing in
 the generated code, which we don't emit. Out of POC scope.
 
-### 7.6 Intrinsic-element attributes are loose
+### 7.6 Intrinsic-element attributes are partly loose
 
-`<div xyzzy="foo">` compiles fine — `TagProps<string>` is the loose
-`Record<string, unknown>` rather than a typed HTML attribute map. The
-symmetric improvement to typed component props would be threading
-`JSX.IntrinsicElements`-style typing here. Real but not POC-critical.
+Event handlers (`onclick`, `oninput`, `onsubmit`, `onkeydown`, …) ARE
+typed (`packages/runtime/src/types/Html.ts`). Tag-specific attributes
+(`<input value>`, `<input type>`, `<a href>`, etc.) are still accepted
+as `unknown` via the intersected `Record<string, unknown>` index
+signature — so `<div xyzzy="foo">` compiles, and so does
+`<input type="invalid" />`. Per-tag attribute narrowing is the
+remaining piece of typed intrinsics; deferred until a real use case
+demands it.
 
 ### 7.7 `effect/unstable/reactivity` is unstable
 
@@ -421,10 +475,12 @@ accept the maintenance cost.
 | Reactive collection                  | `AtomRef.collection`                                      |       |    ✓     |
 | View IR                              | `Data.TaggedEnum`                                         |   ✓   |          |
 | `h()` factory + channel fold types   | `FoldE` / `FoldR` / `TagE` / `TagR` / `TagProps`          |   ✓   |          |
-| `h.track` / `h.read` / `h.peek`      | tracking scope + AtomRef-aware accessors                  |   ✓   |          |
-| `mount()`                            | DOM walker + reactive subscriptions + list reconciler     |   ✓   |          |
-| `.efx` source transformer            | Babel-AST rewrite (compiler package)                      |   ✓   |          |
-| Vite integration                     | Plugin with `transform` hook                              |   ✓   |          |
+| Typed intrinsic event handlers       | `HtmlEventHandlers` + `IntrinsicProps` in `types/Html.ts` |   ✓   |          |
+| `h.track` / `h.read` / `h.peek` + smart-skip wrapping | tracking scope + AtomRef-aware accessors  |   ✓   |          |
+| `mount()` + per-component lifecycle scopes | DOM walker + reactive subscriptions + keyed list reconciler + per-row `Scope` |   ✓   |          |
+| `.efx` → `.ts` transformer + auto-imports | Babel-AST rewrite (compiler package) + `efx-compile` CLI |   ✓   |          |
+| Compiler test suite                  | `@effect/vitest`                                          |   ✓   | (runner) |
+| Vite integration                     | Plugin with `transform` hook + middleware that adds `?import` to `.efx` URLs |   ✓   |          |
 
 The "Built" column is intentionally small. The POC's job is the
 load-bearing type fold and a thin DOM/reactivity adapter, not a new
