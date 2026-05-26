@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm run build && node test/integration.mjs"
+    "test": "vitest run && pnpm run build && node test/integration.mjs"
   },
   "dependencies": {
     "@efx/language": "workspace:*",

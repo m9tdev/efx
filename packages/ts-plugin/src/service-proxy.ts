@@ -2,6 +2,7 @@ import { createLanguageServicePlugin } from "@volar/typescript/lib/quickstart/cr
 import type * as ts from "typescript"
 import { createEfxLanguagePlugin, getEfxVirtualCode } from "@efx/language"
 import { findJsxTagPair } from "./jsx-tags.ts"
+import { classifyRefs } from "./classify-references.ts"
 
 // tsserver identifies scripts by file path strings — asFileName is identity.
 const efxLanguagePlugin = createEfxLanguagePlugin<string>((scriptId) => scriptId)
@@ -161,40 +162,21 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
                   allRefs.push(filtered)
                 }
               }
-              // Sort: definition first, then usages, then imports
               const firstSymbol = result[0]
               if (!firstSymbol) return result
               const def = firstSymbol.definition
-              // Check if ref is in an import statement by reading the line
-              const isImportRef = (ref: { fileName: string; textSpan: ts.TextSpan }): boolean => {
-                try {
-                  const content = ts.sys.readFile(ref.fileName)
-                  if (!content) return false
-                  // Find line start
-                  let lineStart = ref.textSpan.start
-                  while (lineStart > 0 && content[lineStart - 1] !== "\n") lineStart--
-                  const lineEnd = content.indexOf("\n", ref.textSpan.start)
-                  const line = content.slice(lineStart, lineEnd === -1 ? undefined : lineEnd)
-                  return /^\s*(import|export\s+\*?\s*from)/.test(line)
-                } catch {
-                  return false
-                }
-              }
-              // Definition first, then non-imports (usages), then imports
-              allRefs.sort((a, b) => {
-                const aIsDef = a.fileName === def.fileName && a.textSpan.start === def.textSpan.start
-                const bIsDef = b.fileName === def.fileName && b.textSpan.start === def.textSpan.start
-                if (aIsDef && !bIsDef) return -1
-                if (bIsDef && !aIsDef) return 1
-                const aIsImport = isImportRef(a)
-                const bIsImport = isImportRef(b)
-                if (!aIsImport && bIsImport) return -1
-                if (aIsImport && !bIsImport) return 1
+              // Classify once (one read per distinct file), then sort on the
+              // booleans. Otherwise the comparator would re-read source for
+              // each pair it compared.
+              const classified = classifyRefs(allRefs, def, ts.sys.readFile)
+              classified.sort((a, b) => {
+                if (a.isDef !== b.isDef) return a.isDef ? -1 : 1
+                if (a.isImport !== b.isImport) return a.isImport ? 1 : -1
                 return 0
               })
               return [{
                 definition: def,
-                references: allRefs,
+                references: classified.map((c) => c.ref),
               }]
             }
           }

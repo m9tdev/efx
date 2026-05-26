@@ -21,7 +21,10 @@ for tsserver to `require()`.
 |---|---|
 | `src/index.ts` | Entry. Re-exports `pluginFactory` via `export =`. |
 | `src/jsx-tags.ts` | `findJsxTagPair` — uses cached `jsxRanges` from the shared `EfxVirtualCode` (read via `getEfxVirtualCode` from `@efx/language`) to find tag-pair partners for document highlights. |
+| `src/classify-references.ts` | `classifyRefs` — decorates each ref with `{ isDef, isImport }` in one pass, with a per-call file-content cache so each source file is read at most once. `findReferences` then sorts on the precomputed booleans instead of doing disk I/O inside the comparator. |
 | `src/service-proxy.ts` | `pluginFactory` — instantiates the shared LanguagePlugin via `createEfxLanguagePlugin<string>(identity)`, builds Volar's `createLanguageServicePlugin`, then wraps the resulting `LanguageService` in a Proxy with a few method overrides (filter `@efx/runtime`'s `h.ts` from definition results, JSX tag-pair document highlights, `_tag`/`_props`/`_children` inlay-hint filter, reference dedup + sort). |
+| `src/classify-references.test.ts` | Unit tests for `classifyRefs` — injects a fake `readFile` to assert classification rules and per-call caching without touching disk. |
+| `vitest.config.ts` | Picks up `src/**/*.test.ts`. The package's `test` script runs vitest first, then builds and runs the integration harness. |
 | `test/integration.mjs` | tsserver-subprocess harness. The acceptance-level check that the plugin really works end-to-end. |
 | `build.mjs` | esbuild bundle producing `dist/index.cjs` (tsserver `require()`s the plugin as CJS). |
 
@@ -124,7 +127,12 @@ Volar produces a working LanguageService. We then wrap it in a
     returns the same logical reference under both the renamed
     component name and the `h(...)` call symbol.
   - Sort: definition first, then non-imports (usages), then
-    imports.
+    imports. The "is this an import line?" decision needs to read
+    the source file — `classifyRefs` does that **once** per
+    distinct file before the sort runs, so the comparator only
+    looks at precomputed booleans. Previously the comparator
+    called `ts.sys.readFile` inline, paying O(N log N) reads of
+    the same handful of files.
 
   Cross-file references work natively because user code writes
   `import { Counter } from "./Counter.efx"` (the Vue/Astro
