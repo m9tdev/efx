@@ -31,7 +31,7 @@ the editor margin. If you rename them, update the regex.
 | File | Purpose |
 |---|---|
 | `src/h.ts` | `h()` factory + `track`/`read`/`peek` reactivity-tracking machinery + `normalizeChild` (any child shape → `View`) |
-| `src/View.ts` | `View` IR (intermediate representation) — `Data.TaggedEnum` with 6 variants: `Text`, `Element`, `Fragment`, `Reactive`, `List`, `Empty`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
+| `src/View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
 | `src/mount.ts` | DOM renderer. `buildDom(View, registry) → { node, cleanup }`, `mount(app, el)` |
 | `src/index.ts` | Public exports + `list`, `Fragment`, `EfxLive` |
 | `src/types/Fold.ts` | `ChildE`/`ChildR`/`FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps` — the channel-fold conditional types |
@@ -94,6 +94,21 @@ produces DOM. Closed-for-now at 6 variants:
   source, swap rendered child on emit
 - `List { source: AtomRef.Collection, render }` — keyed reactive list
 - `Empty {}` — comment placeholder (used for `false`/`null` children)
+
+### Why hand-written interfaces (not `Data.TaggedEnum<{...}>`)
+
+`View` is declared as a union of named `interface`s, not as
+`Data.TaggedEnum<{ Text: {...}, Element: {...}, ... }>`. The
+shorthand form is more compact, but it runs every variant through
+`Types.Simplify`, which strips the `View` alias name and causes TS
+to inline the entire union in every hover (`Effect<{ _tag: "Text";
+... } | { _tag: "Element"; ... } | ..., never, never>` — roughly
+30 lines per component signature). Named interfaces anchor the
+alias, so hovers show the concise `Effect<View, never, never>`.
+
+Constructors still come from `Data.taggedEnum<View>()` — the
+runtime behavior is identical. Don't "simplify" this back to the
+inline form.
 
 ### Closed-for-now, not closed-forever
 

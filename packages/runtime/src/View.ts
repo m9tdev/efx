@@ -4,25 +4,46 @@ import type { AtomRef } from "effect/unstable/reactivity"
 
 export type Props = Readonly<Record<string, unknown>>
 
-export type View = Data.TaggedEnum<{
-  Text: { readonly value: string }
-  Element: {
-    readonly tag: string
-    readonly props: Props
-    readonly children: ReadonlyArray<View>
-  }
-  Fragment: { readonly children: ReadonlyArray<View> }
-  Reactive: {
-    // Source can carry any value; mount() normalizes it into a View at render time.
-    readonly source: Atom.Atom<unknown> | AtomRef.ReadonlyRef<unknown>
-  }
-  List: {
-    readonly source: AtomRef.Collection<unknown>
-    // Returns View or Effect<View, never, never> — mount's valueToView coerces.
-    readonly render: (item: AtomRef.AtomRef<unknown>, index: number) => unknown
-  }
-  Empty: {}
-}>
+// Per-variant named interfaces — required so TS preserves the `View` alias
+// in hovers. `Data.TaggedEnum<{...}>` runs every variant through
+// `Types.Simplify`, which strips the alias and forces TS to inline the full
+// union everywhere `Effect<View, ...>` appears.
+export interface ViewText {
+  readonly _tag: "Text"
+  readonly value: string
+}
+export interface ViewElement {
+  readonly _tag: "Element"
+  readonly tag: string
+  readonly props: Props
+  readonly children: ReadonlyArray<View>
+}
+export interface ViewFragment {
+  readonly _tag: "Fragment"
+  readonly children: ReadonlyArray<View>
+}
+export interface ViewReactive {
+  readonly _tag: "Reactive"
+  // Source can carry any value; mount() normalizes it into a View at render time.
+  readonly source: Atom.Atom<unknown> | AtomRef.ReadonlyRef<unknown>
+}
+export interface ViewList {
+  readonly _tag: "List"
+  readonly source: AtomRef.Collection<unknown>
+  // Returns View or Effect<View, never, never> — mount's valueToView coerces.
+  readonly render: (item: AtomRef.AtomRef<unknown>, index: number) => unknown
+}
+export interface ViewEmpty {
+  readonly _tag: "Empty"
+}
+
+export type View =
+  | ViewText
+  | ViewElement
+  | ViewFragment
+  | ViewReactive
+  | ViewList
+  | ViewEmpty
 
 export const View = Data.taggedEnum<View>()
 
