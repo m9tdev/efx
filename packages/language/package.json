@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@efx/compiler": "workspace:*",
-    "@jridgewell/sourcemap-codec": "^1.5.5",
     "@volar/language-core": "^2.4.28",
     "@volar/source-map": "^2.4.28"
   },

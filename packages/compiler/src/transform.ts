@@ -2,6 +2,7 @@ import { parse, type ParserOptions } from "@babel/parser"
 import _traverse, { type NodePath } from "@babel/traverse"
 import * as t from "@babel/types"
 import _generate from "@babel/generator"
+import { computeMappings, type CompilerMapping } from "./source-map.ts"
 
 // Babel's traverse/generate ship as CJS-default-export; in ESM contexts that
 // surfaces as the actual function on `.default`.
@@ -14,6 +15,15 @@ export interface TransformResult {
   readonly code: string
   readonly map: object | null
   readonly jsxRanges: ReadonlyArray<JsxRange>
+  /**
+   * Typed source↔generated mappings with explicit lengths on both sides and a
+   * kind classification for each span. Computed from `map` + `jsxRanges`;
+   * consumers should prefer this over re-processing the Babel source map.
+   *
+   * See `CompilerMapping` for the shape and `computeMappings` for the
+   * algorithm.
+   */
+  readonly mappings: ReadonlyArray<CompilerMapping>
 }
 
 /** Source-side span. All offsets are 0-based byte indices into the original `.efx` source. */
@@ -419,9 +429,13 @@ export const transformEfx = (source: string, filename: string): TransformResult 
     source,
   )
 
+  const map = (result.map as object | null) ?? null
+  const mappings = computeMappings(map, source, result.code, jsxRanges)
+
   return {
     code: result.code,
-    map: (result.map as object | null) ?? null,
+    map,
     jsxRanges,
+    mappings,
   }
 }

@@ -18,7 +18,7 @@ certainly want to depend on this package rather than copy it.
 | File | Purpose |
 |---|---|
 | `src/language-plugin.ts` | `createEfxLanguagePlugin<T>(asFileName)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns `LanguagePlugin<T, EfxVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
-| `src/source-map.ts` | `convertSourceMap` (Babel map → Volar `Mapping<CodeInformation>[]`, three-profile region tagging via compiler-emitted JSX ranges). |
+| `src/source-map.ts` | `convertSourceMap` — thin translator from `@efx/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
 | `src/virtual-code.ts` | `EfxVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.efx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Carries `compiledToSourceOffset` / `sourceToCompiledOffset` instance methods. Module-level cache `Map<string, EfxVirtualCode>` with `getEfxVirtualCode` / `setEfxVirtualCode` accessors. |
 | `src/index.ts` | Re-exports. |
 
@@ -103,21 +103,23 @@ find one `.efx` file from another.
 
 ## The three `CodeInformation` profiles
 
-`convertSourceMap` tags each source↔generated mapping with one of
-three profiles, decided by the source character + position:
+`convertSourceMap` is a one-pass translator over the compiler's
+`CompilerMapping[]`. Each mapping carries a `kind` tag classified
+by the compiler; we map it to a Volar `CodeInformation` profile:
 
-| Region | Profile | What's disabled | Why |
+| Kind (from compiler) | Profile | What's disabled | Why |
 |---|---|---|---|
-| Normal source code | `fullData` | nothing | Default. |
-| Inside an `h(...)` call (JSX-compiled internals) | `noHighlightData` | `semantic.shouldHighlight: () => false` | Without this, cursor on a JSX tag name highlights every `h` identifier in the file. Hover/completions still work. |
-| JSX punctuation `<` `>` `/` inside a tag span | `structuralOnlyData` | `semantic: false`, `completion: false`, `navigation: false` | Cursor on `<` shouldn't navigate to `h`'s definition or highlight every `<`. The `> b}` inside a JSX expression must NOT match — that's why this profile only applies when the punctuation falls inside an opening/closing tag span. |
+| `"user"` | `fullData` | nothing | Default. Normal user code. |
+| `"h-call"` | `noHighlightData` | `semantic.shouldHighlight: () => false` | Without this, cursor on a JSX tag name highlights every `h` identifier in the file. Hover/completions still work. |
+| `"punctuation"` | `structuralOnlyData` | `semantic: false`, `completion: false`, `navigation: false` | Cursor on `<` shouldn't navigate to `h`'s definition or highlight every `<`. |
 
-The region classification uses `jsxRanges` from `@efx/compiler` (a
-parallel array of node spans, not a regex scan of the output text).
-That coupling is intentional: the compiler is the only thing that
-authoritatively knows what's "h() machinery" vs. user code.
+The compiler decides `kind` while building the mappings — it
+already knows what each emitted byte represents. This package's
+job is the Volar-shape translation only. See
+[`@efx/compiler` AGENTS.md → "Source-map mappings"](../compiler/AGENTS.md#source-map-mappings--typed-sourcegenerated-spans)
+for the algorithm.
 
-### Source and generated lengths are tracked separately
+### Source and generated lengths come from the compiler
 
 Each mapping carries both `lengths` (source span) and
 `generatedLengths` (generated span). They can differ — Babel's
@@ -125,14 +127,17 @@ output often shrinks regions: `(n) =>` compiles to `n =>` (parens
 dropped for single-param arrows), so a source mapping covering
 `((` (2 chars) lines up with generated `(` (1 char).
 
-If we only tracked source lengths, Volar would assume the
+If only source lengths were tracked, Volar would assume the
 generated span has the same length and over-claim generated
 territory for that mapping — swallowing positions that belong to
 the next mapping. Inlay-hint positions get this wrong most
 visibly: a `: number` parameter-type hint that should render
 after `n` lands at the `n`'s position instead, displaying as
-`( : numbern)`. The integration test in `@efx/ts-plugin` asserts
-this exact case.
+`( : numbern)`. Both `@efx/compiler` and `@efx/ts-plugin` have
+tests pinning this exact case.
+
+`convertSourceMap` just copies the lengths through — the compiler
+produces them.
 
 ## The cache is process-local module state
 
@@ -175,7 +180,12 @@ without arranging for a build step.
 
 - **`@efx/compiler`** — required at runtime. `createVirtualCode`
   calls `transformEfx`; `convertSourceMap` consumes the
-  `JsxRange[]` the compiler emits alongside its source map.
+  `CompilerMapping[]` the compiler produces (it has both source
+  and generated lengths plus a kind tag, ready for translation to
+  Volar shape). `jsxRanges` is also consumed but only for
+  `EfxVirtualCode.jsxRanges` (used by `@efx/ts-plugin/jsx-tags.ts`
+  for opening↔closing tag-pair document highlights), not for
+  position translation.
 - **`@volar/language-core`** and **`@volar/source-map`** — types only.
   The `Mapping<CodeInformation>` shape is Volar's public contract.
 
