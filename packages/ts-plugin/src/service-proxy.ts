@@ -44,36 +44,51 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
         return def
       }
 
+      const filterRuntimeHits = <T extends { fileName: string }>(
+        results: readonly T[],
+      ): T[] => results.map(filterRuntimeHit).filter((d): d is T => d !== null)
+
+      // Wires a LanguageService method through the proxy by name: calls the
+      // underlying impl on `service`, hands the result + original args to
+      // `transform`, and returns whatever the transform produces. The
+      // `infer A`/`infer R` shape narrows `ts.LanguageService[K]` from a
+      // method-or-undefined union (the interface has optional members) down
+      // to its callable signature.
+      const wrapMethod = <K extends keyof ts.LanguageService>(
+        name: K,
+        transform: ts.LanguageService[K] extends (...args: infer A) => infer R
+          ? (result: R, ...args: A) => R
+          : never,
+      ): ts.LanguageService[K] => {
+        const wrapped = (...args: unknown[]) => {
+          const fn = (service as ts.LanguageService)[name] as (...a: unknown[]) => unknown
+          const result = fn.apply(service, args)
+          return (transform as (result: unknown, ...args: unknown[]) => unknown)(result, ...args)
+        }
+        return wrapped as ts.LanguageService[K]
+      }
+
       return new Proxy(service, {
         get(target, prop, receiver) {
           const value = Reflect.get(target, prop, receiver)
           if (typeof value !== "function") return value
 
           if (prop === "getDefinitionAtPosition") {
-            return (fileName: string, position: number) => {
-              const result = (value as ts.LanguageService["getDefinitionAtPosition"]).call(target, fileName, position)
-              return result?.map(filterRuntimeHit).filter((d): d is NonNullable<typeof d> => d !== null)
-            }
-          }
-          if (prop === "getDefinitionAndBoundSpan") {
-            return (fileName: string, position: number) => {
-              const result = (value as ts.LanguageService["getDefinitionAndBoundSpan"]).call(target, fileName, position)
-              if (result?.definitions) {
-                const defs = result.definitions
-                  .map(filterRuntimeHit)
-                  .filter((d): d is NonNullable<typeof d> => d !== null)
-                return { ...result, definitions: defs }
-              }
-              return result
-            }
+            return wrapMethod("getDefinitionAtPosition", (r) => r && filterRuntimeHits(r))
           }
           if (prop === "getTypeDefinitionAtPosition") {
-            return (fileName: string, position: number) => {
-              const result = (value as ts.LanguageService["getTypeDefinitionAtPosition"]).call(target, fileName, position)
-              return result?.map(filterRuntimeHit).filter((d): d is NonNullable<typeof d> => d !== null)
-            }
+            return wrapMethod("getTypeDefinitionAtPosition", (r) => r && filterRuntimeHits(r))
           }
-          // JSX tag pair matching for document highlights
+          if (prop === "getDefinitionAndBoundSpan") {
+            return wrapMethod("getDefinitionAndBoundSpan", (r) => {
+              if (!r?.definitions) return r
+              return { ...r, definitions: filterRuntimeHits(r.definitions) }
+            })
+          }
+
+          // getDocumentHighlights stays inline: its `.efx` paths early-return
+          // before touching the underlying call (whitespace skip, JSX-pair
+          // match), which wrapMethod's eager-call shape can't express.
           if (prop === "getDocumentHighlights") {
             return (fileName: string, position: number, filesToSearch: string[]) => {
               if (!fileName.endsWith(".efx")) {
@@ -107,10 +122,9 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               )
             }
           }
-          // Filter h() internal hints from inlay hints
+
           if (prop === "provideInlayHints") {
-            return (fileName: string, span: ts.TextSpan, preferences: ts.UserPreferences | undefined) => {
-              const hints = (value as ts.LanguageService["provideInlayHints"]).call(target, fileName, span, preferences)
+            return wrapMethod("provideInlayHints", (hints, fileName) => {
               if (!fileName.endsWith(".efx")) return hints
               return hints.filter((hint: ts.InlayHint) => {
                 // Extract text from various possible structures
@@ -127,15 +141,13 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
                 }
                 return !/^_?(tag|props|children):?$/i.test(text)
               })
-            }
+            })
           }
+
           if (prop === "getReferencesAtPosition") {
-            return (fileName: string, position: number) => {
-              const result = (value as ts.LanguageService["getReferencesAtPosition"]).call(target, fileName, position)
+            return wrapMethod("getReferencesAtPosition", (result) => {
               if (!result) return result
-              const filtered = result
-                .map(filterRuntimeHit)
-                .filter((r): r is NonNullable<typeof r> => r !== null)
+              const filtered = filterRuntimeHits(result)
               const seen = new Set<string>()
               return filtered.filter(r => {
                 const key = `${r.fileName}:${r.textSpan.start}`
@@ -143,11 +155,11 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
                 seen.add(key)
                 return true
               })
-            }
+            })
           }
+
           if (prop === "findReferences") {
-            return (fileName: string, position: number) => {
-              const result = (value as ts.LanguageService["findReferences"]).call(target, fileName, position)
+            return wrapMethod("findReferences", (result) => {
               if (!result) return result
               // Deduplicate across ALL symbols, not per-symbol
               const allRefs: ts.ReferencedSymbolEntry[] = []
@@ -178,7 +190,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
                 definition: def,
                 references: classified.map((c) => c.ref),
               }]
-            }
+            })
           }
 
           return value
