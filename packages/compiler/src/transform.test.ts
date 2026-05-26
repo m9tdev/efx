@@ -147,6 +147,78 @@ describe("runtime auto-imports", () => {
   })
 })
 
+describe("jsxRanges output", () => {
+  const ranges = (src: string) => transformEfx(src, "test.efx").jsxRanges
+
+  const firstElement = (src: string) => {
+    const rs = ranges(src)
+    const r = rs[0]
+    if (!r || r.kind !== "element") throw new Error("expected first range to be element")
+    return r
+  }
+
+  it("single element records its full span and tag name positions", () => {
+    const src = `const x = <div>hi</div>`
+    const r = firstElement(src)
+    expect(src.slice(r.start, r.end)).toBe(`<div>hi</div>`)
+    expect(src.slice(r.openingTag.start, r.openingTag.end)).toBe(`<div>`)
+    expect(src.slice(r.openingTag.nameStart, r.openingTag.nameEnd)).toBe(`div`)
+    expect(r.isSelfClosing).toBe(false)
+    const closing = r.closingTag
+    if (!closing) throw new Error("expected closingTag")
+    expect(src.slice(closing.start, closing.end)).toBe(`</div>`)
+    expect(src.slice(closing.nameStart, closing.nameEnd)).toBe(`div`)
+  })
+
+  it("self-closing element has no closingTag and isSelfClosing=true", () => {
+    const src = `const x = <Foo bar={1} />`
+    const r = firstElement(src)
+    expect(r.isSelfClosing).toBe(true)
+    expect(r.closingTag).toBeUndefined()
+    expect(src.slice(r.openingTag.nameStart, r.openingTag.nameEnd)).toBe(`Foo`)
+  })
+
+  it("fragment records both <> and </> tag positions, no names", () => {
+    const src = `const x = <><span /></>`
+    const frag = ranges(src).find((r) => r.kind === "fragment")
+    if (!frag || frag.kind !== "fragment") throw new Error("expected fragment")
+    expect(src.slice(frag.openingTag.start, frag.openingTag.end)).toBe(`<>`)
+    expect(src.slice(frag.closingTag.start, frag.closingTag.end)).toBe(`</>`)
+  })
+
+  it("nested elements emit parent before children in source order", () => {
+    const src = `const x = <div><span>a</span></div>`
+    const rs = ranges(src)
+    expect(rs.length).toBe(2)
+    const [outer, inner] = rs
+    if (!outer || !inner) throw new Error("expected two ranges")
+    expect(outer.kind).toBe("element")
+    expect(inner.kind).toBe("element")
+    expect(src.slice(outer.start, outer.end)).toBe(`<div><span>a</span></div>`)
+    expect(src.slice(inner.start, inner.end)).toBe(`<span>a</span>`)
+  })
+
+  it("dotted member tag name covers the full Foo.Bar span", () => {
+    const src = `const x = <Foo.Bar />`
+    const r = firstElement(src)
+    expect(src.slice(r.openingTag.nameStart, r.openingTag.nameEnd)).toBe(`Foo.Bar`)
+  })
+
+  it("ranges are empty when there's no JSX", () => {
+    expect(ranges(`const x = 1`)).toEqual([])
+  })
+
+  it("ternary branches both produce ranges", () => {
+    const src = `const x = <div>{cond ? <a /> : <b />}</div>`
+    const tags = ranges(src)
+      .filter((r) => r.kind === "element")
+      .map((r) => src.slice(r.openingTag.nameStart, r.openingTag.nameEnd))
+    expect(tags).toContain("div")
+    expect(tags).toContain("a")
+    expect(tags).toContain("b")
+  })
+})
+
 describe("TypeScript syntax survives", () => {
   it("type annotations are preserved", () => {
     expect(compile(`const greet = (name: string) => <p>hi {name}</p>`))

@@ -9,7 +9,7 @@
 import { createLanguageServicePlugin } from "@volar/typescript/lib/quickstart/createLanguageServicePlugin"
 import type { LanguagePlugin, VirtualCode, CodeInformation } from "@volar/language-core"
 import type { Mapping } from "@volar/source-map"
-import { transformEfx } from "@efx/compiler"
+import { transformEfx, type JsxRange } from "@efx/compiler"
 import { decode } from "@jridgewell/sourcemap-codec"
 import type * as ts from "typescript"
 
@@ -33,6 +33,7 @@ interface SourceMapCache {
   readonly source: string
   readonly compiled: string
   readonly mappings: Mapping<CodeInformation>[]
+  readonly jsxRanges: ReadonlyArray<JsxRange>
 }
 const sourceMapCache = new Map<string, SourceMapCache>()
 
@@ -52,12 +53,13 @@ const efxLanguagePlugin: LanguagePlugin<string> & { typescript: TypeScriptConfig
     const source = snapshot.getText(0, snapshot.getLength())
     const result = transformEfx(source, scriptId)
     const compiled = result.code
+    const jsxRanges = result.jsxRanges
 
     // Convert Babel source map to Volar mappings
-    const mappings = convertSourceMap(result.map, source, compiled)
+    const mappings = convertSourceMap(result.map, source, compiled, jsxRanges)
 
     // Cache source map data for offset conversion in definition results
-    sourceMapCache.set(scriptId, { source, compiled, mappings })
+    sourceMapCache.set(scriptId, { source, compiled, mappings, jsxRanges })
 
     const virtualCode: VirtualCode = {
       id: "efx-ts",
@@ -95,12 +97,14 @@ const efxLanguagePlugin: LanguagePlugin<string> & { typescript: TypeScriptConfig
 
 /**
  * Convert Babel's source map format to Volar's Mapping format.
- * Marks h() function parameter positions as non-semantic to hide inlay hints.
+ * Uses compiler-provided jsxRanges to mark JSX-derived positions as non-semantic
+ * (suppress inlay hints on h() internals, disable semantic on `<` `>` `/`).
  */
 function convertSourceMap(
   map: { mappings?: string } | null | undefined,
   source: string,
   generated: string,
+  jsxRanges: ReadonlyArray<JsxRange>,
 ): Mapping<CodeInformation>[] {
   if (!map?.mappings) {
     // No source map - create a simple 1:1 mapping
@@ -125,9 +129,6 @@ function convertSourceMap(
   const decoded = decode(map.mappings)
   const sourceLineStarts = computeLineStarts(source)
   const generatedLineStarts = computeLineStarts(generated)
-
-  // Find h() call positions in generated code to mark them as non-semantic (suppress inlay hints)
-  const hCallPositions = findHCallPositions(generated, generatedLineStarts)
 
   const mappings: Mapping<CodeInformation>[] = []
   const fullData: CodeInformation = {
@@ -157,8 +158,18 @@ function convertSourceMap(
     format: true,
   }
 
-  // JSX punctuation characters that map to h() structure - these should not be semantic
+  // JSX punctuation characters (`<`, `>`, `/`) only get the structural-only profile
+  // when they sit inside an opening/closing tag span — otherwise `{a > b}` inside
+  // a JSX expression would false-positive on `>`.
   const jsxPunctuation = new Set(["<", ">", "/"])
+  const insideJsxNode = (srcOffset: number): boolean =>
+    jsxRanges.some((r) => srcOffset >= r.start && srcOffset < r.end)
+  const insideTagPunctuationSpan = (srcOffset: number): boolean =>
+    jsxRanges.some((r) => {
+      if (srcOffset >= r.openingTag.start && srcOffset < r.openingTag.end) return true
+      if (r.closingTag && srcOffset >= r.closingTag.start && srcOffset < r.closingTag.end) return true
+      return false
+    })
 
   // Collect all segments, deduplicating by source offset (keep first/best match)
   const segmentsBySource = new Map<number, { genOffset: number; srcOffset: number; srcChar: string }>()
@@ -193,13 +204,12 @@ function convertSourceMap(
     // Length in source space: from this offset to the next (or 1 if last)
     const srcLength = nextSeg ? nextSeg.srcOffset - seg.srcOffset : 1
 
-    // Check if this position is inside an h() call (suppress inlay hints for h() internals)
-    const isInHCall = hCallPositions.some(
-      (pos) => seg.genOffset >= pos.start && seg.genOffset < pos.end
-    )
+    // Position is JSX-derived if its source offset falls inside any JSX node range.
+    const isInHCall = insideJsxNode(seg.srcOffset)
 
-    // JSX punctuation (< > /) maps to h() structure - fully disable semantic/nav
-    const isJsxPunctuation = jsxPunctuation.has(seg.srcChar)
+    // JSX punctuation (< > /) — only when actually inside a tag span, not e.g. {a > b}.
+    const isJsxPunctuation =
+      jsxPunctuation.has(seg.srcChar) && insideTagPunctuationSpan(seg.srcOffset)
 
     // Choose appropriate CodeInformation:
     // - JSX punctuation: structural only (no semantic, no navigation)
@@ -225,175 +235,67 @@ function convertSourceMap(
   return mappings
 }
 
+interface NameSpan {
+  readonly start: number
+  readonly length: number
+}
+
 /**
- * Find positions of h() calls in generated code.
- * Returns ranges from the 'h' identifier through the closing paren to suppress
- * semantic features (inlay hints, semantic tokens) for generated JSX internals.
+ * Given a cursor position in a `.efx` source, find the JSX tag at that position
+ * and its paired partner (opening↔closing). Returns name spans only; consumers
+ * highlight just the names, not the brackets.
+ *
+ * Backed by compiler-emitted `jsxRanges` — no source-text regex, no depth
+ * counting. Babel's parser already paired the tags; we read its work.
+ *
+ * Cursor positions that count as "on a tag":
+ *   - on the name (e.g. on `div` inside `<div>` or `</div>`)
+ *   - on the opening `<` / closing `>` / self-closing `/`
+ *   - NOT on attributes (e.g. inside `class="x"`)
+ *
+ * Fragments (`<>...</>`) have no names — skipped.
  */
-function findHCallPositions(
-  code: string,
-  _lineStarts: number[],
-): Array<{ start: number; end: number }> {
-  const positions: Array<{ start: number; end: number }> = []
-  // Match entire h(...) call to suppress all h() internal semantic features
-  const hCallRegex = /\bh\s*\(/g
-  let match
-  while ((match = hCallRegex.exec(code)) !== null) {
-    // Start from the 'h' identifier (important: Babel maps 'h' back to JSX source positions)
-    const start = match.index
-    // Find matching closing paren (accounting for nesting)
-    const parenPos = match.index + match[0].length - 1
-    let depth = 1
-    let end = parenPos + 1
-    while (end < code.length && depth > 0) {
-      const ch = code[end]
-      if (ch === "(") depth++
-      else if (ch === ")") depth--
-      end++
-    }
-    positions.push({ start, end })
-  }
-  return positions
-}
+function findJsxTagPair(
+  efxPath: string,
+  position: number,
+): { current: NameSpan; partner: NameSpan } | null {
+  const cache = sourceMapCache.get(efxPath)
+  if (!cache) return null
 
-interface JsxTag {
-  start: number          // Start of the full tag
-  length: number         // Length of the full tag
-  nameStart: number      // Start of just the tag name (for highlighting)
-  nameLength: number     // Length of just the tag name
-  name: string
-  isClosing: boolean
-  isSelfClosing: boolean
-}
+  for (const r of cache.jsxRanges) {
+    if (r.kind === "fragment") continue
 
-function findJsxTagAtPosition(content: string, position: number): JsxTag | null {
-  // Find if cursor is inside a JSX tag
-  // Look backwards for < and forwards for >
-  let tagStart = position
-  while (tagStart > 0 && content[tagStart] !== "<" && content[tagStart] !== ">") {
-    tagStart--
-  }
-  if (content[tagStart] !== "<") return null
+    // On the opening tag?
+    if (position >= r.openingTag.start && position < r.openingTag.end) {
+      const onName = position >= r.openingTag.nameStart && position < r.openingTag.nameEnd
+      const onLeadBracket = position < r.openingTag.nameStart // `<`
+      const onTrailBracket = position >= r.openingTag.end - 1 // `>`
+      const onSelfSlash = r.isSelfClosing && position === r.openingTag.end - 2 // `/`
+      if (!(onName || onLeadBracket || onTrailBracket || onSelfSlash)) continue
 
-  let tagEnd = position
-  while (tagEnd < content.length && content[tagEnd] !== ">") {
-    tagEnd++
-  }
-  if (tagEnd >= content.length) return null
-  tagEnd++ // Include the >
-
-  // Verify cursor is actually inside this tag
-  if (position < tagStart || position >= tagEnd) return null
-
-  const tagContent = content.slice(tagStart, tagEnd)
-  const isClosing = tagContent.startsWith("</")
-  const isSelfClosing = tagContent.endsWith("/>")
-
-  // Extract tag name and its position
-  const nameMatch = tagContent.match(isClosing ? /^(<\/\s*)([a-zA-Z][a-zA-Z0-9.]*)/i : /^(<\s*)([a-zA-Z][a-zA-Z0-9.]*)/i)
-  if (!nameMatch) return null
-
-  const nameStart = tagStart + nameMatch[1].length
-  const nameLength = nameMatch[2].length
-  const nameEnd = nameStart + nameLength
-
-  // Only match if cursor is on: < or </ or tag name or > or />
-  // Not on whitespace or attributes between name and >
-  const cursorOnBracket = position === tagStart || (isClosing && position === tagStart + 1)
-  const cursorOnName = position >= nameStart && position < nameEnd
-  const cursorOnClose = position === tagEnd - 1 || (isSelfClosing && position === tagEnd - 2)
-
-  if (!cursorOnBracket && !cursorOnName && !cursorOnClose) return null
-
-  return {
-    start: tagStart,
-    length: tagEnd - tagStart,
-    nameStart,
-    nameLength,
-    name: nameMatch[2],
-    isClosing,
-    isSelfClosing,
-  }
-}
-
-function findMatchingJsxTag(content: string, tag: JsxTag): JsxTag | null {
-  if (tag.isSelfClosing) return null
-
-  const tagName = tag.name
-  // Escape special regex chars in tag name (for components like Foo.Bar)
-  const escapedName = tagName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-
-  // Collect all opening and closing tags of this name
-  const allTags: Array<{ pos: number; isOpening: boolean; isSelfClosing: boolean; end: number }> = []
-
-  // Find all opening tags: <tagName followed by whitespace, >, or />
-  const openingRegex = new RegExp(`<${escapedName}(?=[\\s>/>])`, "g")
-  let match
-  while ((match = openingRegex.exec(content)) !== null) {
-    // Check if self-closing by finding the closing > and checking for />
-    let closePos = match.index + match[0].length
-    let depth = 0
-    while (closePos < content.length) {
-      const ch = content[closePos]
-      if (ch === "{") depth++
-      else if (ch === "}") depth--
-      else if (depth === 0 && ch === ">") break
-      closePos++
-    }
-    const isSelf = closePos > 0 && content[closePos - 1] === "/"
-    allTags.push({ pos: match.index, isOpening: true, isSelfClosing: isSelf, end: closePos + 1 })
-  }
-
-  // Find all closing tags: </tagName>
-  const closingRegex = new RegExp(`</${escapedName}\\s*>`, "g")
-  while ((match = closingRegex.exec(content)) !== null) {
-    allTags.push({ pos: match.index, isOpening: false, isSelfClosing: false, end: match.index + match[0].length })
-  }
-
-  // Sort by position
-  allTags.sort((a, b) => a.pos - b.pos)
-
-  if (tag.isClosing) {
-    // Find matching opening tag before this position
-    let depth = 0
-    for (let i = allTags.length - 1; i >= 0; i--) {
-      const t = allTags[i]
-      if (t.pos >= tag.start) continue
-      if (t.isSelfClosing) continue
-
-      if (!t.isOpening) {
-        depth++
-      } else {
-        if (depth === 0) {
-          // Opening tag: <tagName - name starts after <
-          const nameStart = t.pos + 1
-          return { start: t.pos, length: t.end - t.pos, nameStart, nameLength: tagName.length, name: tagName, isClosing: false, isSelfClosing: false }
-        }
-        depth--
+      // Self-closing has no partner
+      if (r.isSelfClosing || !r.closingTag) return null
+      return {
+        current: nameSpanOf(r.openingTag),
+        partner: nameSpanOf(r.closingTag),
       }
     }
-  } else {
-    // Find matching closing tag after this position
-    let depth = 0
-    for (const t of allTags) {
-      if (t.pos <= tag.start) continue
-      if (t.isSelfClosing) continue
 
-      if (t.isOpening) {
-        depth++
-      } else {
-        if (depth === 0) {
-          // Closing tag: </tagName> - name starts after </
-          const nameStart = t.pos + 2
-          return { start: t.pos, length: t.end - t.pos, nameStart, nameLength: tagName.length, name: tagName, isClosing: true, isSelfClosing: false }
-        }
-        depth--
+    // On the closing tag?
+    if (r.closingTag && position >= r.closingTag.start && position < r.closingTag.end) {
+      return {
+        current: nameSpanOf(r.closingTag),
+        partner: nameSpanOf(r.openingTag),
       }
     }
   }
-
   return null
 }
+
+const nameSpanOf = (t: { nameStart: number; nameEnd: number }): NameSpan => ({
+  start: t.nameStart,
+  length: t.nameEnd - t.nameStart,
+})
 
 function computeLineStarts(text: string): number[] {
   const starts: number[] = [0]
@@ -585,33 +487,23 @@ const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
                 )
               }
 
-              const content = ts.sys.readFile(fileName)
-              if (!content) {
-                return (value as ts.LanguageService["getDocumentHighlights"]).call(
-                  target, fileName, position, filesToSearch
-                )
-              }
-
-              // Don't highlight whitespace - return empty to avoid spurious matches
-              const charAtPos = content[position]
-              if (!charAtPos || /\s/.test(charAtPos)) {
+              // Whitespace at cursor → suppress; tsserver otherwise returns spurious empty hits
+              const cache = sourceMapCache.get(fileName)
+              const charAtPos = cache?.source[position]
+              if (charAtPos && /\s/.test(charAtPos)) {
                 return undefined
               }
 
-              // Check if cursor is on a JSX tag
-              const tagMatch = findJsxTagAtPosition(content, position)
-              if (tagMatch) {
-                const matchingTag = findMatchingJsxTag(content, tagMatch)
-                if (matchingTag) {
-                  // Highlight just the tag names, not the whole tags
-                  return [{
-                    fileName,
-                    highlightSpans: [
-                      { textSpan: { start: tagMatch.nameStart, length: tagMatch.nameLength }, kind: "reference" as ts.HighlightSpanKind },
-                      { textSpan: { start: matchingTag.nameStart, length: matchingTag.nameLength }, kind: "reference" as ts.HighlightSpanKind },
-                    ],
-                  }]
-                }
+              // JSX tag-pair highlight, backed by compiler jsxRanges
+              const pair = findJsxTagPair(fileName, position)
+              if (pair) {
+                return [{
+                  fileName,
+                  highlightSpans: [
+                    { textSpan: pair.current, kind: "reference" as ts.HighlightSpanKind },
+                    { textSpan: pair.partner, kind: "reference" as ts.HighlightSpanKind },
+                  ],
+                }]
               }
 
               // Fall back to default behavior
