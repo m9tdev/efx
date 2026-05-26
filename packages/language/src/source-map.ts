@@ -101,16 +101,34 @@ export function convertSourceMap(
     }
   }
 
-  // Sort by source offset for proper length calculation
+  // Compute generated-side lengths by sorting independently. We track source AND
+  // generated lengths because Babel's transforms can shrink spans — `(n) =>`
+  // becomes `n =>` with the parens dropped, so a source mapping covering `((` (2
+  // chars) lines up with generated `(` (1 char). With only source lengths, Volar
+  // would think the source `((` mapping covers 2 generated chars and swallow the
+  // position of `n` that follows. Inlay-hint positions, in particular, land in
+  // the wrong source mapping and render at the wrong screen column.
+  const sortedByGen = [...segmentsBySource.values()].sort((a, b) => a.genOffset - b.genOffset)
+  const nextGenOffset = new Map<number, number>()
+  for (let i = 0; i < sortedByGen.length; i++) {
+    const cur = sortedByGen[i]!
+    const next = sortedByGen[i + 1]
+    nextGenOffset.set(cur.genOffset, next ? next.genOffset : cur.genOffset + 1)
+  }
+
+  // Sort by source offset for source-side length calculation
   const sortedSegments = [...segmentsBySource.values()].sort((a, b) => a.srcOffset - b.srcOffset)
 
-  // Create mappings with lengths extending to next segment
+  // Create mappings with both source and generated lengths
   for (let i = 0; i < sortedSegments.length; i++) {
     const seg = sortedSegments[i]!
     const nextSeg = sortedSegments[i + 1]
 
     // Length in source space: from this offset to the next (or 1 if last)
     const srcLength = nextSeg ? nextSeg.srcOffset - seg.srcOffset : 1
+    // Length in generated space: from this offset to the next generated offset
+    // (which may be a different sorted neighbor than the source one)
+    const genLength = (nextGenOffset.get(seg.genOffset) ?? seg.genOffset + 1) - seg.genOffset
 
     // Position is JSX-derived if its source offset falls inside any JSX node range.
     const isInHCall = insideJsxNode(seg.srcOffset)
@@ -136,6 +154,7 @@ export function convertSourceMap(
       sourceOffsets: [seg.srcOffset],
       generatedOffsets: [seg.genOffset],
       lengths: [srcLength],
+      generatedLengths: [genLength],
       data,
     })
   }

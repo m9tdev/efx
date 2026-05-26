@@ -117,6 +117,23 @@ parallel array of node spans, not a regex scan of the output text).
 That coupling is intentional: the compiler is the only thing that
 authoritatively knows what's "h() machinery" vs. user code.
 
+### Source and generated lengths are tracked separately
+
+Each mapping carries both `lengths` (source span) and
+`generatedLengths` (generated span). They can differ — Babel's
+output often shrinks regions: `(n) =>` compiles to `n =>` (parens
+dropped for single-param arrows), so a source mapping covering
+`((` (2 chars) lines up with generated `(` (1 char).
+
+If we only tracked source lengths, Volar would assume the
+generated span has the same length and over-claim generated
+territory for that mapping — swallowing positions that belong to
+the next mapping. Inlay-hint positions get this wrong most
+visibly: a `: number` parameter-type hint that should render
+after `n` lands at the `n`'s position instead, displaying as
+`( : numbern)`. The integration test in `@efx/ts-plugin` asserts
+this exact case.
+
 ## The cache is process-local module state
 
 `virtual-code.ts` exports a module-level

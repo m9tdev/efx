@@ -101,6 +101,7 @@ async function main() {
     preferences: {
       includeInlayParameterNameHints: "all",
       includeInlayVariableTypeHints: true,
+      includeInlayFunctionParameterTypeHints: true,
     },
   })
 
@@ -200,6 +201,27 @@ async function main() {
     console.log(`   WARNING: ${hParamHints.length} h() parameter hints still present`)
   } else {
     console.log("   PASS: No h() parameter hints")
+  }
+
+  // Counter.efx line 19 has: `<button onclick={() => count.update((n) => n + 1)}>+</button>`
+  // With `includeInlayFunctionParameterTypeHints` on, tsserver emits a Type hint
+  // `: number` for the `n` parameter. It must render IMMEDIATELY AFTER the `n`
+  // (column 45 = the `)` position), not at column 44 = the `n` position itself —
+  // that would render as `( : numbern)` instead of `(n: number)`. Stale source-map
+  // mappings without `generatedLengths` produce the wrong column. See
+  // `@efx/language/src/source-map.ts`.
+  const paramTypeHint = hints.find(h => {
+    const text = typeof h.text === 'string' ? h.text : JSON.stringify(h.text)
+    return h.kind === 'Type' && /^:\s*number/.test(text) && h.position?.line === 19
+  })
+  if (!paramTypeHint) {
+    console.log("   FAIL: missing ': number' Type hint on line 19's `n` parameter")
+    process.exitCode = 1
+  } else if (paramTypeHint.position.offset === 45) {
+    console.log("   PASS: ': number' hint at line 19 column 45 (after the `n`)")
+  } else {
+    console.log(`   FAIL: ': number' hint at line 19 column ${paramTypeHint.position.offset} — expected 45 (after the n)`)
+    process.exitCode = 1
   }
 
   console.log("\n7. Test go-to-definition on Counter import in main.efx...")
