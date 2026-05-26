@@ -1,6 +1,1 @@
-src/Counter.ts
-src/UserPage.ts
-src/LiveUser.ts
-src/Todos.ts
-src/Lifecycle.ts
-src/main.ts
+dist/

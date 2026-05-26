@@ -7,9 +7,9 @@
 import type { Effect } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
 import { h, type View } from "@efx/runtime"
-import { Counter } from "./Counter"
+import { Counter } from "./Counter.efx"
 import { HttpError, Http, Theme } from "./services.ts"
-import { UserPage } from "./UserPage"
+import { UserPage } from "./UserPage.efx"
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
 declare function assertEquals<A, B extends Equals<A, B> extends true ? unknown : never>(): void

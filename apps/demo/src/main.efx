@@ -1,11 +1,11 @@
 import { Cause, Effect, Layer } from "effect"
 import { EfxLive, mount } from "@efx/runtime"
-import { Counter } from "./Counter"
-import { Lifecycle } from "./Lifecycle"
-import { LiveUser } from "./LiveUser"
+import { Counter } from "./Counter.efx"
+import { Lifecycle } from "./Lifecycle.efx"
+import { LiveUser } from "./LiveUser.efx"
 import { HttpLive, ThemeLive } from "./services.ts"
-import { Todos } from "./Todos"
-import { UserPage } from "./UserPage"
+import { Todos } from "./Todos.efx"
+import { UserPage } from "./UserPage.efx"
 
 const App = (
   <div class="app">
