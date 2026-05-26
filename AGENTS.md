@@ -99,10 +99,19 @@ compiler eats and converts into `h()` calls." Not the React thing.
   Service plugin, Vite dev server).
 - **Sibling `.ts` files of `.efx` are build artifacts.** Don't
   hand-edit `Counter.ts` when `Counter.efx` exists.
-- **`refs/` is reference material, not source.** Cloned external
-  repos (`effect-smol`, `solid`, `volar`, `vite-plugin-svelte`).
-  Don't load them into agent context unless explicitly comparing
-  against a foreign API; they will blow your token budget.
+- **`refs/` is reference material for inspiration.** Cloned external
+  repos — search here when stuck on design questions or debugging
+  integrations. Key references:
+  - `effect-smol/` — **Effect v4 internals**, especially
+    `effect/unstable/reactivity` (AtomRef, Atom, Collection).
+    Search here first for reactivity patterns.
+  - `volar/`, `vue-language-tools/` — Volar Language Service plugin
+    architecture, reference for `@efx/ts-plugin`.
+  - `vite-plugin-svelte/` — mature Vite integration patterns.
+  - `solid/` — fine-grained reactivity patterns.
+  
+  Token budget note: grep for specific symbols rather than loading
+  entire directories.
 
 ## Tooling at a glance
 
@@ -141,6 +150,21 @@ re-render."
   documents what shipped (Volar-based, Phase 1–4 complete); the
   rest is preserved analysis from before the Volar decision.
 - [`README.md`](./README.md) — public-facing intro + editor setup.
+
+## Maintaining the Intent Layer
+
+This repo uses an Intent Layer (the `AGENTS.md` files throughout the
+codebase). When you make changes that affect architectural boundaries,
+contracts, invariants, or anti-patterns, **update the relevant AGENTS.md
+file as part of the same change**.
+
+Signs an AGENTS.md needs updating:
+- You added a new invariant or coupling between packages
+- You discovered an anti-pattern the hard way
+- A section describes behavior that no longer matches the code
+- You added a new subsystem that warrants its own node
+
+The root `CLAUDE.md` is a symlink to `AGENTS.md` — no need to maintain both.
 
 ## Anti-patterns at the root
 
