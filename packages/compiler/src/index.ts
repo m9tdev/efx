@@ -7,3 +7,9 @@ export {
   type NamedTagPosition,
   type TagPosition,
 } from "./transform.ts"
+
+export {
+  computeMappings,
+  type CompilerMapping,
+  type CompilerMappingKind,
+} from "./source-map.ts"

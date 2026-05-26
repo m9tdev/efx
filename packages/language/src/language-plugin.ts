@@ -51,7 +51,7 @@ export function createEfxLanguagePlugin<T>(
       const fileName = asFileName(scriptId)
       const source = snapshot.getText(0, snapshot.getLength())
       const result = transformEfx(source, fileName)
-      const mappings = convertSourceMap(result.map, source, result.code, result.jsxRanges)
+      const mappings = convertSourceMap(result.mappings)
       const vc = new EfxVirtualCode(source, result.code, mappings, result.jsxRanges)
       setEfxVirtualCode(fileName, vc)
       return vc

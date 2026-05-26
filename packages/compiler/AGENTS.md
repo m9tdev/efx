@@ -8,11 +8,22 @@ TypeScript with every `<...>` expression rewritten as an
 brackets — they are gone before tsc, Vite, or any other downstream
 tool sees the file.
 
-Entry point: `transformEfx(source, filename) → { code, map, jsxRanges }`.
-Used by `@efx/vite-plugin` (for runtime serving) and
-`@efx/language` (for the Volar virtual code). `@efx/vite-plugin`
-ignores `jsxRanges`; `@efx/language` consumes it for
-`CodeInformation` region tagging.
+Entry point: `transformEfx(source, filename) → { code, map, jsxRanges, mappings }`.
+
+- `code` — compiled TypeScript output.
+- `map` — Babel V3 source map. Used by `@efx/vite-plugin` for HMR /
+  dev-server source maps.
+- `jsxRanges` — source-side metadata about each `JSXElement` /
+  `JSXFragment` (opening/closing tag positions). Used by
+  `@efx/ts-plugin/src/jsx-tags.ts` for `<Foo>` ↔ `</Foo>` document
+  highlights.
+- `mappings` — `CompilerMapping[]`: typed source↔generated spans
+  with explicit lengths on both sides and a `kind` tag (`"user"` /
+  `"h-call"` / `"punctuation"`). Built by `computeMappings` in
+  `src/source-map.ts`. This is the single source of truth for
+  position translation; `@efx/language` translates it directly into
+  Volar's `Mapping<CodeInformation>[]` without touching `map` or
+  `jsxRanges`. See "Source-map mappings" below.
 
 ## Why Babel, not tsc/swc
 
@@ -117,11 +128,11 @@ If you add a new node kind to the emit (e.g., a future
 `h.something(...)` call from a new compiler rewrite), wrap its
 constructors in `copyLoc` against the source node they replace.
 
-## `jsxRanges` — source-side metadata for downstream tools
+## `jsxRanges` — source-side metadata for tag-pair matching
 
-Alongside `code` and `map`, the transform emits one `JsxRange` per
-`JSXElement` / `JSXFragment` the parser saw, in source order
-(pre-order: outer before nested). Each range carries:
+Alongside `code`, `map`, and `mappings`, the transform emits one
+`JsxRange` per `JSXElement` / `JSXFragment` the parser saw, in
+source order (pre-order: outer before nested). Each range carries:
 
 - `start` / `end` — the full node span (`<div>...</div>`)
 - `openingTag.start` / `.end` — the `<...>` part
@@ -131,16 +142,56 @@ Alongside `code` and `map`, the transform emits one `JsxRange` per
 - Fragments (`kind: "fragment"`) have no name positions; their
   `openingTag` is `<>`, `closingTag` is `</>`
 
-This exists so consumers (today: `@efx/ts-plugin`) don't have to
-re-discover JSX structure by regex-scanning the source or the
-compiled output. The Babel AST already knows these positions; we
-report them. Anti-pattern: anywhere in the workspace running a
-JSX-shaped regex against `.efx` content — they should consume
-`jsxRanges` instead.
+This exists so consumers (today: `@efx/ts-plugin/src/jsx-tags.ts`)
+don't have to re-discover JSX structure by regex-scanning the
+source. The Babel AST already knows these positions; we report
+them. Anti-pattern: anywhere in the workspace running a JSX-shaped
+regex against `.efx` content — consume `jsxRanges` instead.
 
-If you add a new compiler output shape (e.g. richer mappings,
-embedded codes), keep `jsxRanges` as a plain serializable array —
-the contract is structural, not class-based.
+`jsxRanges` is ALSO used internally by `computeMappings` to
+classify each source position as `"user"` / `"h-call"` /
+`"punctuation"` — but external consumers should reach for
+`mappings` (which has the classification baked in) over rebuilding
+that classifier from `jsxRanges`.
+
+## Source-map mappings — typed source↔generated spans
+
+`computeMappings(map, source, generated, jsxRanges)` in
+`src/source-map.ts` produces the `mappings` array. The algorithm
+in five steps:
+
+1. Decode Babel's V3 mappings into `(genOffset, srcOffset, srcChar)`
+   segments via `@jridgewell/sourcemap-codec`.
+2. Dedupe by source offset (first segment wins) — Babel sometimes
+   emits multiple generated points for the same source point.
+3. Compute source-side spans by sorting segments by source offset
+   and taking consecutive differences.
+4. Compute generated-side spans by sorting INDEPENDENTLY by
+   generated offset and taking differences. Source and generated
+   spans **can differ** because Babel transforms shift byte counts:
+   - `(n) =>` → `n =>` (single-arg arrow paren strip): source `((`
+     of 2 chars maps to generated `(` of 1 char.
+   - `x.value` → `h.read(x)`: source 7 chars → generated 9 chars.
+   - `<div>...</div>` → `h("div", ..., ...)`: source 5 chars
+     (opening tag) → generated 8+ chars.
+5. Classify each mapping's `kind` via `jsxRanges` intersection:
+   - JSX angle bracket `<` / `>` / `/` inside an opening or closing
+     tag span → `"punctuation"` (no semantic, no navigation —
+     cursor on `<` shouldn't jump into `h.ts`).
+   - Inside any JSX node range → `"h-call"` (semantic features kept
+     but highlight suppressed — cursor on a tag name shouldn't
+     highlight every `h` identifier).
+   - Otherwise → `"user"` (full features).
+
+The lengths-on-both-sides design is **load-bearing**: a regression
+where only source lengths were tracked caused inlay-hint positions
+to drift one column to the left (`( : numbern)` instead of
+`(n: number)`). See `src/source-map.test.ts` — that test asserts
+the exact `(source: 2, generated: 1)` shape for the PR #12 case.
+
+`@efx/language` uses `mappings` directly and never re-decodes the
+Babel source map. The bidirectional length asymmetry is captured
+once, here, in the compiler.
 
 ## Tests
 
@@ -154,10 +205,10 @@ attributes, source maps. Run with `pnpm --filter @efx/compiler test`.
 - No type checking. That's tsc's job (post-transform).
 - No reactivity wiring. `h.track`/`read`/`peek` live in
   `@efx/runtime`; the compiler only emits *calls* to them.
-- No source-map remapping for diagnostics. That's the
-  `@efx/ts-plugin` consumer's job. We DO emit the source-side
-  `jsxRanges` it needs to classify positions; the actual mapping
-  decode (Babel VLQ → Volar `Mapping<CodeInformation>`) lives there.
+- No `CodeInformation` profile assignment. The compiler classifies
+  each span as `"user"` / `"h-call"` / `"punctuation"` (a
+  Volar-free taxonomy); `@efx/language` translates kind → Volar
+  `CodeInformation`. Keeps the compiler Volar-agnostic.
 - No file watching, no caching. Pure function of `(source, filename)`.
   Callers cache.
 

@@ -16,7 +16,7 @@ import { convertSourceMap } from "./source-map.ts"
 
 const buildMappings = (src: string) => {
   const result = transformEfx(src, "test.efx")
-  const mappings = convertSourceMap(result.map, src, result.code, result.jsxRanges)
+  const mappings = convertSourceMap(result.mappings)
   return { code: result.code, mappings }
 }
 
