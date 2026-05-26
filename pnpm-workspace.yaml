@@ -1,3 +1,13 @@
 packages:
   - "packages/*"
   - "apps/*"
+
+# pnpm 11 errors on dependencies with postinstall scripts unless they
+# appear in allowBuilds. These two have scripts we deliberately skip:
+# esbuild ships its platform binary via optionalDependencies (the
+# postinstall is a no-op for pnpm users), and msgpackr-extract falls
+# back to its pure-JS path when the prebuild isn't compiled. Both
+# behaved fine under pnpm 10 with the scripts ignored.
+allowBuilds:
+  esbuild: false
+  msgpackr-extract: false
