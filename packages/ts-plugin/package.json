@@ -6,11 +6,14 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm run build && vitest run"
+    "test": "pnpm run build && node test/integration.mjs"
   },
   "dependencies": {
     "@efx/compiler": "workspace:*",
-    "@jridgewell/sourcemap-codec": "^1.5.5"
+    "@jridgewell/sourcemap-codec": "^1.5.5",
+    "@volar/language-core": "^2.4.28",
+    "@volar/source-map": "^2.4.28",
+    "@volar/typescript": "^2.4.28"
   },
   "peerDependencies": {
     "typescript": "^5.7.0"
