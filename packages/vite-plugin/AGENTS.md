@@ -79,8 +79,9 @@ vs Vite id vs path-only). Don't unify naively.
   compiler is fast enough that this hasn't been a problem; if it
   becomes one, cache by file mtime.
 - No production-build divergence. The same `transform` runs at
-  build time; `efx-compile` exists separately for the type-check
-  path where Vite isn't in the loop.
+  build time. The type-check path (where Vite isn't in the loop)
+  goes through [`@efx/check`](../check/AGENTS.md), which calls
+  the compiler directly via the shared language plugin.
 
 ## Anti-patterns
 

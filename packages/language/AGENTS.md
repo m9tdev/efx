@@ -20,6 +20,8 @@ certainly want to depend on this package rather than copy it.
 | `src/language-plugin.ts` | `createEfxLanguagePlugin<T>(asFileName, registry)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Writes per-`.efx` `EfxVirtualCode` into the supplied `VirtualCodeRegistry`. Returns `LanguagePlugin<T, EfxVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
 | `src/source-map.ts` | `convertSourceMap` — thin translator from `@efx/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
 | `src/virtual-code.ts` | `EfxVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.efx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Plus `VirtualCodeRegistry` — the per-consumer `Map<string, EfxVirtualCode>` cache (one per tsserver session, one per `runCheck`). |
+| `src/source-map.test.ts` | Vitest suite pinning `convertSourceMap`'s span-length passthrough and the user/h-call/punctuation profile assignments. |
+| `src/virtual-code-registry.test.ts` | Vitest suite asserting registry isolation: each `createEfxLanguagePlugin` call gets its own registry; no cross-consumer state. |
 | `src/index.ts` | Re-exports. |
 
 ## Why a factory over a fixed plugin
@@ -85,23 +87,14 @@ describes the buffer tsc will type-check (TS → no JSX inside).
 If you change either flag, update both. They form a contract with
 tsc that's easy to get wrong silently.
 
-### Cross-file imports require the explicit `.efx` extension
+### `extraFileExtensions` does not bend the module resolver
 
-`extraFileExtensions` makes tsc willing to consume a file named
-`Foo.efx` — but it does NOT make `import { x } from "./Foo"`
-resolve to `Foo.efx`. TS's module resolver only tries custom
-extensions against import specifiers that already carry the
-matching suffix. User code has to write:
-
-```ts
-import { Counter } from "./Counter.efx"
-```
-
-This is the Vue/Astro convention (Vue requires `.vue` in
-imports, Astro requires `.astro`). It's the reason the demo
-project has no sibling `.ts` files: with explicit extensions in
-import paths, no auxiliary on-disk shim is needed for tsc to
-find one `.efx` file from another.
+Registering `.efx` here makes tsc willing to *consume* a file
+named `Foo.efx`. It does NOT make `import "./Foo"` resolve to
+`Foo.efx` — that's why user code carries the explicit `.efx`
+extension (see root [AGENTS.md](../../AGENTS.md)). If you ever
+make extensionless imports resolve, it'll be a change to this
+package's plugin shape, not to the convention.
 
 ## The three `CodeInformation` profiles
 

@@ -93,6 +93,10 @@ compiler eats and converts into `h()` calls." Not the React thing.
 - **[`apps/demo/`](./apps/demo/AGENTS.md)** — usage patterns by
   primitive (Counter, UserPage, LiveUser, Todos, Lifecycle).
   Also home to `channels.test-d.ts`, the compile-time proof.
+- **[`scripts/`](./scripts/AGENTS.md)** — manual Playwright probes
+  (`probe-*.mjs`) for browser-side behaviors that unit/type tests
+  can't reach: HMR, per-row Scope teardown, async-state cycles,
+  production-bundle smoke.
 
 ## Repository-wide invariants
 
@@ -102,7 +106,17 @@ compiler eats and converts into `h()` calls." Not the React thing.
   the Effect one.
 - **API surface stays minimal.** Don't expose helpers that wrap
   what Effect already provides (no `efxMap`, `efxIf`, etc.).
-  Users compose with native Effect combinators.
+  Users compose with native Effect combinators. Concretely, what
+  we **build** is small: the View IR, `h()` + the fold types,
+  `mount`, the Babel transform, the Volar language plugin, the
+  Vite plugin. What we **consume** from Effect: `Effect.fn` /
+  `Effect.gen` (component shape), `Context.Service` (services),
+  `Data.TaggedError` (errors), `Layer` (root provisioning),
+  `Scope` (per-row lifecycles), and every reactivity primitive
+  (`AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`,
+  `Collection`). If you find yourself building a new wrapper
+  alongside Effect, you're probably on the wrong side of this
+  line.
 - **`.efx` files never reach `tsc` directly.** A plugin always
   intercepts: `@efx/language` (consumed by the TS plugin and by
   `@efx/check`) hands tsc a JSX-free virtual TS buffer, and
@@ -113,6 +127,14 @@ compiler eats and converts into `h()` calls." Not the React thing.
   only tries `extraFileExtensions` against import paths that
   already carry the matching suffix. Same convention as Vue
   (`.vue` in imports) and Astro (`.astro`).
+- **Components are named `Effect.fn` functions taking one props
+  object.** Write `export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) { … })`,
+  not `(props) => Effect.gen(function* () { … })`. The single-prop
+  signature is what makes `<Counter />` compile (h's tag-as-function
+  path calls `tag(props)`); the named `Effect.fn` wrapper gives the
+  resulting Effect a span name in traces and is the v4-recommended
+  shape. An empty `_props: {} = {}` default keeps `<Counter />`
+  with no attrs valid.
 - **`refs/` is reference material for inspiration.** Cloned external
   repos — search here when stuck on design questions or debugging
   integrations. Key references:
@@ -146,7 +168,8 @@ compiler eats and converts into `h()` calls." Not the React thing.
 
 ```
 pnpm -r test         # compiler tests + ts-plugin integration tests
-pnpm -r typecheck    # includes apps/demo (efx:compile → tsc --noEmit)
+pnpm -r typecheck    # fans out: every package runs `tsc --noEmit`,
+                     # apps/demo runs `@efx/check` (the .efx-aware checker)
 pnpm --filter @efx/demo dev   # browser-test interactive features
 ```
 
@@ -156,14 +179,9 @@ re-render."
 
 ## Reference docs (outlinks)
 
-- [`DESIGN.md`](./DESIGN.md) — current-state architecture, the
-  compiler design, the reactivity model, what we build vs.
-  consume, known limits.
-- [`docs/plans/ts-language-service.md`](./docs/plans/ts-language-service.md)
-  — TS Language Service plugin design notes. Top section
-  documents what shipped (Volar-based, Phase 1–4 complete); the
-  rest is preserved analysis from before the Volar decision.
 - [`README.md`](./README.md) — public-facing intro + editor setup.
+- [`docs/intent-layer.md`](./docs/intent-layer.md) — explains the
+  AGENTS.md tree itself: what it is, how to capture and maintain it.
 
 ## Maintaining the Intent Layer
 

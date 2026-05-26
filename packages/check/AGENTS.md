@@ -58,9 +58,8 @@ LSP protocol.
 
 - **Files included**: whatever the resolved tsconfig's `include`
   glob produces, expanded with `extraFileExtensions` (`.efx`
-  recognized). For demo: 6 `.efx` + 6 sibling `.ts` + 2 hand-written
-  `.ts` = 14 files. The sibling `.ts` count drops to 0 once Task #1
-  removes them.
+  recognized). For demo: 6 `.efx` + 2 hand-written `.ts`
+  (`services.ts`, `channels.test-d.ts`) = 8 files.
 - **Diagnostics printed**: errors only by default (matching the
   bare `tsc --noEmit` flow we replaced). Warnings and hints are
   counted in `CheckResult` but not printed — `volar-service-typescript`
@@ -104,10 +103,13 @@ LSP protocol.
   TODO list in `src/cli.ts` is the design intent — if you add a
   flag here, mirror the Astro name and semantics so future code
   ports cleanly.
-- Don't depend on the existence of on-disk sibling `.ts` files
-  in this package's code. Today the demo provides them via
-  `efx-compile`, but Task #1 will remove that pattern and your
-  code should not break when it does.
+- Don't reintroduce on-disk sibling `.ts` files. The whole point
+  of `@efx/check` replacing the old `efx-compile + tsc --noEmit`
+  flow is that no auxiliary on-disk shim is needed — `.efx`
+  enters the program directly through the language plugin's
+  virtual code. If you find yourself emitting `.ts` siblings,
+  step back; the resolver works via `extraFileExtensions`
+  against explicit `.efx` imports.
 
 ## Tests
 

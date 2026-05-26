@@ -221,6 +221,54 @@ the lifetime of the rendered UI.
   (`Effect.map`, `Atom.map`, etc.). API surface is intentionally
   minimal — users compose with native Effect primitives.
 
+## Known limits
+
+### Generic components don't survive JSX call sites
+
+A component declared as `<T>(props: {item: T}) => Effect<View, …>`
+loses its `T` when called as `<MyComp item={x} />` — the same
+higher-rank polymorphism limit React/Solid hit. `h()`'s outer
+generics infer once per call site and can't carry a component's
+inner type parameter through.
+
+**Workaround.** Keep generics on a regular function whose call
+site preserves `T`, and accept a function child instead of a JSX
+`<MyComp<T>>` tag. `list(coll, render)` is the canonical shape:
+
+```ts
+list<T>(coll: AtomRef.Collection<T>, render: (item: AtomRef.AtomRef<T>, i: number) => …)
+```
+
+Don't "fix" this by widening `h()`'s signature — see the root
+[AGENTS.md](../../AGENTS.md) anti-pattern about pluggable JSX
+backends. The narrow `h()` signature is what makes channel folding
+work; carrying a component's inner generic would require
+higher-rank polymorphism TS doesn't have.
+
+### `h.read` overload preserves arbitrary `.value` types
+
+`h.read` is intentionally overloaded three ways:
+
+```ts
+function read<T>(obj: AtomRef.ReadonlyRef<T>): T
+function read<T extends HasValue>(obj: T): T["value"]
+function read<T extends HasValue | null | undefined>(
+  obj: T
+): T extends HasValue ? T["value"] : undefined
+```
+
+(`HasValue = { readonly value: unknown }`.) The second signature
+is **load-bearing**: it lets compiled code like `h.read(s).bio`
+(where `s` is an `AsyncResult.Success` and the source said
+`s.value.bio`) type-check against `Success`'s payload. Drop it
+and every pattern-match site against `AsyncResult` / `Option` /
+`Result` shapes that reads `.value` inside a JSX expression
+breaks. The third overload extends that to nullable receivers so
+`opt?.value` inside JSX still narrows correctly. The TS-side
+overloads are independent of the runtime behavior (for AtomRefs
+it tracks; for anything else it's identity to `.value`, with
+optional-chaining preserved).
+
 ## Channel-fold quick check
 
 If you change `h()`'s signature or any of the `Fold*` types, run:
