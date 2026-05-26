@@ -134,10 +134,11 @@ serves the `.efx` files directly through the plugin at dev time.
 
 A TypeScript Language Service Plugin (`@efx/ts-plugin`) ships with the
 workspace and is wired into `apps/demo/tsconfig.json`'s `plugins` array.
-When tsserver attaches to a project that includes it, the plugin
-intercepts `.efx` reads, compiles them in-memory via `@efx/compiler`,
-and remaps diagnostic positions back to your `.efx` source coordinates
-via Babel's source map.
+The plugin uses Volar's language plugin framework to provide full IDE
+support for `.efx` files.
+
+**What works:** Diagnostics, hover, go-to-definition, find-references,
+inlay hints, and document highlights (including JSX tag pair matching).
 
 ### Neovim
 
@@ -155,11 +156,8 @@ repo root or `pnpm --filter @efx/ts-plugin build` directly.
 
 `@efx/ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
 "TypeScript: Select TypeScript Version → Use Workspace Version" to make
-sure VS Code's TS extension picks up the plugin. `.efx` files won't be
-opened as TS-like out of the box — that's the Layer-2 VS-Code-extension
-work, deferred. Until then you can: open a `.ts` file that imports a
-`.efx` and you'll see diagnostics from the `.efx` surface at the import
-site.
+sure VS Code's TS extension picks up the plugin. `.efx` files get treated
+as TypeScript once the plugin loads.
 
 ## See also
 
