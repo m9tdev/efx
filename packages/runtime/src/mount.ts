@@ -1,10 +1,7 @@
 import { Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { isView, type Props, View } from "./View.ts"
-
-const ATOM_REF_TYPE_ID = "~effect/reactivity/AtomRef"
-const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
-  typeof u === "object" && u !== null && ATOM_REF_TYPE_ID in u
+import { coerceSync, isAtomRef } from "./coerce.ts"
+import { type Props, View } from "./View.ts"
 
 type Rendered = {
   readonly node: Node
@@ -12,36 +9,6 @@ type Rendered = {
 }
 
 const noop = () => {}
-
-/**
- * Synchronously coerce an arbitrary value (typically read from a reactive
- * source) into a View. If `scope` is provided and the value is an Effect,
- * the effect is run with that scope, so `Effect.acquireRelease` /
- * `Effect.addFinalizer` inside the effect register releases against it.
- */
-const valueToView = (v: unknown, scope?: Scope.Closeable): View => {
-  if (v == null || v === false || v === true) return View.Empty()
-  if (typeof v === "string") return View.Text({ value: v })
-  if (typeof v === "number" || typeof v === "bigint") {
-    return View.Text({ value: String(v) })
-  }
-  if (isView(v)) return v
-  if (Effect.isEffect(v)) {
-    const provided = scope
-      ? Effect.provideService(v as Effect.Effect<unknown, unknown, Scope.Scope>, Scope.Scope, scope)
-      : (v as Effect.Effect<unknown, unknown, never>)
-    const exit = Effect.runSyncExit(provided)
-    return Exit.match(exit, {
-      onSuccess: (val) => valueToView(val, scope),
-      onFailure: (cause) =>
-        View.Text({ value: `[effect failed: ${String(cause)}]` }),
-    })
-  }
-  if (Array.isArray(v)) {
-    return View.Fragment({ children: v.map((x) => valueToView(x, scope)) })
-  }
-  return View.Text({ value: String(v) })
-}
 
 const applyProp = (el: Element, key: string, value: unknown): (() => void) | undefined => {
   // Reactive prop: AtomRef → subscribe and re-apply on changes.
@@ -143,7 +110,7 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry): Rendered => 
       let currentCleanup: () => void = noop
 
       const render = (next: unknown): void => {
-        const r = buildDom(valueToView(next), registry)
+        const r = buildDom(coerceSync(next), registry)
         if (currentNode.parentNode) {
           currentNode.parentNode.replaceChild(r.node, currentNode)
         }
@@ -207,7 +174,7 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry): Rendered => 
           let r = rendered.get(ref)
           if (!r) {
             const rowScope = Scope.makeUnsafe()
-            const rowView = valueToView(view.render(ref, i), rowScope)
+            const rowView = coerceSync(view.render(ref, i), rowScope)
             const built = buildDom(rowView, registry)
             r = {
               node: built.node,
