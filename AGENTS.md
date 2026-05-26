@@ -78,10 +78,10 @@ compiler eats and converts into `h()` calls." Not the React thing.
   Volar's contracts.
 - **[`packages/ts-plugin/`](./packages/ts-plugin/AGENTS.md)** — Volar-
   based TypeScript Language Service plugin. Wraps the shared
-  language plugin in a tsserver Proxy that adds `.efx`-aware
-  go-to-def, find-references, JSX tag-pair highlights, and inlay
-  hint filtering. Dual-file setup (`.efx` source + on-disk `.ts`
-  for module resolution from non-`.efx` files).
+  language plugin in a tsserver Proxy that adds JSX tag-pair
+  highlights, inlay-hint filtering, and reference dedup/sort.
+  Cross-file go-to-def and find-references work natively (no
+  sibling `.ts` files).
 - **[`packages/check/`](./packages/check/AGENTS.md)** — standalone
   CLI/programmatic type-checker built on `@volar/kit` plus the
   shared language plugin. Replaces `tsc --noEmit` for `.efx`
@@ -103,12 +103,16 @@ compiler eats and converts into `h()` calls." Not the React thing.
 - **API surface stays minimal.** Don't expose helpers that wrap
   what Effect already provides (no `efxMap`, `efxIf`, etc.).
   Users compose with native Effect combinators.
-- **`.efx` files never reach `tsc` directly.** Either the compiler
-  has rewritten them to `.ts` first (build, CLI), or a plugin
-  intercepts the read and serves compiled content (TS Language
-  Service plugin, Vite dev server).
-- **Sibling `.ts` files of `.efx` are build artifacts.** Don't
-  hand-edit `Counter.ts` when `Counter.efx` exists.
+- **`.efx` files never reach `tsc` directly.** A plugin always
+  intercepts: `@efx/language` (consumed by the TS plugin and by
+  `@efx/check`) hands tsc a JSX-free virtual TS buffer, and
+  `@efx/vite-plugin` does the same for Vite. Source files keep
+  their angle brackets; only the compiled buffer is JSX-free.
+- **Imports of `.efx` files use the explicit `.efx` extension.**
+  `import { X } from "./Foo.efx"` — not `"./Foo"`. TS's resolver
+  only tries `extraFileExtensions` against import paths that
+  already carry the matching suffix. Same convention as Vue
+  (`.vue` in imports) and Astro (`.astro`).
 - **`refs/` is reference material for inspiration.** Cloned external
   repos — search here when stuck on design questions or debugging
   integrations. Key references:

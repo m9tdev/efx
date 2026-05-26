@@ -33,9 +33,6 @@ importers:
       '@efx/check':
         specifier: workspace:*
         version: link:../../packages/check
-      '@efx/compiler':
-        specifier: workspace:*
-        version: link:../../packages/compiler
       '@efx/ts-plugin':
         specifier: workspace:*
         version: link:../../packages/ts-plugin

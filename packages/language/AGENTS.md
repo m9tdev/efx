@@ -83,6 +83,24 @@ describes the buffer tsc will type-check (TS → no JSX inside).
 If you change either flag, update both. They form a contract with
 tsc that's easy to get wrong silently.
 
+### Cross-file imports require the explicit `.efx` extension
+
+`extraFileExtensions` makes tsc willing to consume a file named
+`Foo.efx` — but it does NOT make `import { x } from "./Foo"`
+resolve to `Foo.efx`. TS's module resolver only tries custom
+extensions against import specifiers that already carry the
+matching suffix. User code has to write:
+
+```ts
+import { Counter } from "./Counter.efx"
+```
+
+This is the Vue/Astro convention (Vue requires `.vue` in
+imports, Astro requires `.astro`). It's the reason the demo
+project has no sibling `.ts` files: with explicit extensions in
+import paths, no auxiliary on-disk shim is needed for tsc to
+find one `.efx` file from another.
+
 ## The three `CodeInformation` profiles
 
 `convertSourceMap` tags each source↔generated mapping with one of

@@ -17,6 +17,7 @@ export interface TypeScriptConfig {
     extension: string
     scriptKind: ts.ScriptKind
   }
+  resolveHiddenExtensions?: boolean
 }
 
 /**

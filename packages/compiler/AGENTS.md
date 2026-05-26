@@ -9,10 +9,10 @@ brackets — they are gone before tsc, Vite, or any other downstream
 tool sees the file.
 
 Entry point: `transformEfx(source, filename) → { code, map, jsxRanges }`.
-Used by `@efx/vite-plugin`, `@efx/ts-plugin`, and the `efx-compile`
-CLI (`src/cli.ts`, which writes sibling `.ts` files so plain `tsc`
-works without a plugin). Vite and the CLI ignore `jsxRanges`; the
-TS plugin consumes it.
+Used by `@efx/vite-plugin` (for runtime serving) and
+`@efx/language` (for the Volar virtual code). `@efx/vite-plugin`
+ignores `jsxRanges`; `@efx/language` consumes it for
+`CodeInformation` region tagging.
 
 ## Why Babel, not tsc/swc
 

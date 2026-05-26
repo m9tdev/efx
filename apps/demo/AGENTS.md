@@ -20,38 +20,26 @@ they can be exercised in a browser side-by-side.
 | `main.efx` | Wires Layers (`EfxLive`, `HttpLive`, `ThemeLive`) + `Effect.scoped` + `Effect.never` (keep scope alive for page lifetime). |
 | `services.ts` | Mock Http + Theme services. `Data.TaggedError` for `HttpError`. |
 
-## The sibling `.ts` files
+## Cross-file imports use explicit `.efx`
 
-For every `Counter.efx` there's a `Counter.ts` on disk. These are
-**the compiled output of `efx-compile` CLI** (in
-`packages/compiler`). They exist for **TypeScript module
-resolution**: `import { Counter } from "./Counter"` from a
-non-`.efx` file (e.g. `channels.test-d.ts`) resolves to
-`Counter.ts` — TS's resolver doesn't auto-try `.efx` even with
-`extraFileExtensions` declared. The
-[TS plugin](../../packages/ts-plugin/AGENTS.md) then rewrites
-go-to-def/find-references results back to `.efx`. See its
-"Dual-file setup" section.
+Imports of one `.efx` file from another (or from a `.ts` file like
+`channels.test-d.ts`) must include the `.efx` extension:
 
-The `typecheck` script no longer needs the sibling `.ts` for
-diagnostics on the `.efx` files themselves —
-[`@efx/check`](../../packages/check/AGENTS.md) reads them through
-the LanguagePlugin. But cross-file imports from `.ts` files (like
-`channels.test-d.ts`) still need the sibling, which is why
-`pnpm typecheck` still runs `efx-compile` first.
+```ts
+import { Counter } from "./Counter.efx"
+//                     ^^^^^^^^^^^^^^^^ — extension required
+```
 
-**Do not hand-edit `.ts` siblings of `.efx` files.** Edit the
-`.efx`; run `pnpm efx:compile` (or just `pnpm typecheck`, which
-runs it first). The first line of every generated `.ts` is
-`// @generated — do not edit. Source: <name>.efx` — the TS plugin
-detects this header and uses its length to convert byte offsets
-between the two files.
+This is the Vue/Astro convention. TS's module resolver only tries
+custom `extraFileExtensions` for paths that already carry the
+extension — `import "./Counter"` (no extension) won't resolve to
+`Counter.efx` even though we register `.efx` with tsc.
 
-They're gitignored via `apps/demo/.gitignore`, which lists each
-generated `.ts` by name. **Brittle:** when you add a new
-`Foo.efx`, you also have to add `src/Foo.ts` to that file. The
-alternative (globbing `*.ts`) would catch hand-written `.ts`
-files like `services.ts` and `channels.test-d.ts`.
+Result: no sibling `.ts` files on disk. `pnpm typecheck` runs
+[`@efx/check`](../../packages/check/AGENTS.md) directly; `vite build`
+runs `@efx/vite-plugin` directly; the editor's
+[TS plugin](../../packages/ts-plugin/AGENTS.md) maps virtual-code
+results back to source `.efx` positions natively.
 
 ## `channels.test-d.ts`
 

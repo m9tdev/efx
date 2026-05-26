@@ -11,9 +11,6 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "bin": {
-    "efx-compile": "./src/cli.ts"
-  },
   "dependencies": {
     "@babel/parser": "^7.26.0",
     "@babel/traverse": "^7.26.0",
