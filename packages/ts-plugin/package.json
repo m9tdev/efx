@@ -9,10 +9,8 @@
     "test": "pnpm run build && node test/integration.mjs"
   },
   "dependencies": {
-    "@efx/compiler": "workspace:*",
-    "@jridgewell/sourcemap-codec": "^1.5.5",
+    "@efx/language": "workspace:*",
     "@volar/language-core": "^2.4.28",
-    "@volar/source-map": "^2.4.28",
     "@volar/typescript": "^2.4.28"
   },
   "peerDependencies": {

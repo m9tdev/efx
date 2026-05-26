@@ -68,13 +68,7 @@ importers:
         specifier: ^7
         version: 7.28.0
 
-  packages/runtime:
-    dependencies:
-      effect:
-        specifier: 4.0.0-beta.70
-        version: 4.0.0-beta.70
-
-  packages/ts-plugin:
+  packages/language:
     dependencies:
       '@efx/compiler':
         specifier: workspace:*
@@ -86,6 +80,25 @@ importers:
         specifier: ^2.4.28
         version: 2.4.28
       '@volar/source-map':
+        specifier: ^2.4.28
+        version: 2.4.28
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/runtime:
+    dependencies:
+      effect:
+        specifier: 4.0.0-beta.70
+        version: 4.0.0-beta.70
+
+  packages/ts-plugin:
+    dependencies:
+      '@efx/language':
+        specifier: workspace:*
+        version: link:../language
+      '@volar/language-core':
         specifier: ^2.4.28
         version: 2.4.28
       '@volar/typescript':

@@ -106,7 +106,7 @@ export function convertSourceMap(
 
   // Create mappings with lengths extending to next segment
   for (let i = 0; i < sortedSegments.length; i++) {
-    const seg = sortedSegments[i]
+    const seg = sortedSegments[i]!
     const nextSeg = sortedSegments[i + 1]
 
     // Length in source space: from this offset to the next (or 1 if last)
@@ -157,4 +157,3 @@ function lineColToOffset(lineStarts: number[], line: number, col: number): numbe
   const start = lineStarts[line] ?? lineStarts[lineStarts.length - 1] ?? 0
   return start + col
 }
-
