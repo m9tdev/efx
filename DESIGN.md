@@ -382,13 +382,17 @@ test or probe:
 
 ## 7. Known limits
 
-### 7.1 No IDE diagnostics on `.efx` source
+### 7.1 IDE support for `.efx` files
 
-VS Code / tsserver don't know about `.efx`. Errors only surface via
-`pnpm typecheck` (which compiles to `.ts` first). A real product would
-ship a tsserver language-service plugin that runs the compiler in-memory
-and feeds the transformed source to tsserver. That's a 1–2 day project
-and was out of POC scope.
+`@efx/ts-plugin` provides full IDE support for `.efx` files via Volar's
+language plugin framework:
+
+**Working:** Diagnostics, hover, go-to-definition, find-references, inlay
+hints, and document highlights (including JSX tag pair matching). Position
+mapping uses Babel's source map output with CodeInformation patterns borrowed
+from Vue's language tools.
+
+**Not yet implemented:** Rename symbol, code actions, organize imports.
 
 ### 7.2 Sourcemap fidelity
 

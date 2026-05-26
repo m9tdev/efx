@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest"
+import { describe, expect, it } from "vitest"
 import { transformEfx } from "./transform.ts"
 
 /** Convenience: just the emitted code, with whitespace normalized so tests

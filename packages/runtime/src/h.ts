@@ -190,9 +190,9 @@ type HFn = <
   T extends string | ((props: any) => Effect.Effect<View, any, any>),
   Cs extends readonly unknown[],
 >(
-  tag: T,
-  props: TagProps<T>,
-  ...children: Cs
+  _tag: T,
+  _props: TagProps<T>,
+  ..._children: Cs
 ) => Effect.Effect<View, FoldE<Cs> | TagE<T>, FoldR<Cs> | TagR<T>>
 
 /**
