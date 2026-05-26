@@ -2,7 +2,6 @@ import type { CodeInformation } from "@volar/language-core"
 import type { Mapping } from "@volar/source-map"
 import type { JsxRange } from "@efx/compiler"
 import { decode } from "@jridgewell/sourcemap-codec"
-import { getCache } from "./virtual-code.ts"
 
 /**
  * Convert Babel's source map format to Volar's Mapping format.
@@ -159,61 +158,3 @@ function lineColToOffset(lineStarts: number[], line: number, col: number): numbe
   return start + col
 }
 
-/**
- * Convert a compiled (generated) offset to source offset using cached mappings.
- * Returns the source offset, or null if no mapping found.
- */
-export function compiledToSourceOffset(efxPath: string, compiledOffset: number): number | null {
-  const cache = getCache(efxPath)
-  if (!cache) return null
-
-  // Find the mapping that contains the compiled offset
-  // Mappings are point-to-point (length: 1), so find the closest one at or before the offset
-  let bestMapping: { generatedOffset: number; sourceOffset: number } | null = null
-  for (const mapping of cache.mappings) {
-    const genOff = mapping.generatedOffsets[0]
-    if (genOff <= compiledOffset) {
-      if (!bestMapping || genOff > bestMapping.generatedOffset) {
-        bestMapping = {
-          generatedOffset: genOff,
-          sourceOffset: mapping.sourceOffsets[0],
-        }
-      }
-    }
-  }
-
-  if (!bestMapping) return null
-
-  // Add the delta to the source offset
-  const delta = compiledOffset - bestMapping.generatedOffset
-  return bestMapping.sourceOffset + delta
-}
-
-/**
- * Convert a source offset to compiled (generated) offset using cached mappings.
- * Returns the compiled offset, or null if no mapping found.
- */
-export function sourceToCompiledOffset(efxPath: string, sourceOffset: number): number | null {
-  const cache = getCache(efxPath)
-  if (!cache) return null
-
-  // Find the mapping that contains the source offset
-  let bestMapping: { generatedOffset: number; sourceOffset: number } | null = null
-  for (const mapping of cache.mappings) {
-    const srcOff = mapping.sourceOffsets[0]
-    if (srcOff <= sourceOffset) {
-      if (!bestMapping || srcOff > bestMapping.sourceOffset) {
-        bestMapping = {
-          generatedOffset: mapping.generatedOffsets[0],
-          sourceOffset: srcOff,
-        }
-      }
-    }
-  }
-
-  if (!bestMapping) return null
-
-  // Add the delta to the compiled offset
-  const delta = sourceOffset - bestMapping.sourceOffset
-  return bestMapping.generatedOffset + delta
-}
