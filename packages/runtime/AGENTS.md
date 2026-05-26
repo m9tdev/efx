@@ -30,10 +30,12 @@ the editor margin. If you rename them, update the regex.
 
 | File | Purpose |
 |---|---|
-| `src/h.ts` | `h()` factory + `track`/`read`/`peek` reactivity-tracking machinery + `normalizeChild` (any child shape → `View`) |
+| `src/h.ts` | `h()` factory + `track`/`read`/`peek` reactivity-tracking machinery. Re-exports `isAtomRef` from `coerce.ts` for back-compat |
+| `src/coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Also owns `isAtomRef` / `ATOM_REF_TYPE_ID` |
 | `src/View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
 | `src/mount.ts` | DOM renderer. `buildDom(View, registry) → { node, cleanup }`, `mount(app, el)` |
 | `src/index.ts` | Public exports + `list`, `Fragment`, `EfxLive` |
+| `src/coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
 | `src/types/Fold.ts` | `ChildE`/`ChildR`/`FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps` — the channel-fold conditional types |
 | `src/types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics |
 | `src/types/Fold.test-d.ts` | `expectTypeOf` matrix — every channel-fold shape |
@@ -83,9 +85,11 @@ it, every `<Row item={item} />` would erase `item`'s generic type to
 ## View IR
 
 The intermediate representation between "arbitrary JSX child value"
-and "DOM nodes." `normalizeChild` (in `h.ts`) coerces inputs to
-View; `buildDom` (in `mount.ts`) switches on the variant tag and
-produces DOM. Closed-for-now at 6 variants:
+and "DOM nodes." `coerceAsync` (in `coerce.ts`) coerces inputs to
+View at `h()` call time; `coerceSync` (also in `coerce.ts`) coerces
+render-time emissions from Reactive sources; `buildDom` (in
+`mount.ts`) switches on the variant tag and produces DOM. Closed-
+for-now at 6 variants:
 
 - `Text { value }` — plain text node
 - `Element { tag, props, children }` — DOM element
@@ -113,14 +117,13 @@ inline form.
 ### Closed-for-now, not closed-forever
 
 The current 6 variants cover everything we need to render. Adding
-a variant is a coordinated edit across three files:
+a variant is a coordinated edit across two files:
 
   - `buildDom` (mount.ts) — exhaustive `switch (view._tag)` forces
     a new case (TS will tell you)
-  - `valueToView` (mount.ts) — if the new variant can come out of
-    a `Reactive`'s emitted value
-  - `normalizeChild` (h.ts) — if it can also be authored directly
-    from JSX (vs. only constructed internally)
+  - `coerce.ts` — `coerceAsync` if it can be authored from JSX,
+    and/or `coerceSync` if it can be emitted from a Reactive
+    source. Often one of the two is enough.
 
 Channels are unaffected — they're folded at the `h()` call site
 via `FoldE`/`FoldR`, which operate on input child *shapes*
@@ -128,7 +131,7 @@ via `FoldE`/`FoldR`, which operate on input child *shapes*
 "JSX call site" in the emitted code — the compiler turns every
 `<div>...</div>` into a plain `h(...)` call before tsc sees it.
 See root [AGENTS.md](../../AGENTS.md) on JSX-as-syntax-only.) By
-the time `normalizeChild` returns a View, all channels have been
+the time `coerceAsync` returns a View, all channels have been
 hoisted into the surrounding Effect.
 
 Good candidates if a need arises: `Portal` (render children to a
@@ -149,10 +152,14 @@ with a Fragment.
 **Reactive nodes render a placeholder comment first**, then swap on
 the first emit (synchronous if the source is already populated).
 Source can be `Atom` or `AtomRef.ReadonlyRef`; dispatch on
-`Atom.isAtom` / `isAtomRef`. `valueToView` (synchronous) coerces the
-emitted value into a `View` — including `Effect`, which is run with
-the current scope so `Effect.acquireRelease` registers releases on
-*this* node's scope.
+`Atom.isAtom` / `isAtomRef`. `coerceSync` (from `coerce.ts`) coerces
+the emitted value into a `View` — including `Effect`, which is run
+with the current scope so `Effect.acquireRelease` registers releases
+on *this* node's scope. `coerceSync` is deliberately asymmetric vs.
+`coerceAsync`: at this point in the render path the Atom/AtomRef has
+already been peeled, so it does NOT recurse into
+Option/Result/Chunk/Atom/AtomRef. Don't "fix" that — the unwrap
+contract belongs upstream.
 
 **List reconciles by AtomRef identity.** Not by index, not by value
 equality. Each row's `AtomRef` is the key; on `subscribe`, only
@@ -184,12 +191,15 @@ the lifetime of the rendered UI.
 - Don't add View IR variants as convenience wrappers (`Card`,
   `Heading`, etc.) — those are components, not IR. New variants
   are for new DOM-materialization shapes (`Portal`, `Suspense`)
-  and require coordinated edits across `buildDom`, `valueToView`,
-  and `normalizeChild`. See "Closed-for-now, not closed-forever"
-  above.
-- Don't normalize Reactive sources eagerly. `valueToView` is
+  and require coordinated edits across `buildDom` and `coerce.ts`.
+  See "Closed-for-now, not closed-forever" above.
+- Don't normalize Reactive sources eagerly. `coerceSync` is
   synchronous on purpose; subscribing first then rendering would
   flash a comment in the DOM.
+- Don't make `coerceSync` peel Option/Result/Chunk/Atom/AtomRef.
+  Those containers are unwrapped upstream of the Reactive render
+  path; adding peeling here would either silently re-introduce
+  async dependencies into a sync hot path or grow dead code.
 - Don't return `DocumentFragment` from `buildDom`. Stable replacement
   needs a real parent node.
 - Don't extend `h.track`'s behavior to handle composite expressions
