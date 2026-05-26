@@ -74,11 +74,22 @@ The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
    its initial value to the thunk's result, subscribes to every
    tracked ref, re-runs the thunk on change.
 5. Deps are re-collected on every rerun (a ternary may read
-   different refs on its other branch). Old subs are dropped first.
+   different refs on its other branch) and **diffed** against the
+   prior set — only deps that disappeared are unsubscribed, only
+   newly-read deps are subscribed. Stable deps don't churn.
 
 **Invariant: the empty-deps early return is load-bearing.** Without
 it, every `<Row item={item} />` would erase `item`'s generic type to
 `unknown`.
+
+**Why diff, not unsub-all-then-resub.** `AtomRef.notify` iterates
+`listeners` while `subscribe`/unsub mutates that same array via
+swap-pop. When two JSX expressions in one component read the same
+ref (e.g. `<li class={done ? "done" : ""}><span>{done ? "✓" : "·"}</span></li>`),
+they both subscribe on the row ref's listener array. A blanket
+"drop all subs, re-add them" inside one listener's rerun reshuffles
+the array under `notify`'s loop and the sibling listener is
+skipped. Diffing means stable-deps reruns leave the array alone.
 
 ## View IR
 

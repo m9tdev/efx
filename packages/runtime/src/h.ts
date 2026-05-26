@@ -32,18 +32,34 @@ const trackImpl = (thunk: () => unknown): unknown => {
 
   // At least one ref was read — wrap in a derived AtomRef that re-runs
   // the thunk whenever any tracked ref changes. Deps may change between
-  // runs (a ternary's "other branch" reads different refs), so we
-  // re-subscribe fresh on each run.
+  // runs (a ternary's "other branch" reads different refs), so we diff
+  // them: unsubscribe only deps no longer read, subscribe only newly-read
+  // ones. Stable deps (the common case) cause no listener-array churn.
+  //
+  // Why diff instead of unsub-all-then-resub: AtomRef's `notify` iterates
+  // `listeners` while `subscribe`/unsub mutates that same array via
+  // swap-pop. When several JSX expressions in one component all read the
+  // same ref (e.g. `{done ? ...}` in two places), a blanket resubscribe
+  // inside one listener's rerun would shuffle the array under the
+  // iteration and skip sibling listeners.
   const derived = AtomRef.make<unknown>(result)
-  let unsubs: Array<() => void> = []
+  const currentSubs = new Map<AtomRef.ReadonlyRef<unknown>, () => void>()
 
-  const subscribeAll = (set: Set<AtomRef.ReadonlyRef<unknown>>) => {
-    for (const dep of set) unsubs.push(dep.subscribe(rerun))
+  const syncSubs = (next: Set<AtomRef.ReadonlyRef<unknown>>) => {
+    for (const [dep, unsub] of currentSubs) {
+      if (!next.has(dep)) {
+        unsub()
+        currentSubs.delete(dep)
+      }
+    }
+    for (const dep of next) {
+      if (!currentSubs.has(dep)) {
+        currentSubs.set(dep, dep.subscribe(rerun))
+      }
+    }
   }
 
   const rerun = () => {
-    for (const u of unsubs) u()
-    unsubs = []
     const nextDeps = new Set<AtomRef.ReadonlyRef<unknown>>()
     const prevTracker = currentTracker
     currentTracker = nextDeps
@@ -52,10 +68,10 @@ const trackImpl = (thunk: () => unknown): unknown => {
     } finally {
       currentTracker = prevTracker
     }
-    subscribeAll(nextDeps)
+    syncSubs(nextDeps)
   }
 
-  subscribeAll(deps)
+  syncSubs(deps)
   return derived
 }
 
