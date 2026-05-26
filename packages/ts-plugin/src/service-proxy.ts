@@ -226,7 +226,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               const result = (value as ts.LanguageService["findReferences"]).call(target, targetFile, targetPos)
               if (!result) return result
               // Deduplicate across ALL symbols, not per-symbol
-              const allRefs: Array<{ fileName: string; textSpan: ts.TextSpan } & Record<string, unknown>> = []
+              const allRefs: ts.ReferencedSymbolEntry[] = []
               const seen = new Set<string>()
               for (const symbol of result) {
                 for (const ref of symbol.references) {
@@ -240,6 +240,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               }
               // Sort: definition first, then usages, then imports
               const firstSymbol = result[0]
+              if (!firstSymbol) return result
               const convertedDef = rewriteDefinitionInfo(firstSymbol.definition) ?? firstSymbol.definition
               // Check if ref is in an import statement by reading the line
               const isImportRef = (ref: { fileName: string; textSpan: ts.TextSpan }): boolean => {
