@@ -11,14 +11,19 @@ heavy lifting (file discovery, content transformation, position
 mapping) and wrap the resulting LanguageService with a thin proxy
 for the things Volar doesn't quite do out of the box.
 
-The whole file: `src/index.ts`. Read it with this map.
+The plugin is split across six files in `src/` by concern; esbuild
+bundles them into `dist/index.cjs` for tsserver to `require()`.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `src/index.ts` | Everything — Volar language plugin, source-map conversion, JSX-tag-matching, proxy wrapper. ~650 LOC. |
-| `src/plugin.test.mjs` | Unit-style smoke checks on internal helpers. |
+| `src/index.ts` | Entry. Re-exports `pluginFactory` via `export =`. |
+| `src/language-plugin.ts` | Volar `LanguagePlugin` object: `getLanguageId`, `createVirtualCode`, `typescript.*`. The Volar contract. |
+| `src/virtual-code.ts` | `SourceMapCache` type + module-level cache `Map` with `getCache` / `setCache` accessors. Sole owner of the per-`.efx` state. |
+| `src/source-map.ts` | `convertSourceMap` (Babel map → Volar mappings, with `CodeInformation` profiles for h() internals and JSX punctuation), plus `compiledToSourceOffset` / `sourceToCompiledOffset`. |
+| `src/jsx-tags.ts` | `findJsxTagPair` — uses cached `jsxRanges` from the compiler to find tag-pair partners for document highlights. |
+| `src/service-proxy.ts` | `pluginFactory` — wraps Volar's `LanguageService` with the seven method overrides (definition rewrites, document highlights, inlay hints, references). |
 | `test/integration.mjs` | tsserver-subprocess harness. The acceptance-level check that the plugin really works end-to-end. |
 | `build.mjs` | esbuild bundle producing `dist/index.cjs` (tsserver `require()`s the plugin as CJS). |
 
@@ -68,9 +73,12 @@ The minimum Volar wants is: name the language, produce a
 - **`typescript.getServiceScript(root)`** — returns the root
   virtual code with extension `.ts` (matching the above).
 
-A per-`.efx` `sourceMapCache` (module-level Map) keeps
-`{ source, compiled, mappings }` so the proxy wrapper can convert
-offsets in both directions without re-running the compiler.
+A per-`.efx` cache (lives in `virtual-code.ts`, module-level `Map`)
+keeps `{ source, compiled, mappings, jsxRanges }` so the proxy
+wrapper, the source-map offset converters, and the JSX tag-pair
+lookup can read derived state without re-running the compiler.
+`language-plugin.ts` is the only writer (`setCache`); everyone else
+reads via `getCache`.
 
 ## Source-map conversion — three `CodeInformation` profiles
 
