@@ -145,24 +145,43 @@ const buildProps = (attrs: ReadonlyArray<t.JSXAttribute | t.JSXSpreadAttribute>)
   return t.objectExpression(properties)
 }
 
+/** Copy source location from one node to another for source map accuracy. */
+const copyLoc = <T extends t.Node>(target: T, source: t.Node): T => {
+  if (source.loc) {
+    target.loc = source.loc
+  }
+  const srcStart = (source as { start?: number | null }).start
+  const srcEnd = (source as { end?: number | null }).end
+  if (typeof srcStart === "number") {
+    ;(target as { start?: number | null }).start = srcStart
+  }
+  if (typeof srcEnd === "number") {
+    ;(target as { end?: number | null }).end = srcEnd
+  }
+  return target
+}
+
 /** Decide the tag expression: lowercase → string literal, otherwise identifier. */
 const tagExpression = (name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName): t.Expression => {
   if (t.isJSXNamespacedName(name)) {
-    return t.stringLiteral(`${name.namespace.name}:${name.name.name}`)
+    const lit = t.stringLiteral(`${name.namespace.name}:${name.name.name}`)
+    return copyLoc(lit, name)
   }
   if (t.isJSXMemberExpression(name)) {
     return jsxMemberToMember(name)
   }
-  // JSXIdentifier
+  // JSXIdentifier - preserve location for go-to-definition
   const lower = /^[a-z]/.test(name.name)
-  return lower ? t.stringLiteral(name.name) : t.identifier(name.name)
+  const expr = lower ? t.stringLiteral(name.name) : t.identifier(name.name)
+  return copyLoc(expr, name)
 }
 
 const jsxMemberToMember = (m: t.JSXMemberExpression): t.MemberExpression => {
   const object = t.isJSXMemberExpression(m.object)
     ? jsxMemberToMember(m.object)
-    : t.identifier(m.object.name)
-  return t.memberExpression(object, t.identifier(m.property.name))
+    : copyLoc(t.identifier(m.object.name), m.object)
+  const property = copyLoc(t.identifier(m.property.name), m.property)
+  return copyLoc(t.memberExpression(object, property), m)
 }
 
 /** Transform a single JSX child node into an expression. */
@@ -232,7 +251,7 @@ const ensureRuntimeImports = (program: t.Program, wantFragment: boolean): void =
 /** Transform a JSX element or fragment node into an h(...) call expression. */
 const transformJsxNode = (node: t.JSXElement | t.JSXFragment): t.CallExpression => {
   const tag: t.Expression = t.isJSXFragment(node)
-    ? t.identifier("Fragment")
+    ? copyLoc(t.identifier("Fragment"), node)
     : tagExpression(node.openingElement.name)
 
   const props: t.Expression = t.isJSXFragment(node)
@@ -245,7 +264,9 @@ const transformJsxNode = (node: t.JSXElement | t.JSXFragment): t.CallExpression 
     if (transformed) childArgs.push(transformed)
   }
 
-  return t.callExpression(t.identifier("h"), [tag, props, ...childArgs])
+  // Preserve location on the h() call for source map accuracy
+  const hCall = t.callExpression(t.identifier("h"), [tag, props, ...childArgs])
+  return copyLoc(hCall, node)
 }
 
 /**
