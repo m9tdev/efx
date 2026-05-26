@@ -79,9 +79,11 @@ package's actual responsibility.
 
 `getEfxVirtualCode(efxPath)` returns the same `EfxVirtualCode`
 instance Volar received from `createVirtualCode` — no duplication
-(matches Vue's `VueVirtualCode` pattern). Offset conversion is a
-method on that instance (`vc.compiledToSourceOffset(n)` /
-`vc.sourceToCompiledOffset(n)`), not a free function.
+(matches Vue's `VueVirtualCode` pattern). The proxy wrapper below
+doesn't translate offsets itself: Volar's own `SourceMap` indexes
+`mappings` and maps virtual-code coordinates back to `.efx` source
+before results reach us. We read the cache only for `jsxRanges`
+(consumed by `jsx-tags.ts`).
 
 ## The proxy wrapper
 
@@ -89,16 +91,13 @@ Volar produces a working LanguageService. We then wrap it in a
 `Proxy` (in the outer `pluginFactory`) and override five methods:
 
 - **`getDefinitionAtPosition` / `getDefinitionAndBoundSpan` /
-  `getTypeDefinitionAtPosition`** — call Volar, then map each
-  result through `rewriteDefinitionInfo`. This:
-  - filters out hits in `packages/runtime/src/h.ts` (the JSX
-    factory itself — go-to-def on `<div>` should NOT land you in
-    `h.ts`)
-  - rewrites `.ts` paths to `.efx` when a sibling source exists
-  - subtracts the `// @generated` header offset (see "Dual-file
-    setup" below) from `textSpan.start`
-  - re-maps the (now header-adjusted) compiled offset back to a
-    source offset via `compiledToSourceOffset`
+  `getTypeDefinitionAtPosition`** — call Volar, then drop any hit
+  in `packages/runtime/src/h.ts` (the JSX factory itself — go-to-def
+  on `<div>` should NOT land you in `h.ts`). Volar has already
+  mapped results back to `.efx` source coordinates via its own
+  `SourceMap`, and TS's resolver finds `.efx` files directly via
+  `extraFileExtensions` — no path rewriting, no offset re-mapping,
+  no header-offset subtraction needed.
 
 - **`getDocumentHighlights`** — `.efx`-only custom path. If the
   cursor is on a JSX tag (anywhere on the brackets or name, but

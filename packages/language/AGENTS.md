@@ -19,7 +19,7 @@ certainly want to depend on this package rather than copy it.
 |---|---|
 | `src/language-plugin.ts` | `createEfxLanguagePlugin<T>(asFileName)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns `LanguagePlugin<T, EfxVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
 | `src/source-map.ts` | `convertSourceMap` — thin translator from `@efx/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
-| `src/virtual-code.ts` | `EfxVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.efx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Carries `compiledToSourceOffset` / `sourceToCompiledOffset` instance methods. Module-level cache `Map<string, EfxVirtualCode>` with `getEfxVirtualCode` / `setEfxVirtualCode` accessors. |
+| `src/virtual-code.ts` | `EfxVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.efx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Module-level cache `Map<string, EfxVirtualCode>` with `getEfxVirtualCode` / `setEfxVirtualCode` accessors. |
 | `src/index.ts` | Re-exports. |
 
 ## Why a factory over a fixed plugin
@@ -144,16 +144,14 @@ produces them.
 `virtual-code.ts` exports a module-level
 `Map<string, EfxVirtualCode>`. Both `@efx/ts-plugin` and
 `@efx/check` populate it from their `createVirtualCode` calls;
-ts-plugin's service-proxy reads from it to do offset conversion in
-definition/reference results.
+ts-plugin's `jsx-tags.ts` reads from it to fetch `jsxRanges` for
+tag-pair document highlights.
 
 The instance Volar holds (as the return value of `createVirtualCode`)
 is the same instance the cache holds — no duplication, no
-synchronization needed. Offset conversion is therefore a method on
-the instance (`vc.compiledToSourceOffset(n)`), not a free function
-that looks up the cache. Callers that already have the instance
-(e.g. ones that just called `getEfxVirtualCode` once) skip the
-extra lookup.
+synchronization needed. Volar consumes the `mappings` array
+directly via its own `SourceMap` indexing, so source ↔ generated
+offset translation never goes through this cache.
 
 In tsserver, the cache lives for the editor session. In
 `efx-check`'s CLI, the cache lives for the duration of the run.
