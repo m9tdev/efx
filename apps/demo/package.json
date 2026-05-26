@@ -7,13 +7,14 @@
     "efx:compile": "node --experimental-strip-types ../../packages/compiler/src/cli.ts src",
     "dev": "vite",
     "build": "pnpm run efx:compile && vite build",
-    "typecheck": "pnpm run efx:compile && tsc --noEmit"
+    "typecheck": "pnpm run efx:compile && node --experimental-strip-types ../../packages/check/src/cli.ts"
   },
   "dependencies": {
     "@efx/runtime": "workspace:*",
     "effect": "4.0.0-beta.70"
   },
   "devDependencies": {
+    "@efx/check": "workspace:*",
     "@efx/compiler": "workspace:*",
     "@efx/ts-plugin": "workspace:*",
     "@efx/vite-plugin": "workspace:*",

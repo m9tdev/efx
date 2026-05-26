@@ -5,11 +5,10 @@ how to identify them, how to produce the virtual TypeScript that
 tsc/Volar see, and how to translate offsets between source and
 generated code.
 
-Currently consumed by **`@efx/ts-plugin`**, which wraps it for
-tsserver (editor integration). The factory's host-agnostic shape
-exists so additional Volar-based tools (a standalone checker on
-`@volar/kit`, a CI linter, etc.) can share the same plugin without
-forking it.
+Shared by two consumers:
+
+- **`@efx/ts-plugin`** — wraps it for tsserver (editor integration).
+- **`@efx/check`** — wraps it for `@volar/kit` (standalone CLI).
 
 If you reach for the LanguagePlugin from a third place, you almost
 certainly want to depend on this package rather than copy it.
@@ -45,7 +44,7 @@ This means consumers can write:
 // tsserver (@efx/ts-plugin)
 createEfxLanguagePlugin<string>((s) => s)
 
-// kit (URI is the host's script-id type)
+// kit (@efx/check)
 createEfxLanguagePlugin<URI>((uri) => uri.fsPath)
 ```
 
@@ -103,9 +102,9 @@ authoritatively knows what's "h() machinery" vs. user code.
 ## The cache is process-local module state
 
 `virtual-code.ts` exports a module-level
-`Map<string, EfxVirtualCode>`. `@efx/ts-plugin` populates it
-through its `createVirtualCode` calls; the same package's
-service-proxy reads from it to do offset conversion in
+`Map<string, EfxVirtualCode>`. Both `@efx/ts-plugin` and
+`@efx/check` populate it from their `createVirtualCode` calls;
+ts-plugin's service-proxy reads from it to do offset conversion in
 definition/reference results.
 
 The instance Volar holds (as the return value of `createVirtualCode`)
@@ -116,9 +115,9 @@ that looks up the cache. Callers that already have the instance
 (e.g. ones that just called `getEfxVirtualCode` once) skip the
 extra lookup.
 
-In tsserver, the cache lives for the editor session. Any future
-non-tsserver consumer using this LanguagePlugin gets its own
-process-local cache — Map state is per-Node-process.
+In tsserver, the cache lives for the editor session. In
+`efx-check`'s CLI, the cache lives for the duration of the run.
+There's no cross-process sharing — Map state is per-Node-process.
 
 If `createVirtualCode` is called twice for the same `.efx` (rapid
 edits), the cache entry is overwritten with a fresh
@@ -130,14 +129,12 @@ persist until process exit; that's fine in practice.
 `EfxVirtualCode`'s constructor does NOT use TypeScript parameter
 properties (the `constructor(readonly x: T)` form). Fields are
 declared and assigned manually instead, because Node's
-`--experimental-strip-types` mode rejects parameter properties as
-non-type syntax — they desugar into runtime field assignments.
-This package is set up to be loadable by any future tool that runs
-`.ts` sources directly through Node's strip-types mode (a CLI
-checker, scripts, etc.), so we keep the constructor shape
-strip-types-safe. The class still uses readonly field declarations,
-just not the shorthand. Don't "tidy" this back to parameter
-properties without arranging for a build step.
+`--experimental-strip-types` mode — used by `@efx/check`'s CLI
+and its integration test, both of which load the package's `.ts`
+sources directly — rejects parameter properties as non-type
+syntax. The class still uses readonly field declarations, just
+not the shorthand. Don't "tidy" this back to parameter properties
+without arranging for a build step.
 
 ## Coupling to other packages
 
@@ -150,12 +147,8 @@ properties without arranging for a build step.
 ## Anti-patterns
 
 - Don't change `isMixedContent` back to `false` without also
-  ensuring any non-tsserver consumer (one that uses
-  `ts.parseJsonSourceFileConfigFileContent` with
-  `extraFileExtensions`) still enumerates `.efx` files. They won't;
-  you'll get a silent 0-files-checked instead of an error.
-  tsserver's plugin pathway uses `getExternalFiles` and is more
-  forgiving — testing the editor isn't enough.
+  ensuring kit-style consumers still enumerate `.efx` files. They
+  won't; you'll get a silent 0-files-checked instead of an error.
 - Don't add a fourth `CodeInformation` profile without studying
   how Vue's docs describe the interactions between
   `verification` / `completion` / `semantic` / `navigation` /
@@ -180,10 +173,12 @@ properties without arranging for a build step.
 
 ## Tests
 
-This package has no tests of its own. Its behavior is covered by
-`@efx/ts-plugin/test/integration.mjs` — that test exercises the
-LanguagePlugin through a real tsserver subprocess against the
-demo project.
+This package has no tests of its own. Its behavior is covered by:
+
+- `@efx/ts-plugin/test/integration.mjs` — exercises the LanguagePlugin
+  through a real tsserver subprocess.
+- `@efx/check/test/integration.mjs` — exercises it through
+  `@volar/kit`.
 
 If you find yourself needing finer-grained tests (e.g., for
 `convertSourceMap` edge cases), add a `src/source-map.test.ts`
@@ -197,3 +192,4 @@ way and you can copy their scripts.
 - [`@efx/compiler`](../compiler/AGENTS.md) — source location
   preservation and `JsxRange` emission this package depends on.
 - [`@efx/ts-plugin`](../ts-plugin/AGENTS.md) — tsserver consumer.
+- [`@efx/check`](../check/AGENTS.md) — kit consumer.

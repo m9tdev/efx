@@ -73,15 +73,19 @@ compiler eats and converts into `h()` calls." Not the React thing.
   bare test-position identifiers → `h.peek()`. Smart-skip wrap.
 - **[`packages/language/`](./packages/language/AGENTS.md)** — the Volar
   `LanguagePlugin` describing `.efx` files (file id, virtual code,
-  source-map conversion, JSX region tagging). Bridges
-  `@efx/compiler` to Volar's contracts; consumed by `ts-plugin`
-  (and by future Volar-based tools).
+  source-map conversion, JSX region tagging). Shared by `ts-plugin`
+  and `check`; the only package that bridges `@efx/compiler` to
+  Volar's contracts.
 - **[`packages/ts-plugin/`](./packages/ts-plugin/AGENTS.md)** — Volar-
   based TypeScript Language Service plugin. Wraps the shared
   language plugin in a tsserver Proxy that adds `.efx`-aware
   go-to-def, find-references, JSX tag-pair highlights, and inlay
   hint filtering. Dual-file setup (`.efx` source + on-disk `.ts`
   for module resolution from non-`.efx` files).
+- **[`packages/check/`](./packages/check/AGENTS.md)** — standalone
+  CLI/programmatic type-checker built on `@volar/kit` plus the
+  shared language plugin. Replaces `tsc --noEmit` for `.efx`
+  projects without needing a tsserver process.
 - **[`packages/vite-plugin/`](./packages/vite-plugin/AGENTS.md)** — Vite
   dev integration. Compiles `.efx` on the fly, extends esbuild's
   include glob, rewrites `.efx` URLs with `?import` so strict-MIME

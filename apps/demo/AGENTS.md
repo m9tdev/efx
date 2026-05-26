@@ -24,16 +24,21 @@ they can be exercised in a browser side-by-side.
 
 For every `Counter.efx` there's a `Counter.ts` on disk. These are
 **the compiled output of `efx-compile` CLI** (in
-`packages/compiler`). They exist for two reasons:
+`packages/compiler`). They exist for **TypeScript module
+resolution**: `import { Counter } from "./Counter"` from a
+non-`.efx` file (e.g. `channels.test-d.ts`) resolves to
+`Counter.ts` — TS's resolver doesn't auto-try `.efx` even with
+`extraFileExtensions` declared. The
+[TS plugin](../../packages/ts-plugin/AGENTS.md) then rewrites
+go-to-def/find-references results back to `.efx`. See its
+"Dual-file setup" section.
 
-1. Plain `tsc --noEmit` can type-check this workspace without the
-   TS Language Service plugin loaded.
-2. **TypeScript module resolution.** `import { Counter } from
-   "./Counter"` resolves to `Counter.ts` — TS's resolver doesn't
-   know about Volar's virtual files. The
-   [TS plugin](../../packages/ts-plugin/AGENTS.md) then rewrites
-   results back to `.efx`. See its "Dual-file setup" section for
-   why both files must exist.
+The `typecheck` script no longer needs the sibling `.ts` for
+diagnostics on the `.efx` files themselves —
+[`@efx/check`](../../packages/check/AGENTS.md) reads them through
+the LanguagePlugin. But cross-file imports from `.ts` files (like
+`channels.test-d.ts`) still need the sibling, which is why
+`pnpm typecheck` still runs `efx-compile` first.
 
 **Do not hand-edit `.ts` siblings of `.efx` files.** Edit the
 `.efx`; run `pnpm efx:compile` (or just `pnpm typecheck`, which
