@@ -1,5 +1,6 @@
 import { Chunk, Effect, Exit, Option, Result, Scope } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
+import type { ChildE, ChildR } from "./types/Fold.ts"
 import { isView, View } from "./View.ts"
 
 export const ATOM_REF_TYPE_ID = "~effect/reactivity/AtomRef"
@@ -9,7 +10,8 @@ export const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
 
 const Empty = View.Empty()
 
-export const coerceAsync = (v: unknown): Effect.Effect<View, any, any> => {
+export function coerceAsync<C>(v: C): Effect.Effect<View, ChildE<C>, ChildR<C>>
+export function coerceAsync(v: unknown): Effect.Effect<View, any, any> {
   if (v == null || v === false || v === true) return Effect.succeed(Empty)
   if (typeof v === "string") return Effect.succeed(View.Text({ value: v }))
   if (typeof v === "number" || typeof v === "bigint") {
@@ -42,14 +44,16 @@ export const coerceAsync = (v: unknown): Effect.Effect<View, any, any> => {
   return Effect.succeed(View.Text({ value: String(v) }))
 }
 
-const coerceChildren = (cs: ReadonlyArray<unknown>): Effect.Effect<View, any, any> =>
-  Effect.gen(function* () {
+function coerceChildren<C>(cs: ReadonlyArray<C>): Effect.Effect<View, ChildE<C>, ChildR<C>>
+function coerceChildren(cs: ReadonlyArray<unknown>): Effect.Effect<View, any, any> {
+  return Effect.gen(function* () {
     const out: View[] = []
     for (const c of cs) {
       out.push(yield* coerceAsync(c))
     }
     return View.Fragment({ children: out })
   })
+}
 
 /**
  * Synchronously coerce an arbitrary value (typically read from a reactive

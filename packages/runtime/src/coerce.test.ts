@@ -4,30 +4,24 @@ import { describe, expect, it } from "vitest"
 import { coerceAsync, coerceSync, isAtomRef } from "./coerce.ts"
 import { View } from "./View.ts"
 
-// coerceAsync's signature is `(unknown) => Effect<View, any, any>` — the
-// `any` in R doesn't satisfy `runPromise`'s `R = never` under strict mode,
-// so we run via a typed helper.
-const run = (e: Effect.Effect<View, any, any>): Promise<View> =>
-  Effect.runPromise(e as Effect.Effect<View, never, never>)
-
 describe("coerceAsync — primitives", () => {
   it("string → View.Text", async () => {
-    const view = await run(coerceAsync("hi"))
+    const view = await Effect.runPromise(coerceAsync("hi"))
     expect(view).toEqual(View.Text({ value: "hi" }))
   })
 
   it("number → View.Text via String()", async () => {
-    const view = await run(coerceAsync(42))
+    const view = await Effect.runPromise(coerceAsync(42))
     expect(view).toEqual(View.Text({ value: "42" }))
   })
 
   it("bigint → View.Text via String()", async () => {
-    const view = await run(coerceAsync(7n))
+    const view = await Effect.runPromise(coerceAsync(7n))
     expect(view).toEqual(View.Text({ value: "7" }))
   })
 
   it.each([null, undefined, true, false])("%s → View.Empty", async (v) => {
-    const view = await run(coerceAsync(v))
+    const view = await Effect.runPromise(coerceAsync(v))
     expect(view).toEqual(View.Empty())
   })
 })
@@ -35,44 +29,44 @@ describe("coerceAsync — primitives", () => {
 describe("coerceAsync — already-built View pass-through", () => {
   it("returns the same View when given a View", async () => {
     const input = View.Text({ value: "already a view" })
-    const view = await run(coerceAsync(input))
+    const view = await Effect.runPromise(coerceAsync(input))
     expect(view).toEqual(input)
   })
 })
 
 describe("coerceAsync — container peeling", () => {
   it("Effect<string> → coerce the inner value", async () => {
-    const view = await run(coerceAsync(Effect.succeed("from effect")))
+    const view = await Effect.runPromise(coerceAsync(Effect.succeed("from effect")))
     expect(view).toEqual(View.Text({ value: "from effect" }))
   })
 
   it("Effect<Effect<string>> → recursively unwrap", async () => {
-    const view = await run(coerceAsync(Effect.succeed(Effect.succeed("nested"))))
+    const view = await Effect.runPromise(coerceAsync(Effect.succeed(Effect.succeed("nested"))))
     expect(view).toEqual(View.Text({ value: "nested" }))
   })
 
   it("Option.none → Empty", async () => {
-    const view = await run(coerceAsync(Option.none()))
+    const view = await Effect.runPromise(coerceAsync(Option.none()))
     expect(view).toEqual(View.Empty())
   })
 
   it("Option.some(x) → coerce x", async () => {
-    const view = await run(coerceAsync(Option.some("inner")))
+    const view = await Effect.runPromise(coerceAsync(Option.some("inner")))
     expect(view).toEqual(View.Text({ value: "inner" }))
   })
 
   it("Result failure → Empty", async () => {
-    const view = await run(coerceAsync(Result.fail("nope")))
+    const view = await Effect.runPromise(coerceAsync(Result.fail("nope")))
     expect(view).toEqual(View.Empty())
   })
 
   it("Result success → coerce inner", async () => {
-    const view = await run(coerceAsync(Result.succeed("ok")))
+    const view = await Effect.runPromise(coerceAsync(Result.succeed("ok")))
     expect(view).toEqual(View.Text({ value: "ok" }))
   })
 
   it("Array → Fragment of coerced children", async () => {
-    const view = await run(coerceAsync(["a", 1, null]))
+    const view = await Effect.runPromise(coerceAsync(["a", 1, null]))
     expect(view).toEqual(
       View.Fragment({
         children: [
@@ -85,7 +79,7 @@ describe("coerceAsync — container peeling", () => {
   })
 
   it("Chunk → Fragment of coerced children", async () => {
-    const view = await run(coerceAsync(Chunk.fromIterable(["a", "b"])))
+    const view = await Effect.runPromise(coerceAsync(Chunk.fromIterable(["a", "b"])))
     expect(view).toEqual(
       View.Fragment({
         children: [View.Text({ value: "a" }), View.Text({ value: "b" })],
@@ -97,20 +91,20 @@ describe("coerceAsync — container peeling", () => {
 describe("coerceAsync — reactive sources", () => {
   it("AtomRef → View.Reactive carrying the ref", async () => {
     const ref = AtomRef.make("hello")
-    const view = await run(coerceAsync(ref))
+    const view = await Effect.runPromise(coerceAsync(ref))
     expect(view).toEqual(View.Reactive({ source: ref }))
   })
 
   it("Atom → View.Reactive carrying the atom", async () => {
     const atom = Atom.make("hello")
-    const view = await run(coerceAsync(atom))
+    const view = await Effect.runPromise(coerceAsync(atom))
     expect(view).toEqual(View.Reactive({ source: atom }))
   })
 })
 
 describe("coerceAsync — unknown fallback", () => {
   it("plain object → View.Text via String()", async () => {
-    const view = await run(coerceAsync({ toString: () => "obj!" }))
+    const view = await Effect.runPromise(coerceAsync({ toString: () => "obj!" }))
     expect(view).toEqual(View.Text({ value: "obj!" }))
   })
 })
