@@ -7,11 +7,12 @@ import type * as ts from "typescript"
  * The compiled-and-cached representation of a `.efx` file.
  *
  * One instance per `.efx`: shared between Volar (which holds it as the
- * `VirtualCode` returned from `createVirtualCode`) and this plugin's
- * internal consumers (service-proxy.ts, jsx-tags.ts). No duplication —
- * the Volar contract fields (`id`, `languageId`, `snapshot`, `mappings`,
- * `embeddedCodes`) live alongside the efx-specific data (`source`,
- * `compiled`, `jsxRanges`) on the same object.
+ * `VirtualCode` returned from `createVirtualCode`) and downstream
+ * consumers (the ts-plugin's service-proxy and jsx-tags). No
+ * duplication — the Volar contract fields (`id`, `languageId`,
+ * `snapshot`, `mappings`, `embeddedCodes`) live alongside the
+ * efx-specific data (`source`, `compiled`, `jsxRanges`) on the same
+ * object. Matches Vue's `VueVirtualCode` pattern.
  *
  * Offset conversion is a method, not a free function, so callers that
  * already have the instance avoid an extra cache lookup.
@@ -21,13 +22,26 @@ export class EfxVirtualCode implements VirtualCode {
   readonly languageId = "typescript"
   readonly embeddedCodes: VirtualCode[] = []
   readonly snapshot: ts.IScriptSnapshot
+  readonly source: string
+  readonly compiled: string
+  readonly mappings: Mapping<CodeInformation>[]
+  readonly jsxRanges: ReadonlyArray<JsxRange>
 
+  // Fields are declared explicitly rather than via constructor parameter
+  // properties so Node's `--experimental-strip-types` (used by efx-check and
+  // its tests, which load `.ts` directly) accepts the file. Parameter
+  // properties (`constructor(readonly x: T)`) aren't pure type syntax —
+  // they desugar into field assignments — and strip-only mode rejects them.
   constructor(
-    readonly source: string,
-    readonly compiled: string,
-    readonly mappings: Mapping<CodeInformation>[],
-    readonly jsxRanges: ReadonlyArray<JsxRange>,
+    source: string,
+    compiled: string,
+    mappings: Mapping<CodeInformation>[],
+    jsxRanges: ReadonlyArray<JsxRange>,
   ) {
+    this.source = source
+    this.compiled = compiled
+    this.mappings = mappings
+    this.jsxRanges = jsxRanges
     this.snapshot = {
       getText: (start, end) => compiled.slice(start, end),
       getLength: () => compiled.length,

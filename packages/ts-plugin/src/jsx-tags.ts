@@ -1,4 +1,4 @@
-import { getEfxVirtualCode } from "./virtual-code.ts"
+import { getEfxVirtualCode } from "@efx/language"
 
 export interface NameSpan {
   readonly start: number

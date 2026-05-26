@@ -1,8 +1,10 @@
 import { createLanguageServicePlugin } from "@volar/typescript/lib/quickstart/createLanguageServicePlugin"
 import type * as ts from "typescript"
-import { efxLanguagePlugin } from "./language-plugin.ts"
-import { getEfxVirtualCode } from "./virtual-code.ts"
+import { createEfxLanguagePlugin, getEfxVirtualCode } from "@efx/language"
 import { findJsxTagPair } from "./jsx-tags.ts"
+
+// tsserver identifies scripts by file path strings — asFileName is identity.
+const efxLanguagePlugin = createEfxLanguagePlugin<string>((scriptId) => scriptId)
 
 // Create the base Volar plugin
 const volarPluginFactory = createLanguageServicePlugin((_ts, _info) => ({

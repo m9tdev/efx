@@ -11,21 +11,26 @@ heavy lifting (file discovery, content transformation, position
 mapping) and wrap the resulting LanguageService with a thin proxy
 for the things Volar doesn't quite do out of the box.
 
-The plugin is split across six files in `src/` by concern; esbuild
-bundles them into `dist/index.cjs` for tsserver to `require()`.
+After the `@efx/language` extraction this package contains only the
+tsserver-facing pieces; esbuild bundles them into `dist/index.cjs`
+for tsserver to `require()`.
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `src/index.ts` | Entry. Re-exports `pluginFactory` via `export =`. |
-| `src/language-plugin.ts` | Volar `LanguagePlugin` object: `getLanguageId`, `createVirtualCode`, `typescript.*`. The Volar contract. |
-| `src/virtual-code.ts` | `EfxVirtualCode` class (implements Volar's `VirtualCode`). Holds `source` / `compiled` / `mappings` / `jsxRanges`, plus `compiledToSourceOffset` / `sourceToCompiledOffset` instance methods. Module-level `Map` cache + `getEfxVirtualCode` / `setEfxVirtualCode` accessors. |
-| `src/source-map.ts` | `convertSourceMap` (Babel map → Volar mappings, with `CodeInformation` profiles for h() internals and JSX punctuation). |
-| `src/jsx-tags.ts` | `findJsxTagPair` — uses cached `jsxRanges` from the compiler to find tag-pair partners for document highlights. |
-| `src/service-proxy.ts` | `pluginFactory` — wraps Volar's `LanguageService` with the seven method overrides (definition rewrites, document highlights, inlay hints, references). |
+| `src/jsx-tags.ts` | `findJsxTagPair` — uses cached `jsxRanges` from the shared `EfxVirtualCode` (read via `getEfxVirtualCode` from `@efx/language`) to find tag-pair partners for document highlights. |
+| `src/service-proxy.ts` | `pluginFactory` — instantiates the shared LanguagePlugin via `createEfxLanguagePlugin<string>(identity)`, builds Volar's `createLanguageServicePlugin`, then wraps the resulting `LanguageService` in a Proxy with seven method overrides (definition rewrites, document highlights, inlay hints, references). Offset conversion goes through `getEfxVirtualCode(path)?.compiledToSourceOffset(n)` / `sourceToCompiledOffset(n)` — methods on the class, not free functions. |
 | `test/integration.mjs` | tsserver-subprocess harness. The acceptance-level check that the plugin really works end-to-end. |
 | `build.mjs` | esbuild bundle producing `dist/index.cjs` (tsserver `require()`s the plugin as CJS). |
+
+The LanguagePlugin itself (the Volar contract), `convertSourceMap`,
+the `EfxVirtualCode` class + module-level cache, and the three
+`CodeInformation` profiles live in
+[`@efx/language`](../language/AGENTS.md). That package is shaped
+to be host-agnostic, so a future non-tsserver Volar tool can
+consume it too.
 
 ## How it fits together
 
@@ -52,65 +57,34 @@ bundles them into `dist/index.cjs` for tsserver to `require()`.
         LanguageService results in .efx coords
 ```
 
-## The Volar language plugin (`efxLanguagePlugin`)
+## The Volar language plugin
 
-The minimum Volar wants is: name the language, produce a
-`VirtualCode`, declare TypeScript hooks. Ours does:
+The plugin itself — `getLanguageId`, `createVirtualCode`,
+`typescript.extraFileExtensions`, `typescript.getServiceScript`,
+source-map conversion, the per-`.efx` cache, the three
+`CodeInformation` profiles for h-call vs. punctuation vs. normal
+source — lives in [`@efx/language`](../language/AGENTS.md). Read
+that node for the full picture; the short version is:
 
-- **`getLanguageId(scriptId)`** → `"efx"` for `.efx` paths.
-- **`createVirtualCode(scriptId, languageId, snapshot)`** —
-  reads the `.efx` source, runs `transformEfx`, builds Volar
-  `Mapping<CodeInformation>[]` from Babel's source map (see next
-  section), returns a single virtual `efx-ts` chunk that tsserver
-  type-checks.
-- **`typescript.extraFileExtensions`** — registers `.efx` with
-  tsserver as `ScriptKind.TS` (3). The compiler emits no-JSX
-  TypeScript; the virtual code is plain `.ts`, so the kind
-  matches the actual content. Earlier iterations used
-  `ScriptKind.TSX`; it works either way for the test harness,
-  but plain TS is what we ship — choose the kind that describes
-  what's in the buffer.
-- **`typescript.getServiceScript(root)`** — returns the root
-  virtual code with extension `.ts` (matching the above).
+- `service-proxy.ts` calls `createEfxLanguagePlugin<string>((s) => s)`
+  because tsserver identifies scripts by string filenames.
+- The resulting LanguagePlugin gets handed to Volar's
+  `createLanguageServicePlugin` quickstart helper, which is what
+  hooks Volar into tsserver's plugin protocol.
+- Everything in this package after that point is the *proxy
+  wrapper* below — it doesn't touch the language plugin internals,
+  only the LanguageService results it produces.
 
-The same `EfxVirtualCode` instance Volar receives from
-`createVirtualCode` is the one stashed in the module-level cache —
-one object per `.efx` file, no duplication (matches Vue's
-`VueVirtualCode`). `language-plugin.ts` is the only writer
-(`setEfxVirtualCode`); everyone else reads via `getEfxVirtualCode`.
+If a bug points at file enumeration, virtual-code content, the
+`EfxVirtualCode` class, or the source-map mappings, the fix is in
+`@efx/language`, not here. The proxy wrapper below is this
+package's actual responsibility.
 
-Offset conversion lives on the class as `vc.compiledToSourceOffset(n)`
-/ `vc.sourceToCompiledOffset(n)` — methods, not free functions, so
-callers that already hold the instance skip a cache lookup.
-
-## Source-map conversion — three `CodeInformation` profiles
-
-Volar's `Mapping<CodeInformation>` records, per source↔generated
-range, which language features apply. We model three regions
-(mirroring Vue's tactics for `<template>` content):
-
-| Region | Profile | What's disabled | Why |
-|---|---|---|---|
-| Normal source code | `fullData` | nothing | Default |
-| Inside an `h(...)` call (the JSX-compiled internals) | `noHighlightData` | `semantic.shouldHighlight: () => false` | Without this, cursor on tag name highlights every `h` identifier in the file. Hover/completions still work. |
-| JSX punctuation `<` `>` `/` | `structuralOnlyData` | `semantic: false`, `completion: false`, `navigation: false` | Cursor on `<` shouldn't navigate to `h`'s definition or highlight every `<` in the file. |
-
-The decision is driven by `result.jsxRanges` from `@efx/compiler`:
-
-- "Inside an `h(...)` call" = source offset falls inside any
-  `JsxRange.start..end`. No regex scan of the compiled output.
-- JSX punctuation = source character is `<`/`>`/`/` AND the source
-  offset is inside an `openingTag` or `closingTag` span (so
-  `{a > b}` inside a JSX expression doesn't false-positive).
-
-The producer (Babel) already knows these positions exactly. We
-read them from `jsxRanges` rather than re-derive them.
-
-The mappings are also **deduplicated by source offset** (first
-mapping wins) and **lengths extend to the next mapping's source
-offset** rather than being point-to-point. This is what makes
-ranged operations like find-references span the actual identifier
-in the source, not collapse to a single character.
+`getEfxVirtualCode(efxPath)` returns the same `EfxVirtualCode`
+instance Volar received from `createVirtualCode` — no duplication
+(matches Vue's `VueVirtualCode` pattern). Offset conversion is a
+method on that instance (`vc.compiledToSourceOffset(n)` /
+`vc.sourceToCompiledOffset(n)`), not a free function.
 
 ## The proxy wrapper
 
@@ -204,13 +178,19 @@ deleting on-disk `.ts` files; module resolution depends on them.
   go-to-definition lands on the wrong token.
 
 - **`@efx/compiler` `jsxRanges`** — `TransformResult.jsxRanges` is
-  load-bearing for two of this plugin's features: classifying
-  source positions as "inside h()" or "JSX punctuation" during
-  source-map conversion, and finding tag-pair partners for
-  document highlights. If the compiler ever stops emitting it
-  (e.g. swc swap), both features break silently. Cache the array
-  in `SourceMapCache` next to `mappings` so the proxy wrapper can
-  read it without re-running the compiler.
+  load-bearing for two features: classifying source positions as
+  "inside h()" or "JSX punctuation" during source-map conversion
+  (in `@efx/language`), and finding tag-pair partners for document
+  highlights (`jsx-tags.ts` here). If the compiler ever stops
+  emitting it (e.g. swc swap), both features break silently. The
+  array is stored on `EfxVirtualCode` next to `mappings` so neither
+  consumer re-runs the compiler.
+
+- **`@efx/language` cache key shape** — `getEfxVirtualCode` is keyed
+  by file-path string. The service-proxy's `.efx`/`.ts` path
+  juggling assumes string keys; the cache uses the same convention.
+  If `@efx/language` ever changes the key type, both packages
+  break together.
 
 ## Anti-patterns
 
@@ -232,12 +212,15 @@ deleting on-disk `.ts` files; module resolution depends on them.
   interact in non-obvious ways.
 - Don't delete the on-disk `.ts` siblings to "clean up." Module
   resolution breaks instantly.
-- Don't switch `extraFileExtensions.scriptKind` and the matching
-  `getServiceScript.scriptKind` independently. They must agree
-  with what `createVirtualCode` actually produces. Today both are
-  `ScriptKind.TS` because the virtual code is no-JSX TypeScript;
-  if you ever emit TSX from the compiler (e.g. preserving JSX for
-  some reason), update both at once.
+- Don't switch `extraFileExtensions.scriptKind` /
+  `extraFileExtensions.isMixedContent` /
+  `getServiceScript.scriptKind` independently. They form a
+  contract with tsc that this plugin AND any future non-tsserver
+  Volar consumer of `@efx/language` both depend on. The current
+  combination (Deferred + isMixedContent: true + TS for the
+  virtual code) is documented in
+  [`@efx/language` AGENTS.md](../language/AGENTS.md#the-extrafileextensions-shape-is-load-bearing).
+  Change all three together or not at all.
 
 ## Test loop
 

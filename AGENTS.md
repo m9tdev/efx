@@ -71,11 +71,17 @@ compiler eats and converts into `h()` calls." Not the React thing.
 - **[`packages/compiler/`](./packages/compiler/AGENTS.md)** — the Babel
   transform. Three rewrites: JSX → `h()`, `.value` → `h.read()`,
   bare test-position identifiers → `h.peek()`. Smart-skip wrap.
+- **[`packages/language/`](./packages/language/AGENTS.md)** — the Volar
+  `LanguagePlugin` describing `.efx` files (file id, virtual code,
+  source-map conversion, JSX region tagging). Bridges
+  `@efx/compiler` to Volar's contracts; consumed by `ts-plugin`
+  (and by future Volar-based tools).
 - **[`packages/ts-plugin/`](./packages/ts-plugin/AGENTS.md)** — Volar-
-  based TypeScript Language Service plugin. Delivers diagnostics,
-  hover, inlay hints, go-to-def, find-references, and JSX tag-pair
-  highlights on `.efx` source. Dual-file setup (`.efx` source +
-  on-disk `.ts` for module resolution).
+  based TypeScript Language Service plugin. Wraps the shared
+  language plugin in a tsserver Proxy that adds `.efx`-aware
+  go-to-def, find-references, JSX tag-pair highlights, and inlay
+  hint filtering. Dual-file setup (`.efx` source + on-disk `.ts`
+  for module resolution from non-`.efx` files).
 - **[`packages/vite-plugin/`](./packages/vite-plugin/AGENTS.md)** — Vite
   dev integration. Compiles `.efx` on the fly, extends esbuild's
   include glob, rewrites `.efx` URLs with `?import` so strict-MIME
