@@ -51,13 +51,21 @@ export class EfxVirtualCode implements VirtualCode {
   }
 }
 
-// Module-level cache keyed by `.efx` script path. Sole writer is
-// `language-plugin.ts`; readers go through `getEfxVirtualCode`.
-const cache = new Map<string, EfxVirtualCode>()
+/**
+ * Per-consumer cache of compiled `.efx` files keyed by script path. The
+ * LanguagePlugin's `createVirtualCode` writes through it; downstream
+ * consumers (ts-plugin's service-proxy + jsx-tags) read from it. One
+ * registry per consumer (one per tsserver session, one per `runCheck`
+ * call) — invocations don't share state through a module-level singleton.
+ */
+export class VirtualCodeRegistry {
+  private readonly cache = new Map<string, EfxVirtualCode>()
 
-export const setEfxVirtualCode = (efxPath: string, vc: EfxVirtualCode): void => {
-  cache.set(efxPath, vc)
+  set(efxPath: string, vc: EfxVirtualCode): void {
+    this.cache.set(efxPath, vc)
+  }
+
+  get(efxPath: string): EfxVirtualCode | undefined {
+    return this.cache.get(efxPath)
+  }
 }
-
-export const getEfxVirtualCode = (efxPath: string): EfxVirtualCode | undefined =>
-  cache.get(efxPath)

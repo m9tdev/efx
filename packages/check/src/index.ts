@@ -3,7 +3,7 @@ import * as ts from "typescript"
 import * as kit from "@volar/kit"
 import { create as createTypeScriptServices } from "volar-service-typescript"
 import { URI } from "vscode-uri"
-import { createEfxLanguagePlugin } from "@efx/language"
+import { createEfxLanguagePlugin, VirtualCodeRegistry } from "@efx/language"
 
 // LSP DiagnosticSeverity constants (stable wire protocol). `@volar/language-service`
 // re-exports the type but not the values, so we inline these to avoid pulling in
@@ -50,7 +50,10 @@ export async function runCheck(options: CheckOptions = {}): Promise<CheckResult>
 
   // `@volar/kit` uses `URI` as the script-id type, so the plugin gets URIs
   // and reduces them to filesystem paths for the compiler + cache.
-  const languagePlugin = createEfxLanguagePlugin<URI>((uri) => uri.fsPath)
+  // Fresh registry per call — repeated runCheck invocations in one process
+  // must not share virtual-code state.
+  const registry = new VirtualCodeRegistry()
+  const languagePlugin = createEfxLanguagePlugin<URI>((uri) => uri.fsPath, registry)
   const tsServices = createTypeScriptServices(ts)
   const linter = kit.createTypeScriptChecker([languagePlugin], tsServices, tsconfigPath)
 

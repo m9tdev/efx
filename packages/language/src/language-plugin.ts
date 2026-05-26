@@ -2,7 +2,7 @@ import type { LanguagePlugin, VirtualCode } from "@volar/language-core"
 import type * as ts from "typescript"
 import { transformEfx } from "@efx/compiler"
 import { convertSourceMap } from "./source-map.ts"
-import { EfxVirtualCode, setEfxVirtualCode } from "./virtual-code.ts"
+import { EfxVirtualCode, VirtualCodeRegistry } from "./virtual-code.ts"
 
 // Volar's typescript property type isn't in the public LanguagePlugin interface
 // but is expected by createLanguageServicePlugin
@@ -28,12 +28,18 @@ export interface TypeScriptConfig {
  * passes `URI` instances. Internally we always cache and pass to the compiler
  * by file-path string, so the host-specific identity collapses here.
  *
- * The `EfxVirtualCode` instance returned here is the same instance the cache
- * holds — Volar and downstream consumers share one object per `.efx` file
- * (matches Vue's `VueVirtualCode` pattern).
+ * `registry` is the per-consumer cache the plugin writes into and downstream
+ * readers consult — one instance per tsserver session, one per `runCheck`
+ * call. Without an explicit registry, multiple consumers in one Node process
+ * would cross-pollinate (the previous module-level Map cache).
+ *
+ * The `EfxVirtualCode` instance returned here is the same instance the
+ * registry holds — Volar and downstream consumers share one object per
+ * `.efx` file (matches Vue's `VueVirtualCode` pattern).
  */
 export function createEfxLanguagePlugin<T>(
   asFileName: (scriptId: T) => string,
+  registry: VirtualCodeRegistry,
 ): LanguagePlugin<T, EfxVirtualCode> & { typescript: TypeScriptConfig } {
   return {
     getLanguageId(scriptId) {
@@ -53,7 +59,7 @@ export function createEfxLanguagePlugin<T>(
       const result = transformEfx(source, fileName)
       const mappings = convertSourceMap(result.mappings)
       const vc = new EfxVirtualCode(source, result.code, mappings, result.jsxRanges)
-      setEfxVirtualCode(fileName, vc)
+      registry.set(fileName, vc)
       return vc
     },
 

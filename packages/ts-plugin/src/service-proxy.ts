@@ -1,11 +1,16 @@
 import { createLanguageServicePlugin } from "@volar/typescript/lib/quickstart/createLanguageServicePlugin"
 import type * as ts from "typescript"
-import { createEfxLanguagePlugin, getEfxVirtualCode } from "@efx/language"
+import { createEfxLanguagePlugin, VirtualCodeRegistry } from "@efx/language"
 import { findJsxTagPair } from "./jsx-tags.ts"
 import { classifyRefs } from "./classify-references.ts"
 
+// One registry per tsserver session. tsserver loads this plugin module once,
+// so this single instance is the cache for the editor's lifetime — and is
+// passed to both the LanguagePlugin (writer) and findJsxTagPair (reader).
+const registry = new VirtualCodeRegistry()
+
 // tsserver identifies scripts by file path strings — asFileName is identity.
-const efxLanguagePlugin = createEfxLanguagePlugin<string>((scriptId) => scriptId)
+const efxLanguagePlugin = createEfxLanguagePlugin<string>((scriptId) => scriptId, registry)
 
 // Create the base Volar plugin
 const volarPluginFactory = createLanguageServicePlugin((_ts, _info) => ({
@@ -83,14 +88,14 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               }
 
               // Whitespace at cursor → suppress; tsserver otherwise returns spurious empty hits
-              const vc = getEfxVirtualCode(fileName)
+              const vc = registry.get(fileName)
               const charAtPos = vc?.source[position]
               if (charAtPos && /\s/.test(charAtPos)) {
                 return undefined
               }
 
               // JSX tag-pair highlight, backed by compiler jsxRanges
-              const pair = findJsxTagPair(fileName, position)
+              const pair = findJsxTagPair(registry, fileName, position)
               if (pair) {
                 return [{
                   fileName,

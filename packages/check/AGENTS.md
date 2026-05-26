@@ -70,12 +70,19 @@ LSP protocol.
 - **Exit code**: 0 if `result.errors === 0`, else 1. Warnings do
   not fail. (`tsc` matches: warnings only fail with `noEmitOnError`
   or `strict` flags that promote them.)
+- **In-process isolation**: each `runCheck` call constructs its own
+  `VirtualCodeRegistry`. Two calls in the same Node process — e.g.
+  a test that exercises the fixture, mutates it, then re-runs —
+  see independent virtual-code state, not leftovers from the
+  previous invocation.
 
 ## Coupling
 
-- **`@efx/language`** — provides `createEfxLanguagePlugin`. The
-  CLI instantiates it with `<URI>(uri => uri.fsPath)` because kit
-  uses `URI` as its script-id type.
+- **`@efx/language`** — provides `createEfxLanguagePlugin` and
+  `VirtualCodeRegistry`. The CLI instantiates the plugin with
+  `<URI>(uri => uri.fsPath, registry)` because kit uses `URI` as
+  its script-id type, and constructs a fresh `VirtualCodeRegistry`
+  per `runCheck` call.
 - **`@volar/kit`** — `createTypeScriptChecker`,
   `createTypeScriptInferredChecker` (not currently used; would be
   needed for "no tsconfig" mode).
