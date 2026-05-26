@@ -20,16 +20,16 @@ for tsserver to `require()`.
 | File | Purpose |
 |---|---|
 | `src/index.ts` | Entry. Re-exports `pluginFactory` via `export =`. |
-| `src/jsx-tags.ts` | `findJsxTagPair` — uses cached `jsxRanges` from the shared `EfxVirtualCode` (read via `getEfxVirtualCode` from `@efx/language`) to find tag-pair partners for document highlights. |
+| `src/jsx-tags.ts` | `findJsxTagPair` — uses cached `jsxRanges` from the shared `EfxVirtualCode` (looked up via the `VirtualCodeRegistry` passed in by the service-proxy) to find tag-pair partners for document highlights. |
 | `src/classify-references.ts` | `classifyRefs` — decorates each ref with `{ isDef, isImport }` in one pass, with a per-call file-content cache so each source file is read at most once. `findReferences` then sorts on the precomputed booleans instead of doing disk I/O inside the comparator. |
-| `src/service-proxy.ts` | `pluginFactory` — instantiates the shared LanguagePlugin via `createEfxLanguagePlugin<string>(identity)`, builds Volar's `createLanguageServicePlugin`, then wraps the resulting `LanguageService` in a Proxy with a few method overrides (filter `@efx/runtime`'s `h.ts` from definition results, JSX tag-pair document highlights, `_tag`/`_props`/`_children` inlay-hint filter, reference dedup + sort). |
+| `src/service-proxy.ts` | `pluginFactory` — owns one `VirtualCodeRegistry` at module scope, instantiates the shared LanguagePlugin via `createEfxLanguagePlugin<string>(identity, registry)`, builds Volar's `createLanguageServicePlugin`, then wraps the resulting `LanguageService` in a Proxy with a few method overrides (filter `@efx/runtime`'s `h.ts` from definition results, JSX tag-pair document highlights, `_tag`/`_props`/`_children` inlay-hint filter, reference dedup + sort). |
 | `src/classify-references.test.ts` | Unit tests for `classifyRefs` — injects a fake `readFile` to assert classification rules and per-call caching without touching disk. |
 | `vitest.config.ts` | Picks up `src/**/*.test.ts`. The package's `test` script runs vitest first, then builds and runs the integration harness. |
 | `test/integration.mjs` | tsserver-subprocess harness. The acceptance-level check that the plugin really works end-to-end. |
 | `build.mjs` | esbuild bundle producing `dist/index.cjs` (tsserver `require()`s the plugin as CJS). |
 
 The LanguagePlugin itself (the Volar contract), `convertSourceMap`,
-the `EfxVirtualCode` class + module-level cache, and the three
+the `EfxVirtualCode` class + `VirtualCodeRegistry`, and the three
 `CodeInformation` profiles live in
 [`@efx/language`](../language/AGENTS.md) — shared with `@efx/check`.
 
@@ -61,13 +61,15 @@ the `EfxVirtualCode` class + module-level cache, and the three
 
 The plugin itself — `getLanguageId`, `createVirtualCode`,
 `typescript.extraFileExtensions`, `typescript.getServiceScript`,
-source-map conversion, the per-`.efx` cache, the three
+source-map conversion, the `VirtualCodeRegistry`, the three
 `CodeInformation` profiles for h-call vs. punctuation vs. normal
 source — lives in [`@efx/language`](../language/AGENTS.md). Read
 that node for the full picture; the short version is:
 
-- `service-proxy.ts` calls `createEfxLanguagePlugin<string>((s) => s)`
-  because tsserver identifies scripts by string filenames.
+- `service-proxy.ts` constructs a single `VirtualCodeRegistry` at
+  module scope and calls
+  `createEfxLanguagePlugin<string>((s) => s, registry)` —
+  tsserver identifies scripts by string filenames.
 - The resulting LanguagePlugin gets handed to Volar's
   `createLanguageServicePlugin` quickstart helper, which is what
   hooks Volar into tsserver's plugin protocol.
@@ -80,7 +82,7 @@ If a bug points at file enumeration, virtual-code content, the
 `@efx/language`, not here. The proxy wrapper below is this
 package's actual responsibility.
 
-`getEfxVirtualCode(efxPath)` returns the same `EfxVirtualCode`
+`registry.get(efxPath)` returns the same `EfxVirtualCode`
 instance Volar received from `createVirtualCode` — no duplication
 (matches Vue's `VueVirtualCode` pattern). The proxy wrapper below
 doesn't translate offsets itself: Volar's own `SourceMap` indexes
@@ -104,7 +106,8 @@ Volar produces a working LanguageService. We then wrap it in a
 
 - **`getDocumentHighlights`** — `.efx`-only custom path. If the
   cursor is on a JSX tag (anywhere on the brackets or name, but
-  not on attributes), `findJsxTagPair` walks `cache.jsxRanges` and
+  not on attributes), `findJsxTagPair` walks the
+  `EfxVirtualCode.jsxRanges` looked up from the registry and
   returns the matching opening↔closing name spans. Highlights just
   the names. Babel paired the tags during parse; we don't depth-
   count or regex-scan. Self-closing (`<Foo />`) and fragments
@@ -180,10 +183,11 @@ Vue and Astro use the same convention for the same reason.
   array is stored on `EfxVirtualCode` next to `mappings` so neither
   consumer re-runs the compiler.
 
-- **`@efx/language` cache key shape** — `getEfxVirtualCode` is keyed
-  by file-path string. `jsx-tags.ts` reads from the cache using
-  the `.efx` path tsserver hands it. If `@efx/language` ever
-  changes the key type, both packages break together.
+- **`@efx/language` registry key shape** — `VirtualCodeRegistry`
+  is keyed by file-path string. `jsx-tags.ts` reads from the
+  registry using the `.efx` path tsserver hands it. If
+  `@efx/language` ever changes the key type, both packages break
+  together.
 
 ## Anti-patterns
 

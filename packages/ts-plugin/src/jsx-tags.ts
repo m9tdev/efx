@@ -1,4 +1,4 @@
-import { getEfxVirtualCode } from "@efx/language"
+import type { VirtualCodeRegistry } from "@efx/language"
 
 export interface NameSpan {
   readonly start: number
@@ -21,10 +21,11 @@ export interface NameSpan {
  * Fragments (`<>...</>`) have no names — skipped.
  */
 export function findJsxTagPair(
+  registry: VirtualCodeRegistry,
   efxPath: string,
   position: number,
 ): { current: NameSpan; partner: NameSpan } | null {
-  const vc = getEfxVirtualCode(efxPath)
+  const vc = registry.get(efxPath)
   if (!vc) return null
 
   for (const r of vc.jsxRanges) {
