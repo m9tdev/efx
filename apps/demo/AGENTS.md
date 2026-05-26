@@ -20,26 +20,20 @@ they can be exercised in a browser side-by-side.
 | `main.efx` | Wires Layers (`EfxLive`, `HttpLive`, `ThemeLive`) + `Effect.scoped` + `Effect.never` (keep scope alive for page lifetime). |
 | `services.ts` | Mock Http + Theme services. `Data.TaggedError` for `HttpError`. |
 
-## Cross-file imports use explicit `.efx`
+## No sibling `.ts` files on disk
 
-Imports of one `.efx` file from another (or from a `.ts` file like
-`channels.test-d.ts`) must include the `.efx` extension:
-
-```ts
-import { Counter } from "./Counter.efx"
-//                     ^^^^^^^^^^^^^^^^ — extension required
-```
-
-This is the Vue/Astro convention. TS's module resolver only tries
-custom `extraFileExtensions` for paths that already carry the
-extension — `import "./Counter"` (no extension) won't resolve to
-`Counter.efx` even though we register `.efx` with tsc.
-
-Result: no sibling `.ts` files on disk. `pnpm typecheck` runs
-[`@efx/check`](../../packages/check/AGENTS.md) directly; `vite build`
-runs `@efx/vite-plugin` directly; the editor's
+Cross-file `.efx` imports carry an explicit `.efx` extension (see
+the root [AGENTS.md](../../AGENTS.md) invariant). As a result
+nothing in this demo's build pipeline emits sibling `.ts` files:
+`pnpm typecheck` runs [`@efx/check`](../../packages/check/AGENTS.md)
+directly, `vite build` runs
+[`@efx/vite-plugin`](../../packages/vite-plugin/AGENTS.md)
+directly, and the editor's
 [TS plugin](../../packages/ts-plugin/AGENTS.md) maps virtual-code
-results back to source `.efx` positions natively.
+results back to source `.efx` positions natively. (An earlier
+demo build script ran an `efx-compile` CLI that emitted sibling
+`.ts` files for tsc to pick up — `@efx/compiler` itself was, and
+still is, a pure in-memory `transformEfx`. The CLI is gone.)
 
 ## `channels.test-d.ts`
 

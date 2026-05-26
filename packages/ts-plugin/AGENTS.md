@@ -24,6 +24,7 @@ for tsserver to `require()`.
 | `src/classify-references.ts` | `classifyRefs` — decorates each ref with `{ isDef, isImport }` in one pass, with a per-call file-content cache so each source file is read at most once. `findReferences` then sorts on the precomputed booleans instead of doing disk I/O inside the comparator. |
 | `src/service-proxy.ts` | `pluginFactory` — owns one `VirtualCodeRegistry` at module scope, instantiates the shared LanguagePlugin via `createEfxLanguagePlugin<string>(identity, registry)`, builds Volar's `createLanguageServicePlugin`, then wraps the resulting `LanguageService` in a Proxy with a few method overrides (filter `@efx/runtime`'s `h.ts` from definition results, JSX tag-pair document highlights, `_tag`/`_props`/`_children` inlay-hint filter, reference dedup + sort). |
 | `src/classify-references.test.ts` | Unit tests for `classifyRefs` — injects a fake `readFile` to assert classification rules and per-call caching without touching disk. |
+| `src/plugin.test.mjs` | Manual smoke test loading the built bundle (`dist/index.cjs`) and asserting plugin shape. Not run by `pnpm test` (vitest config only picks up `*.test.ts`); invoke directly with `node` after building. |
 | `vitest.config.ts` | Picks up `src/**/*.test.ts`. The package's `test` script runs vitest first, then builds and runs the integration harness. |
 | `test/integration.mjs` | tsserver-subprocess harness. The acceptance-level check that the plugin really works end-to-end. |
 | `build.mjs` | esbuild bundle producing `dist/index.cjs` (tsserver `require()`s the plugin as CJS). |
@@ -93,16 +94,27 @@ before results reach us. We read the cache only for `jsxRanges`
 ## The proxy wrapper
 
 Volar produces a working LanguageService. We then wrap it in a
-`Proxy` (in the outer `pluginFactory`) and override five methods:
+`Proxy` (in the outer `pluginFactory`) and override four groups of
+methods. Six of the seven overrides route through a local
+`wrapMethod(name, transform)` helper — it calls the underlying
+LanguageService method eagerly and hands the result plus the
+original args to `transform`. `getDocumentHighlights` is the
+exception: its `.efx` path early-returns (whitespace skip,
+JSX-pair match) before the underlying call would fire, which the
+eager-call shape of `wrapMethod` can't express, so it stays
+hand-rolled.
 
 - **`getDefinitionAtPosition` / `getDefinitionAndBoundSpan` /
-  `getTypeDefinitionAtPosition`** — call Volar, then drop any hit
-  in `packages/runtime/src/h.ts` (the JSX factory itself — go-to-def
-  on `<div>` should NOT land you in `h.ts`). Volar has already
-  mapped results back to `.efx` source coordinates via its own
-  `SourceMap`, and TS's resolver finds `.efx` files directly via
-  `extraFileExtensions` — no path rewriting, no offset re-mapping,
-  no header-offset subtraction needed.
+  `getTypeDefinitionAtPosition`** — call Volar, then filter each
+  result through `filterRuntimeHit`: drop any hit whose path
+  contains `/runtime/` and ends in `/h.ts` (the JSX factory
+  itself — go-to-def on `<div>` should NOT land you in `h.ts`).
+  The predicate is intentionally loose so a workspace-relative
+  path, an absolute path, or a vendored copy all match. Volar
+  has already mapped results back to `.efx` source coordinates
+  via its own `SourceMap`, and TS's resolver finds `.efx` files
+  directly via `extraFileExtensions` — no path rewriting, no
+  offset re-mapping, no header-offset subtraction needed.
 
 - **`getDocumentHighlights`** — `.efx`-only custom path. If the
   cursor is on a JSX tag (anywhere on the brackets or name, but
@@ -136,29 +148,14 @@ Volar produces a working LanguageService. We then wrap it in a
     called `ts.sys.readFile` inline, paying O(N log N) reads of
     the same handful of files.
 
-  Cross-file references work natively because user code writes
-  `import { Counter } from "./Counter.efx"` (the Vue/Astro
-  convention). TS's resolver finds `.efx` via `extraFileExtensions`,
-  the file lands in the program as Volar virtual code, and TS's
-  reference index sees usages across files.
+## Cross-file resolution
 
-## Cross-file resolution requires explicit `.efx`
-
-When you import one `.efx` file from another (or from a `.ts`
-file), include the extension:
-
-```ts
-import { Counter } from "./Counter.efx"
-```
-
-TS's module resolver only tries `extraFileExtensions` against
-paths that *already* carry the extension. `import "./Counter"`
-without the suffix won't reach `Counter.efx` even though we
-register `.efx` as a known extension.
-
-There's no longer any compile-step producing sibling `.ts` files —
-this is the only thing that makes cross-file resolution work.
-Vue and Astro use the same convention for the same reason.
+Find-references and go-to-definition cross `.efx` files natively
+because user code writes `import { X } from "./Foo.efx"` (the
+root invariant) — TS's resolver picks up `.efx` via the
+`extraFileExtensions` registered by [`@efx/language`](../language/AGENTS.md),
+the file lands in the program as virtual code, and TS's reference
+index sees usages across files. No sibling `.ts` shim is involved.
 
 ## Coupling to other packages
 
@@ -207,10 +204,6 @@ Vue and Astro use the same convention for the same reason.
   Vue's docs and Volar source — the four flags
   (`verification`/`completion`/`semantic`/`navigation`/`structure`/`format`)
   interact in non-obvious ways.
-- Don't drop the `.efx` extension from import paths to make them
-  "cleaner." TS's resolver doesn't try `extraFileExtensions` on
-  paths without the matching suffix — the import will fail to
-  resolve. This is the same constraint Vue and Astro live with.
 - Don't switch `extraFileExtensions.scriptKind` /
   `extraFileExtensions.isMixedContent` /
   `getServiceScript.scriptKind` independently. They form a
@@ -227,12 +220,14 @@ Vue and Astro use the same convention for the same reason.
 pnpm --filter @efx/ts-plugin test
 ```
 
-That builds the bundle and runs both the in-process unit checks
-(`src/plugin.test.mjs`) and the integration harness
-(`test/integration.mjs`), which spawns a real tsserver subprocess
-and exercises the protocol. See `test/integration.mjs` for the
-exact assertions — they're the operational definition of "the
-plugin works."
+Three phases: vitest runs the `*.test.ts` unit suites
+(currently `src/classify-references.test.ts`), the package builds
+its CJS bundle, and `node test/integration.mjs` spawns a real
+tsserver subprocess and exercises the LSP protocol against it.
+The integration harness is the acceptance-level definition of "the
+plugin works." `src/plugin.test.mjs` is a manual smoke test outside
+this loop — run it separately if you want a quick post-build
+shape check.
 
 ## Related context
 
@@ -242,5 +237,5 @@ plugin works."
   parameter naming
 - [`@efx/compiler`](../compiler/AGENTS.md) — the source-location
   preservation that the source map depends on
-- [`docs/plans/ts-language-service.md`](../../docs/plans/ts-language-service.md)
-  — design notes, including why Volar over hand-rolled virtuals
+- [`@efx/language`](../language/AGENTS.md) — the shared Volar
+  language plugin that does the heavy lifting

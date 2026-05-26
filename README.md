@@ -5,8 +5,9 @@ propagate from every leaf of the view tree to the root. Forgetting to provide
 a service `Layer` becomes a **compile-time error that names the missing
 service**.
 
-Status: proof-of-concept. Not for production. The design and trade-offs are
-in [DESIGN.md](./DESIGN.md).
+Status: proof-of-concept. Not for production. Architecture, invariants, and
+per-package contracts live in [AGENTS.md](./AGENTS.md) and the per-subsystem
+AGENTS.md tree.
 
 ## What you get
 
@@ -82,11 +83,14 @@ Effect.runFork(program)
 
 ```
 packages/
-  runtime/      View IR, h(), mount(), reactivity bindings (~700 LOC)
-  compiler/     .efx → .ts source transformer (Babel)        (~200 LOC)
-  vite-plugin/  Vite integration                              (~30 LOC)
+  runtime/      View IR, h(), mount(), reactivity bindings
+  compiler/     .efx → plain TypeScript (Babel)
+  language/     Volar language plugin (shared by ts-plugin + check)
+  ts-plugin/    TypeScript Language Service plugin (editor integration)
+  check/        Standalone CLI type-checker for .efx projects
+  vite-plugin/  Vite integration
 apps/
-  demo/         Counter, UserPage, LiveUser, Todos
+  demo/         Counter, UserPage, LiveUser, Todos, Lifecycle
 ```
 
 ## The primitives
@@ -105,10 +109,9 @@ write them by hand.
 | Command            | What it does                                                  |
 |--------------------|---------------------------------------------------------------|
 | `pnpm dev`         | Vite dev server with HMR on `.efx` files                      |
-| `pnpm typecheck`   | Compiles `.efx` to `.ts` siblings, runs `tsc --noEmit`        |
+| `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `@efx/check` (.efx-aware) |
 | `pnpm build`       | Production build via Vite (`.efx` compiled first)             |
 | `pnpm -w run test` | Compiler test suite (`@efx/compiler`, via `@effect/vitest`)   |
-| `pnpm -w run type <Name>` | Print the inferred type of any exported symbol in `apps/demo/src` — e.g. `pnpm -w run type UserPage` → `(props: { userId: string }) => Effect<View, HttpError, Http \| Theme>` |
 
 ## Bundle size
 
@@ -122,13 +125,16 @@ write them by hand.
 The JS bundle contains: `effect@4.0.0-beta.70` runtime (~6 kB gzipped per
 upstream docs), `effect/unstable/reactivity` (`AtomRef`, `Atom`,
 `AtomRegistry`, `AsyncResult`), the `@efx/runtime` runtime (~500 LOC,
-contributes single-digit kB), plus all four demo components (`Counter`,
-`UserPage`, `LiveUser`, `Todos`) and their mock services. Verified
-interactive after build — Counter increments, LiveUser cycles
-`Initial`/`Success`/`Failure`, Todos add/remove/toggle.
+contributes single-digit kB), plus all five demo components (`Counter`,
+`UserPage`, `LiveUser`, `Todos`, `Lifecycle`) and their mock services.
+Verified interactive after build — Counter increments, LiveUser cycles
+`Initial`/`Success`/`Failure`, Todos add/remove/toggle, Lifecycle's
+per-row scope fires releases on row removal.
 
-`.efx` files generate sibling `.ts` files (gitignored) for tsc to read; Vite
-serves the `.efx` files directly through the plugin at dev time.
+Vite serves `.efx` files directly through `@efx/vite-plugin` at dev time;
+type-checking goes through `@efx/check`, which feeds `.efx` to tsc as virtual
+TypeScript via the shared Volar language plugin. No sibling `.ts` files are
+emitted to disk.
 
 ## Editor setup
 
@@ -161,6 +167,6 @@ as TypeScript once the plugin loads.
 
 ## See also
 
-- [DESIGN.md](./DESIGN.md) — architecture, the compiler, the reactivity model, what we build vs consume, known limits.
+- [AGENTS.md](./AGENTS.md) — architecture, per-package contracts, invariants, anti-patterns.
 - [`apps/demo/src/channels.test-d.ts`](./apps/demo/src/channels.test-d.ts) — compile-time proof that channels propagate and typed props catch misuse.
 - [`packages/runtime/src/types/Fold.test-d.ts`](./packages/runtime/src/types/Fold.test-d.ts) — channel-fold conditional-type test matrix.

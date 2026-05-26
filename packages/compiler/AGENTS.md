@@ -54,6 +54,15 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    AtomRef reads. Skipped when `x.value` is on the LHS of an
    assignment (`x.value = ...` stays bare).
 
+   **Destructuring blind spot.** The rewrite matches `MemberExpression`
+   shapes only, so `const { value } = ref` inside a JSX expression is
+   *not* rewritten — `value` is a bare identifier coming out of a
+   `VariableDeclarator`, the AtomRef read happens silently at
+   destructuring time, and reactivity tracking never sees it. The
+   user's render won't update on `ref` change. Document `.value`
+   reads as the idiom; don't extend the rewrite to destructuring
+   without thinking through the alias-tracking ramifications.
+
 3. **Bare identifier in a test position → `h.peek(id)`**:
    `cond ? A : B` (ConditionalExpression.test),
    `a && b` / `a || b` (LogicalExpression operands),
