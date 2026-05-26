@@ -28,9 +28,7 @@ for tsserver to `require()`.
 The LanguagePlugin itself (the Volar contract), `convertSourceMap`,
 the `EfxVirtualCode` class + module-level cache, and the three
 `CodeInformation` profiles live in
-[`@efx/language`](../language/AGENTS.md). That package is shaped
-to be host-agnostic, so a future non-tsserver Volar tool can
-consume it too.
+[`@efx/language`](../language/AGENTS.md) — shared with `@efx/check`.
 
 ## How it fits together
 
@@ -215,8 +213,8 @@ deleting on-disk `.ts` files; module resolution depends on them.
 - Don't switch `extraFileExtensions.scriptKind` /
   `extraFileExtensions.isMixedContent` /
   `getServiceScript.scriptKind` independently. They form a
-  contract with tsc that this plugin AND any future non-tsserver
-  Volar consumer of `@efx/language` both depend on. The current
+  contract with tsc that's load-bearing across both this plugin's
+  tsserver path and `@efx/check`'s kit path. The current
   combination (Deferred + isMixedContent: true + TS for the
   virtual code) is documented in
   [`@efx/language` AGENTS.md](../language/AGENTS.md#the-extrafileextensions-shape-is-load-bearing).

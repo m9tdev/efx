@@ -1,0 +1,30 @@
+{
+  "name": "@efx/check",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "efx-check": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types test/integration.mjs"
+  },
+  "dependencies": {
+    "@efx/language": "workspace:*",
+    "@volar/kit": "^2.4.28",
+    "@volar/language-service": "^2.4.28",
+    "volar-service-typescript": "^0.0.71",
+    "vscode-uri": "^3.1.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
