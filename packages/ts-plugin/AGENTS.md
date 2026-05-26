@@ -17,7 +17,7 @@ The whole file: `src/index.ts`. Read it with this map.
 
 | File | Purpose |
 |---|---|
-| `src/index.ts` | Everything — Volar language plugin, source-map conversion, JSX-tag-matching, proxy wrapper. ~750 LOC. |
+| `src/index.ts` | Everything — Volar language plugin, source-map conversion, JSX-tag-matching, proxy wrapper. ~650 LOC. |
 | `src/plugin.test.mjs` | Unit-style smoke checks on internal helpers. |
 | `test/integration.mjs` | tsserver-subprocess harness. The acceptance-level check that the plugin really works end-to-end. |
 | `build.mjs` | esbuild bundle producing `dist/index.cjs` (tsserver `require()`s the plugin as CJS). |
@@ -84,9 +84,16 @@ range, which language features apply. We model three regions
 | Inside an `h(...)` call (the JSX-compiled internals) | `noHighlightData` | `semantic.shouldHighlight: () => false` | Without this, cursor on tag name highlights every `h` identifier in the file. Hover/completions still work. |
 | JSX punctuation `<` `>` `/` | `structuralOnlyData` | `semantic: false`, `completion: false`, `navigation: false` | Cursor on `<` shouldn't navigate to `h`'s definition or highlight every `<` in the file. |
 
-`findHCallPositions(code)` does a regex+paren-depth scan to find
-every `h(...)` range. `jsxPunctuation` is a hard-coded set
-`{"<", ">", "/"}` consulted by source character.
+The decision is driven by `result.jsxRanges` from `@efx/compiler`:
+
+- "Inside an `h(...)` call" = source offset falls inside any
+  `JsxRange.start..end`. No regex scan of the compiled output.
+- JSX punctuation = source character is `<`/`>`/`/` AND the source
+  offset is inside an `openingTag` or `closingTag` span (so
+  `{a > b}` inside a JSX expression doesn't false-positive).
+
+The producer (Babel) already knows these positions exactly. We
+read them from `jsxRanges` rather than re-derive them.
 
 The mappings are also **deduplicated by source offset** (first
 mapping wins) and **lengths extend to the next mapping's source
@@ -112,12 +119,13 @@ Volar produces a working LanguageService. We then wrap it in a
     source offset via `compiledToSourceOffset`
 
 - **`getDocumentHighlights`** — `.efx`-only custom path. If the
-  cursor is on a JSX tag name (verified by `findJsxTagAtPosition`),
-  we run `findMatchingJsxTag` to find the partner (`<Foo>` ↔
-  `</Foo>`) and highlight just the names. Falls back to Volar's
-  default for anything else. The custom-regex matcher accounts
-  for nested same-name tags via a depth counter, and handles
-  self-closing forms (`<Foo />`).
+  cursor is on a JSX tag (anywhere on the brackets or name, but
+  not on attributes), `findJsxTagPair` walks `cache.jsxRanges` and
+  returns the matching opening↔closing name spans. Highlights just
+  the names. Babel paired the tags during parse; we don't depth-
+  count or regex-scan. Self-closing (`<Foo />`) and fragments
+  (`<>...</>`) return no pair. Falls back to Volar's default
+  outside JSX tags.
 
 - **`provideInlayHints`** — `.efx`-only filter. Volar gives us all
   hints including the h() parameter labels (`_tag`, `_props`,
@@ -183,6 +191,15 @@ deleting on-disk `.ts` files; module resolution depends on them.
   locations on emitted nodes. Without that, Babel's source map
   collapses everything to the start of the JSX expression, and
   go-to-definition lands on the wrong token.
+
+- **`@efx/compiler` `jsxRanges`** — `TransformResult.jsxRanges` is
+  load-bearing for two of this plugin's features: classifying
+  source positions as "inside h()" or "JSX punctuation" during
+  source-map conversion, and finding tag-pair partners for
+  document highlights. If the compiler ever stops emitting it
+  (e.g. swc swap), both features break silently. Cache the array
+  in `SourceMapCache` next to `mappings` so the proxy wrapper can
+  read it without re-running the compiler.
 
 ## Anti-patterns
 

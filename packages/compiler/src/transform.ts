@@ -13,7 +13,50 @@ const generate: typeof _generate =
 export interface TransformResult {
   readonly code: string
   readonly map: object | null
+  readonly jsxRanges: ReadonlyArray<JsxRange>
 }
+
+/** Source-side span. All offsets are 0-based byte indices into the original `.efx` source. */
+export interface TagPosition {
+  readonly start: number
+  readonly end: number
+}
+
+/** Tag span carrying the name sub-range — `<Foo`'s "Foo" lives at `nameStart..nameEnd`. */
+export interface NamedTagPosition extends TagPosition {
+  readonly nameStart: number
+  readonly nameEnd: number
+}
+
+/** A `<Tag>...</Tag>` (or `<Tag />`) range. `closingTag` is `undefined` when `isSelfClosing`. */
+export interface JsxElementRange {
+  readonly kind: "element"
+  readonly start: number
+  readonly end: number
+  readonly isSelfClosing: boolean
+  readonly openingTag: NamedTagPosition
+  readonly closingTag?: NamedTagPosition
+}
+
+/** A `<>...</>` fragment range. Tags have no name positions. */
+export interface JsxFragmentRange {
+  readonly kind: "fragment"
+  readonly start: number
+  readonly end: number
+  readonly openingTag: TagPosition
+  readonly closingTag: TagPosition
+}
+
+/**
+ * Source-side metadata about a JSX node the compiler rewrote into an `h()` call.
+ * Emitted in pre-order: outermost node first, then nested children in source order.
+ *
+ * Consumed by `@efx/ts-plugin` to identify "inside-h()" positions, JSX punctuation,
+ * and tag-pair partners without re-parsing the source or scanning the compiled
+ * output with regex. The producer (Babel AST) has the exact positions; we report
+ * them so consumers don't have to recover them.
+ */
+export type JsxRange = JsxElementRange | JsxFragmentRange
 
 const PARSER_OPTIONS: ParserOptions = {
   sourceType: "module",
@@ -248,6 +291,52 @@ const ensureRuntimeImports = (program: t.Program, wantFragment: boolean): void =
   }
 }
 
+/**
+ * Build a JsxRange from a Babel AST node. Reads `start`/`end` from the parser —
+ * always set when the AST came from `@babel/parser` with positions enabled.
+ */
+const collectJsxRange = (node: t.JSXElement | t.JSXFragment): JsxRange => {
+  if (t.isJSXFragment(node)) {
+    return {
+      kind: "fragment",
+      start: node.start!,
+      end: node.end!,
+      openingTag: {
+        start: node.openingFragment.start!,
+        end: node.openingFragment.end!,
+      },
+      closingTag: {
+        start: node.closingFragment.start!,
+        end: node.closingFragment.end!,
+      },
+    }
+  }
+  const opening = node.openingElement
+  const closing = node.closingElement
+  const base: JsxElementRange = {
+    kind: "element",
+    start: node.start!,
+    end: node.end!,
+    isSelfClosing: opening.selfClosing,
+    openingTag: {
+      start: opening.start!,
+      end: opening.end!,
+      nameStart: opening.name.start!,
+      nameEnd: opening.name.end!,
+    },
+  }
+  if (!closing) return base
+  return {
+    ...base,
+    closingTag: {
+      start: closing.start!,
+      end: closing.end!,
+      nameStart: closing.name.start!,
+      nameEnd: closing.name.end!,
+    },
+  }
+}
+
 /** Transform a JSX element or fragment node into an h(...) call expression. */
 const transformJsxNode = (node: t.JSXElement | t.JSXFragment): t.CallExpression => {
   const tag: t.Expression = t.isJSXFragment(node)
@@ -281,6 +370,21 @@ export const transformEfx = (source: string, filename: string): TransformResult 
   const ast = parse(source, {
     ...PARSER_OPTIONS,
     sourceFilename: filename,
+  })
+
+  // Pre-pass: collect a JsxRange for every JSXElement/JSXFragment in source order.
+  // The rewrite pass below uses path.replaceWith, which only visits outermost JSX
+  // (nested children get rewritten recursively inside transformJsxNode and are no
+  // longer JSX nodes by the time Babel would visit them). Collecting separately
+  // beforehand is the cleanest way to see every node.
+  const jsxRanges: JsxRange[] = []
+  traverse(ast, {
+    JSXElement(path: NodePath<t.JSXElement>) {
+      jsxRanges.push(collectJsxRange(path.node))
+    },
+    JSXFragment(path: NodePath<t.JSXFragment>) {
+      jsxRanges.push(collectJsxRange(path.node))
+    },
   })
 
   let usedH = false
@@ -318,5 +422,6 @@ export const transformEfx = (source: string, filename: string): TransformResult 
   return {
     code: result.code,
     map: (result.map as object | null) ?? null,
+    jsxRanges,
   }
 }

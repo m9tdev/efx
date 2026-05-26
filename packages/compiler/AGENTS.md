@@ -8,10 +8,11 @@ TypeScript with every `<...>` expression rewritten as an
 brackets — they are gone before tsc, Vite, or any other downstream
 tool sees the file.
 
-Entry point: `transformEfx(source, filename) → { code, map }`.
+Entry point: `transformEfx(source, filename) → { code, map, jsxRanges }`.
 Used by `@efx/vite-plugin`, `@efx/ts-plugin`, and the `efx-compile`
 CLI (`src/cli.ts`, which writes sibling `.ts` files so plain `tsc`
-works without a plugin).
+works without a plugin). Vite and the CLI ignore `jsxRanges`; the
+TS plugin consumes it.
 
 ## Why Babel, not tsc/swc
 
@@ -116,6 +117,31 @@ If you add a new node kind to the emit (e.g., a future
 `h.something(...)` call from a new compiler rewrite), wrap its
 constructors in `copyLoc` against the source node they replace.
 
+## `jsxRanges` — source-side metadata for downstream tools
+
+Alongside `code` and `map`, the transform emits one `JsxRange` per
+`JSXElement` / `JSXFragment` the parser saw, in source order
+(pre-order: outer before nested). Each range carries:
+
+- `start` / `end` — the full node span (`<div>...</div>`)
+- `openingTag.start` / `.end` — the `<...>` part
+- `openingTag.nameStart` / `.nameEnd` — just the tag name span
+  (covers dotted names: `<Foo.Bar>` → name is `Foo.Bar`)
+- `closingTag` — same shape, omitted when `isSelfClosing`
+- Fragments (`kind: "fragment"`) have no name positions; their
+  `openingTag` is `<>`, `closingTag` is `</>`
+
+This exists so consumers (today: `@efx/ts-plugin`) don't have to
+re-discover JSX structure by regex-scanning the source or the
+compiled output. The Babel AST already knows these positions; we
+report them. Anti-pattern: anywhere in the workspace running a
+JSX-shaped regex against `.efx` content — they should consume
+`jsxRanges` instead.
+
+If you add a new compiler output shape (e.g. richer mappings,
+embedded codes), keep `jsxRanges` as a plain serializable array —
+the contract is structural, not class-based.
+
 ## Tests
 
 `src/transform.test.ts` — 28 cases via `vitest`. Coverage includes:
@@ -129,7 +155,9 @@ attributes, source maps. Run with `pnpm --filter @efx/compiler test`.
 - No reactivity wiring. `h.track`/`read`/`peek` live in
   `@efx/runtime`; the compiler only emits *calls* to them.
 - No source-map remapping for diagnostics. That's the
-  `@efx/ts-plugin` consumer's job.
+  `@efx/ts-plugin` consumer's job. We DO emit the source-side
+  `jsxRanges` it needs to classify positions; the actual mapping
+  decode (Babel VLQ → Volar `Mapping<CodeInformation>`) lives there.
 - No file watching, no caching. Pure function of `(source, filename)`.
   Callers cache.
 
