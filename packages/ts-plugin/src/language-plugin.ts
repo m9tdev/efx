@@ -2,7 +2,7 @@ import type { LanguagePlugin, VirtualCode } from "@volar/language-core"
 import type * as ts from "typescript"
 import { transformEfx } from "@efx/compiler"
 import { convertSourceMap } from "./source-map.ts"
-import { setCache } from "./virtual-code.ts"
+import { EfxVirtualCode, setEfxVirtualCode } from "./virtual-code.ts"
 
 // Volar's typescript property type isn't in the public LanguagePlugin interface
 // but is expected by createLanguageServicePlugin
@@ -24,11 +24,11 @@ interface TypeScriptConfig {
  * how to produce a virtual TypeScript code from one, and which extension
  * TypeScript should associate with the result.
  *
- * Compilation runs once per `createVirtualCode` invocation; the result
- * is stashed in the SourceMapCache so the proxy wrapper can convert
- * offsets without re-running the compiler.
+ * The `EfxVirtualCode` instance returned here is the same instance the
+ * cache holds — Volar and our internal consumers share one object per
+ * `.efx` file (matches Vue's VueVirtualCode pattern).
  */
-export const efxLanguagePlugin: LanguagePlugin<string> & { typescript: TypeScriptConfig } = {
+export const efxLanguagePlugin: LanguagePlugin<string, EfxVirtualCode> & { typescript: TypeScriptConfig } = {
   getLanguageId(scriptId) {
     if (scriptId.endsWith(".efx")) {
       return "efx"
@@ -43,28 +43,10 @@ export const efxLanguagePlugin: LanguagePlugin<string> & { typescript: TypeScrip
 
     const source = snapshot.getText(0, snapshot.getLength())
     const result = transformEfx(source, scriptId)
-    const compiled = result.code
-    const jsxRanges = result.jsxRanges
-
-    // Convert Babel source map to Volar mappings
-    const mappings = convertSourceMap(result.map, source, compiled, jsxRanges)
-
-    // Cache source map data for offset conversion in definition results
-    setCache(scriptId, { source, compiled, mappings, jsxRanges })
-
-    const virtualCode: VirtualCode = {
-      id: "efx-ts",
-      languageId: "typescript",
-      snapshot: {
-        getText: (start, end) => compiled.slice(start, end),
-        getLength: () => compiled.length,
-        getChangeRange: () => undefined,
-      },
-      mappings,
-      embeddedCodes: [],
-    }
-
-    return virtualCode
+    const mappings = convertSourceMap(result.map, source, result.code, result.jsxRanges)
+    const vc = new EfxVirtualCode(source, result.code, mappings, result.jsxRanges)
+    setEfxVirtualCode(scriptId, vc)
+    return vc
   },
 
   typescript: {

@@ -20,8 +20,8 @@ bundles them into `dist/index.cjs` for tsserver to `require()`.
 |---|---|
 | `src/index.ts` | Entry. Re-exports `pluginFactory` via `export =`. |
 | `src/language-plugin.ts` | Volar `LanguagePlugin` object: `getLanguageId`, `createVirtualCode`, `typescript.*`. The Volar contract. |
-| `src/virtual-code.ts` | `SourceMapCache` type + module-level cache `Map` with `getCache` / `setCache` accessors. Sole owner of the per-`.efx` state. |
-| `src/source-map.ts` | `convertSourceMap` (Babel map → Volar mappings, with `CodeInformation` profiles for h() internals and JSX punctuation), plus `compiledToSourceOffset` / `sourceToCompiledOffset`. |
+| `src/virtual-code.ts` | `EfxVirtualCode` class (implements Volar's `VirtualCode`). Holds `source` / `compiled` / `mappings` / `jsxRanges`, plus `compiledToSourceOffset` / `sourceToCompiledOffset` instance methods. Module-level `Map` cache + `getEfxVirtualCode` / `setEfxVirtualCode` accessors. |
+| `src/source-map.ts` | `convertSourceMap` (Babel map → Volar mappings, with `CodeInformation` profiles for h() internals and JSX punctuation). |
 | `src/jsx-tags.ts` | `findJsxTagPair` — uses cached `jsxRanges` from the compiler to find tag-pair partners for document highlights. |
 | `src/service-proxy.ts` | `pluginFactory` — wraps Volar's `LanguageService` with the seven method overrides (definition rewrites, document highlights, inlay hints, references). |
 | `test/integration.mjs` | tsserver-subprocess harness. The acceptance-level check that the plugin really works end-to-end. |
@@ -73,12 +73,15 @@ The minimum Volar wants is: name the language, produce a
 - **`typescript.getServiceScript(root)`** — returns the root
   virtual code with extension `.ts` (matching the above).
 
-A per-`.efx` cache (lives in `virtual-code.ts`, module-level `Map`)
-keeps `{ source, compiled, mappings, jsxRanges }` so the proxy
-wrapper, the source-map offset converters, and the JSX tag-pair
-lookup can read derived state without re-running the compiler.
-`language-plugin.ts` is the only writer (`setCache`); everyone else
-reads via `getCache`.
+The same `EfxVirtualCode` instance Volar receives from
+`createVirtualCode` is the one stashed in the module-level cache —
+one object per `.efx` file, no duplication (matches Vue's
+`VueVirtualCode`). `language-plugin.ts` is the only writer
+(`setEfxVirtualCode`); everyone else reads via `getEfxVirtualCode`.
+
+Offset conversion lives on the class as `vc.compiledToSourceOffset(n)`
+/ `vc.sourceToCompiledOffset(n)` — methods, not free functions, so
+callers that already hold the instance skip a cache lookup.
 
 ## Source-map conversion — three `CodeInformation` profiles
 

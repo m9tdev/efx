@@ -1,4 +1,4 @@
-import { getCache } from "./virtual-code.ts"
+import { getEfxVirtualCode } from "./virtual-code.ts"
 
 export interface NameSpan {
   readonly start: number
@@ -24,10 +24,10 @@ export function findJsxTagPair(
   efxPath: string,
   position: number,
 ): { current: NameSpan; partner: NameSpan } | null {
-  const cache = getCache(efxPath)
-  if (!cache) return null
+  const vc = getEfxVirtualCode(efxPath)
+  if (!vc) return null
 
-  for (const r of cache.jsxRanges) {
+  for (const r of vc.jsxRanges) {
     if (r.kind === "fragment") continue
 
     // On the opening tag?

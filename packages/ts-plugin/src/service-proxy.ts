@@ -1,8 +1,7 @@
 import { createLanguageServicePlugin } from "@volar/typescript/lib/quickstart/createLanguageServicePlugin"
 import type * as ts from "typescript"
 import { efxLanguagePlugin } from "./language-plugin.ts"
-import { getCache } from "./virtual-code.ts"
-import { compiledToSourceOffset, sourceToCompiledOffset } from "./source-map.ts"
+import { getEfxVirtualCode } from "./virtual-code.ts"
 import { findJsxTagPair } from "./jsx-tags.ts"
 
 // Create the base Volar plugin
@@ -72,7 +71,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
         const virtualOffset = def.textSpan.start - headerOffset
 
         // Convert textSpan offsets from compiled (virtual) to source using source map
-        const sourceStart = compiledToSourceOffset(efxPath, virtualOffset)
+        const sourceStart = getEfxVirtualCode(efxPath)?.compiledToSourceOffset(virtualOffset) ?? null
         if (sourceStart === null) {
           // No mapping found, return with just path rewritten
           return { ...def, fileName: efxPath }
@@ -129,8 +128,8 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               }
 
               // Whitespace at cursor → suppress; tsserver otherwise returns spurious empty hits
-              const cache = getCache(fileName)
-              const charAtPos = cache?.source[position]
+              const vc = getEfxVirtualCode(fileName)
+              const charAtPos = vc?.source[position]
               if (charAtPos && /\s/.test(charAtPos)) {
                 return undefined
               }
@@ -185,7 +184,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               if (fileName.endsWith(".efx")) {
                 const tsPath = fileName.slice(0, -4) + ".ts"
                 if (ts.sys.fileExists(tsPath)) {
-                  const compiledPos = sourceToCompiledOffset(fileName, position)
+                  const compiledPos = getEfxVirtualCode(fileName)?.sourceToCompiledOffset(position) ?? null
                   if (compiledPos !== null) {
                     const headerOffset = getGeneratedHeaderOffset(tsPath)
                     targetFile = tsPath
@@ -216,7 +215,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               if (fileName.endsWith(".efx")) {
                 const tsPath = fileName.slice(0, -4) + ".ts"
                 if (ts.sys.fileExists(tsPath)) {
-                  const compiledPos = sourceToCompiledOffset(fileName, position)
+                  const compiledPos = getEfxVirtualCode(fileName)?.sourceToCompiledOffset(position) ?? null
                   if (compiledPos !== null) {
                     const headerOffset = getGeneratedHeaderOffset(tsPath)
                     targetFile = tsPath
