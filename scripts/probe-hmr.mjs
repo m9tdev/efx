@@ -2,11 +2,16 @@
 // appears in the browser without manual reload.
 import { chromium } from "playwright-core"
 import { readFileSync, writeFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+import { dirname, resolve } from "node:path"
 
-const COUNTER_PATH = "/home/mathieu/playground/apps/demo/src/Counter.efx"
+const COUNTER_PATH = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../apps/demo/src/Counter.efx",
+)
 
 const browser = await chromium.launch({
-  executablePath: "/etc/profiles/per-user/mathieu/bin/chromium",
+  executablePath: process.env.EFX_CHROMIUM,
   headless: true,
   args: ["--no-sandbox", "--disable-gpu"],
 })
