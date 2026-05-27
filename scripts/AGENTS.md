@@ -14,7 +14,7 @@ re-renders when you click +".
 | `probe.mjs` | Counter increments; UserPage's async fetch resolves; screenshots saved to `/tmp/efx-verify/`. |
 | `probe-liveuser.mjs` | `Atom` + `AsyncResult` cycles Initial → Success → Failure → recovery as the user clicks the LiveUser actions. |
 | `probe-todos.mjs` | Keyed reactive list: add/remove/toggle a row leaves sibling DOM nodes untouched (tagged-node identity check). |
-| `probe-lifecycle.mjs` | Per-component lifecycle scope: `Effect.acquireRelease` inside a row component fires its release when the row is removed. The red-test for `mount`'s per-row `Scope`. |
+| `probe-lifecycle.mjs` | Per-component lifecycle scope, three phases: (1) initial mount-event count, (2) removing a row fires its matching unmount via `Scope.closeUnsafe`, (3) full teardown via `__teardown` cascades through every row scope so every outstanding mount has a matching unmount. |
 | `probe-hmr.mjs` | Vite HMR on a `.efx` edit propagates without a full reload. |
 | `probe-prod.mjs` | Production bundle (built via `pnpm build`) is interactive end-to-end on port 8765. |
 
@@ -23,6 +23,33 @@ browser." If you change anything in `mount`, `coerce`, the compiler's
 output shape, or the Vite plugin, run the relevant probe before
 declaring the change good. Type checks won't catch render-path
 regressions.
+
+## Probe shape: harness + spec
+
+Every probe is split in two:
+
+- **`probe-harness.mjs`** — owns the boilerplate every probe shares:
+  chromium launch, context + viewport, the default `pageerror`
+  listener, `page.goto(..., { waitUntil: "networkidle" })`, and
+  `browser.close()` in a `finally` block. Exports `runProbe({ url,
+  viewport, onConsole, onPageError, run })`; returns whatever `run`
+  returns so specs can hoist values out for post-close assertions
+  (see `probe-lifecycle.mjs`).
+- **`probe-*.mjs`** — the **spec**: per-probe assertions inside the
+  `run(page, ctx)` callback. Defaults: `url` is
+  `http://localhost:5173/`, `viewport` is `900×1100`, `pageerror`
+  logs to stderr. Override any per-spec (e.g. `probe-prod.mjs` sets
+  `url` from `EFX_URL`; `probe.mjs` redirects both `onConsole` and
+  `onPageError` into a buffer for `/tmp/efx-verify/console.log`).
+
+The harness does **not** force an exit-code or terminator convention.
+Some specs end with `console.log("DONE")`, `probe-lifecycle.mjs`
+prints `PASS` / `FAIL`, `probe-hmr.mjs` prints `HMR PASS` / `HMR FAIL`
+and `process.exit(0|1)`. The spec decides.
+
+Specs that mutate repo files (e.g. `probe-hmr.mjs` editing
+`Counter.efx`) wrap `runProbe` in their own `try/finally` for cleanup.
+The harness's `finally` only closes the browser.
 
 ## Compiler smoke test
 

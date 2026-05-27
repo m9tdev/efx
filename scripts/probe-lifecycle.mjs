@@ -7,52 +7,46 @@
 //      closing the program scope). The parent-fork cascade closes every
 //      remaining row scope: every outstanding mount must have a matching
 //      unmount afterwards.
-import { chromium } from "playwright-core"
+import { runProbe } from "./probe-harness.mjs"
 
-const URL = process.env.EFX_URL ?? "http://localhost:5173/"
+const { initial, afterAdd, afterRemove, beforeTeardown, afterTeardown } = await runProbe({
+  url: process.env.EFX_URL ?? "http://localhost:5173/",
+  viewport: { width: 900, height: 1400 },
+  run: async (page) => {
+    await page.waitForSelector(".lifecycle")
 
-const browser = await chromium.launch({
-  executablePath: process.env.EFX_CHROMIUM,
-  headless: true,
-  args: ["--no-sandbox", "--disable-gpu"],
+    const read = () => page.evaluate(() => window.__lifecycle ?? [])
+
+    const initial = await read()
+    console.log("initial:", initial)
+
+    await page.locator(".lifecycle button", { hasText: "add row" }).click()
+    await page.waitForTimeout(50)
+    const afterAdd = await read()
+    console.log("after add:", afterAdd)
+
+    await page.locator(".lifecycle button", { hasText: "remove last" }).click()
+    await page.waitForTimeout(50)
+    const afterRemove = await read()
+    console.log("after remove:", afterRemove)
+
+    // Phase 3: leave several rows mounted, trigger full teardown via __teardown.
+    // The fork-cascade through every row scope should fire each remaining
+    // row's unmount.
+    await page.locator(".lifecycle button", { hasText: "add row" }).click()
+    await page.locator(".lifecycle button", { hasText: "add row" }).click()
+    await page.waitForTimeout(50)
+    const beforeTeardown = await read()
+    console.log("before teardown:", beforeTeardown)
+
+    await page.evaluate(() => globalThis.__teardown?.())
+    await page.waitForTimeout(100)
+    const afterTeardown = await read()
+    console.log("after teardown:", afterTeardown)
+
+    return { initial, afterAdd, afterRemove, beforeTeardown, afterTeardown }
+  },
 })
-const ctx = await browser.newContext({ viewport: { width: 900, height: 1400 } })
-const page = await ctx.newPage()
-page.on("pageerror", (e) => console.error("[pageerror]", e.message))
-
-await page.goto(URL, { waitUntil: "networkidle" })
-await page.waitForSelector(".lifecycle")
-
-const read = () => page.evaluate(() => window.__lifecycle ?? [])
-
-const initial = await read()
-console.log("initial:", initial)
-
-await page.locator(".lifecycle button", { hasText: "add row" }).click()
-await page.waitForTimeout(50)
-const afterAdd = await read()
-console.log("after add:", afterAdd)
-
-await page.locator(".lifecycle button", { hasText: "remove last" }).click()
-await page.waitForTimeout(50)
-const afterRemove = await read()
-console.log("after remove:", afterRemove)
-
-// Phase 3: leave several rows mounted, trigger full teardown via __teardown.
-// The fork-cascade through every row scope should fire each remaining
-// row's unmount.
-await page.locator(".lifecycle button", { hasText: "add row" }).click()
-await page.locator(".lifecycle button", { hasText: "add row" }).click()
-await page.waitForTimeout(50)
-const beforeTeardown = await read()
-console.log("before teardown:", beforeTeardown)
-
-await page.evaluate(() => globalThis.__teardown?.())
-await page.waitForTimeout(100)
-const afterTeardown = await read()
-console.log("after teardown:", afterTeardown)
-
-await browser.close()
 
 // Assertions
 const failures = []
