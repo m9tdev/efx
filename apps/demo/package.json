@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "preview": "vite preview",
     "typecheck": "node --experimental-strip-types ../../packages/check/src/cli.ts"
   },
   "dependencies": {
