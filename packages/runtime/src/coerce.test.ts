@@ -1,4 +1,4 @@
-import { Chunk, Effect, Option, Result, Scope } from "effect"
+import { Chunk, Effect, Exit, Option, Result, Scope } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
 import { describe, expect, it } from "vitest"
 import { coerceAsync, coerceSync, isAtomRef } from "./coerce.ts"
@@ -109,32 +109,45 @@ describe("coerceAsync — unknown fallback", () => {
   })
 })
 
+// Fresh scope per coerceSync call — `coerceSync` requires one to provide to
+// any Effect-shaped value it has to run.
+const withFreshScope = <A>(fn: (scope: Scope.Closeable) => A): A => {
+  const scope = Scope.makeUnsafe()
+  try {
+    return fn(scope)
+  } finally {
+    const closeExit = Scope.closeUnsafe(scope, Exit.void)
+    if (closeExit) Effect.runFork(closeExit)
+  }
+}
+
 describe("coerceSync — primitives + View pass-through", () => {
   it("string → View.Text", () => {
-    expect(coerceSync("hi")).toEqual(View.Text({ value: "hi" }))
+    expect(withFreshScope((s) => coerceSync("hi", s))).toEqual(View.Text({ value: "hi" }))
   })
 
   it("number → View.Text via String()", () => {
-    expect(coerceSync(42)).toEqual(View.Text({ value: "42" }))
+    expect(withFreshScope((s) => coerceSync(42, s))).toEqual(View.Text({ value: "42" }))
   })
 
   it("bigint → View.Text via String()", () => {
-    expect(coerceSync(7n)).toEqual(View.Text({ value: "7" }))
+    expect(withFreshScope((s) => coerceSync(7n, s))).toEqual(View.Text({ value: "7" }))
   })
 
   it.each([null, undefined, true, false])("%s → View.Empty", (v) => {
-    expect(coerceSync(v)).toEqual(View.Empty())
+    expect(withFreshScope((s) => coerceSync(v, s))).toEqual(View.Empty())
   })
 
   it("View → pass through", () => {
     const input = View.Text({ value: "v" })
-    expect(coerceSync(input)).toEqual(input)
+    expect(withFreshScope((s) => coerceSync(input, s))).toEqual(input)
   })
 })
 
 describe("coerceSync — Effect handling", () => {
   it("Effect.succeed(string) → coerce inner synchronously", () => {
-    expect(coerceSync(Effect.succeed("ok"))).toEqual(View.Text({ value: "ok" }))
+    expect(withFreshScope((s) => coerceSync(Effect.succeed("ok"), s)))
+      .toEqual(View.Text({ value: "ok" }))
   })
 
   it("Effect that requires Scope: runs with provided scope", () => {
@@ -147,7 +160,7 @@ describe("coerceSync — Effect handling", () => {
   })
 
   it("Effect that fails synchronously → View.Text with `[effect failed:` prefix", () => {
-    const result = coerceSync(Effect.fail("boom"))
+    const result = withFreshScope((s) => coerceSync(Effect.fail("boom"), s))
     expect(result._tag).toBe("Text")
     expect((result as { value: string }).value).toMatch(/^\[effect failed:/)
   })
@@ -155,7 +168,7 @@ describe("coerceSync — Effect handling", () => {
 
 describe("coerceSync — Array → Fragment", () => {
   it("array of primitives", () => {
-    expect(coerceSync(["a", 1, null])).toEqual(
+    expect(withFreshScope((s) => coerceSync(["a", 1, null], s))).toEqual(
       View.Fragment({
         children: [
           View.Text({ value: "a" }),
@@ -169,9 +182,8 @@ describe("coerceSync — Array → Fragment", () => {
 
 describe("coerceSync — unknown fallback (String())", () => {
   it("plain object → View.Text via String()", () => {
-    expect(coerceSync({ toString: () => "obj!" })).toEqual(
-      View.Text({ value: "obj!" }),
-    )
+    expect(withFreshScope((s) => coerceSync({ toString: () => "obj!" }, s)))
+      .toEqual(View.Text({ value: "obj!" }))
   })
 })
 
@@ -182,25 +194,25 @@ describe("coerceSync — asymmetry (does NOT peel async-only containers)", () =>
   // an Effect, neither of which is appropriate inside the sync render path.
 
   it("Option.some(x) → String() fallback, not unwrap", () => {
-    const result = coerceSync(Option.some("inner"))
+    const result = withFreshScope((s) => coerceSync(Option.some("inner"), s))
     expect(result._tag).toBe("Text")
     expect((result as { value: string }).value).not.toBe("inner")
   })
 
   it("Result.succeed(x) → String() fallback, not unwrap", () => {
-    const result = coerceSync(Result.succeed("inner"))
+    const result = withFreshScope((s) => coerceSync(Result.succeed("inner"), s))
     expect(result._tag).toBe("Text")
     expect((result as { value: string }).value).not.toBe("inner")
   })
 
   it("AtomRef → String() fallback, not View.Reactive", () => {
     const ref = AtomRef.make("x")
-    const result = coerceSync(ref)
+    const result = withFreshScope((s) => coerceSync(ref, s))
     expect(result._tag).toBe("Text")
   })
 
   it("Chunk → String() fallback, not Fragment", () => {
-    const result = coerceSync(Chunk.fromIterable(["a", "b"]))
+    const result = withFreshScope((s) => coerceSync(Chunk.fromIterable(["a", "b"]), s))
     expect(result._tag).toBe("Text")
   })
 })
