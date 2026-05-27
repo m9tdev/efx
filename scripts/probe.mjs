@@ -3,7 +3,7 @@ import { chromium } from "playwright-core"
 import { writeFileSync } from "node:fs"
 
 const browser = await chromium.launch({
-  executablePath: "/etc/profiles/per-user/mathieu/bin/chromium",
+  executablePath: process.env.EFX_CHROMIUM,
   headless: true,
   args: ["--no-sandbox", "--disable-gpu"],
 })
