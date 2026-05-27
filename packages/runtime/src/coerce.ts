@@ -57,16 +57,16 @@ function coerceChildren(cs: ReadonlyArray<unknown>): Effect.Effect<View, any, an
 
 /**
  * Synchronously coerce an arbitrary value (typically read from a reactive
- * source at render time) into a View. If `scope` is provided and the value
- * is an Effect, the effect is run with that scope, so `Effect.acquireRelease`
- * / `Effect.addFinalizer` inside the effect register releases against it.
+ * source at render time) into a View. `scope` is provided to any Effect-shaped
+ * value via `Effect.provideService`, so `Effect.acquireRelease` /
+ * `Effect.addFinalizer` inside the effect register releases against it.
  *
  * **Asymmetric vs. coerceAsync**: this path does NOT peel
  * Option/Result/Chunk/Atom/AtomRef. At render-time those containers have
  * already been unwrapped by the caller; if one shows up here it's coerced
  * via `String()` rather than silently expanded.
  */
-export const coerceSync = (v: unknown, scope?: Scope.Closeable): View => {
+export const coerceSync = (v: unknown, scope: Scope.Scope): View => {
   if (v == null || v === false || v === true) return Empty
   if (typeof v === "string") return View.Text({ value: v })
   if (typeof v === "number" || typeof v === "bigint") {
@@ -74,9 +74,11 @@ export const coerceSync = (v: unknown, scope?: Scope.Closeable): View => {
   }
   if (isView(v)) return v
   if (Effect.isEffect(v)) {
-    const provided = scope
-      ? Effect.provideService(v as Effect.Effect<unknown, unknown, Scope.Scope>, Scope.Scope, scope)
-      : (v as Effect.Effect<unknown, unknown, never>)
+    const provided = Effect.provideService(
+      v as Effect.Effect<unknown, unknown, Scope.Scope>,
+      Scope.Scope,
+      scope,
+    )
     const exit = Effect.runSyncExit(provided)
     return Exit.match(exit, {
       onSuccess: (val) => coerceSync(val, scope),
