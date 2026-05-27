@@ -43,6 +43,10 @@ pnpm dev
 The demo exercises every primitive — counter, async data fetch, async-state
 pattern matching, keyed reactive list.
 
+On Nix, `nix develop` drops you into a shell with Node, Corepack (for
+`pnpm` via the `packageManager` field), and Chromium (with `EFX_CHROMIUM`
+pre-exported for the probe scripts).
+
 ## Smallest possible example
 
 ```tsx
