@@ -66,7 +66,7 @@ function coerceChildren(cs: ReadonlyArray<unknown>): Effect.Effect<View, any, an
  * already been unwrapped by the caller; if one shows up here it's coerced
  * via `String()` rather than silently expanded.
  */
-export const coerceSync = (v: unknown, scope: Scope.Closeable): View => {
+export const coerceSync = (v: unknown, scope: Scope.Scope): View => {
   if (v == null || v === false || v === true) return Empty
   if (typeof v === "string") return View.Text({ value: v })
   if (typeof v === "number" || typeof v === "bigint") {
