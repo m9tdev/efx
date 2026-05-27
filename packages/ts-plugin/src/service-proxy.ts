@@ -1,13 +1,17 @@
 import { createLanguageServicePlugin } from "@volar/typescript/lib/quickstart/createLanguageServicePlugin"
 import type * as ts from "typescript"
 import { createEfxLanguagePlugin, VirtualCodeRegistry } from "@efx/language"
-import { findJsxTagPair } from "./jsx-tags.ts"
+import { findJsxTagPair, type JsxTagProvider } from "./jsx-tags.ts"
 import { classifyRefs } from "./classify-references.ts"
 
 // One registry per tsserver session. tsserver loads this plugin module once,
 // so this single instance is the cache for the editor's lifetime — and is
-// passed to both the LanguagePlugin (writer) and findJsxTagPair (reader).
+// passed to both the LanguagePlugin (writer) and the JsxTagProvider (reader).
 const registry = new VirtualCodeRegistry()
+
+const jsxTagProvider: JsxTagProvider = {
+  getJsxRanges: (efxPath) => registry.get(efxPath)?.jsxRanges,
+}
 
 // tsserver identifies scripts by file path strings — asFileName is identity.
 const efxLanguagePlugin = createEfxLanguagePlugin<string>((scriptId) => scriptId, registry)
@@ -110,7 +114,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               }
 
               // JSX tag-pair highlight, backed by compiler jsxRanges
-              const pair = findJsxTagPair(registry, fileName, position)
+              const pair = findJsxTagPair(jsxTagProvider, fileName, position)
               if (pair) {
                 return [{
                   fileName,
