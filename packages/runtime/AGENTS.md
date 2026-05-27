@@ -30,8 +30,8 @@ the editor margin. If you rename them, update the regex.
 
 | File | Purpose |
 |---|---|
-| `src/h.ts` | `h()` factory + `track`/`read`/`peek` reactivity-tracking machinery. Re-exports `isAtomRef` from `coerce.ts` for back-compat |
-| `src/coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Also owns `isAtomRef` / `ATOM_REF_TYPE_ID` |
+| `src/h.ts` | `h()` factory + `track`/`read`/`peek` reactivity-tracking machinery |
+| `src/coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId` from `effect/unstable/reactivity`) |
 | `src/View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
 | `src/mount.ts` | DOM renderer. `buildDom(view, registry, scope) → Node`, `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close |
 | `src/index.ts` | Public exports + `list`, `Fragment`, `EfxLive` |

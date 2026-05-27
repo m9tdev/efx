@@ -3,10 +3,8 @@ import { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { ChildE, ChildR } from "./types/Fold.ts"
 import { isView, View } from "./View.ts"
 
-export const ATOM_REF_TYPE_ID = "~effect/reactivity/AtomRef"
-
 export const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
-  typeof u === "object" && u !== null && ATOM_REF_TYPE_ID in u
+  typeof u === "object" && u !== null && AtomRef.TypeId in u
 
 const Empty = View.Empty()
 

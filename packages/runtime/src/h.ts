@@ -4,8 +4,6 @@ import { coerceAsync, isAtomRef } from "./coerce.ts"
 import type { FoldE, FoldR, TagE, TagProps, TagR } from "./types/Fold.ts"
 import { type Props, View } from "./View.ts"
 
-export { isAtomRef }
-
 // ─── Tracking scope for h.track / h.read ─────────────────────────────────
 //
 // When the compiler wraps a JSX expression in `h.track(() => ...)`, that
