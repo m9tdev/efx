@@ -163,6 +163,9 @@ compiler eats and converts into `h()` calls." Not the React thing.
   tsserver can `require()`.
 - No bundler in the framework itself; consumers bring Vite (or
   whatever) plus the Vite plugin.
+- Nix devshell (`flake.nix`) provides Node, Corepack (which resolves
+  pnpm via the `packageManager` field), and Chromium with
+  `EFX_CHROMIUM` pre-exported for the probe scripts.
 
 ## How to verify a change end-to-end
 

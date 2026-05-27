@@ -33,7 +33,7 @@ the editor margin. If you rename them, update the regex.
 | `src/h.ts` | `h()` factory + `track`/`read`/`peek` reactivity-tracking machinery |
 | `src/coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId` from `effect/unstable/reactivity`) |
 | `src/View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
-| `src/mount.ts` | DOM renderer. `buildDom(View, registry) → { node, cleanup }`, `mount(app, el)` |
+| `src/mount.ts` | DOM renderer. `buildDom(view, registry, scope) → Node`, `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close |
 | `src/index.ts` | Public exports + `list`, `Fragment`, `EfxLive` |
 | `src/coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
 | `src/types/Fold.ts` | `ChildE`/`ChildR`/`FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps` — the channel-fold conditional types |
@@ -152,6 +152,21 @@ are components, not IR.
 
 ## mount internals — invariants
 
+**Scope is threaded through `buildDom`.** Signature:
+`buildDom(view, registry, scope: Scope.Scope) → Node`. Every
+subscription, event listener, and per-row `Effect.acquireRelease`
+release registers a finalizer on this scope (directly via
+`Scope.addFinalizer`, or via a forked child for sub-trees that need
+their own lifetime). On scope close, parent-fork cascade tears
+everything down. There is no `{ node, cleanup }` wrapper return type
+— closing the surrounding scope IS the cleanup.
+
+**`subscribeRefScoped` / `subscribeAtomScoped`** are the only two
+ways to subscribe to a reactive source from inside `mount.ts`.
+They register the `dispose` callback as a `Scope.addFinalizer`
+finalizer. Don't subscribe outside these helpers — the dispose
+function would have no scope to bind to and would leak on teardown.
+
 **Fragments wrap in `<span style="display: contents">`.** Not a
 `DocumentFragment`, because `DocumentFragment` is consumed on insert
 — a later `replaceChild(fragment, ...)` would fail. The wrapper
@@ -165,12 +180,21 @@ the first emit (synchronous if the source is already populated).
 Source can be `Atom` or `AtomRef.ReadonlyRef`; dispatch on
 `Atom.isAtom` / `isAtomRef`. `coerceSync` (from `coerce.ts`) coerces
 the emitted value into a `View` — including `Effect`, which is run
-with the current scope so `Effect.acquireRelease` registers releases
-on *this* node's scope. `coerceSync` is deliberately asymmetric vs.
-`coerceAsync`: at this point in the render path the Atom/AtomRef has
-already been peeled, so it does NOT recurse into
-Option/Result/Chunk/Atom/AtomRef. Don't "fix" that — the unwrap
-contract belongs upstream.
+with the per-render child scope so `Effect.acquireRelease`
+registers releases on *that* render's scope. `coerceSync` is
+deliberately asymmetric vs. `coerceAsync`: at this point in the
+render path the Atom/AtomRef has already been peeled, so it does
+NOT recurse into Option/Result/Chunk/Atom/AtomRef. Don't "fix" that
+— the unwrap contract belongs upstream.
+
+**Reactive ordering: build NEW → swap DOM → close OLD.** Per emit,
+fork a fresh child scope from the Reactive's scope, build the new
+subtree into it (subscribing whatever refs the new subtree needs),
+swap into the DOM via `replaceChild`, THEN close the previous
+emit's child scope. The reverse order (close OLD first, then build
+NEW) would unsubscribe many refs and resubscribe many during a
+single `notify` loop on the source — the same "diff, not
+unsub-all-then-resub" hazard documented for `h.track`.
 
 **List reconciles by AtomRef identity.** Not by index, not by value
 equality. Each row's `AtomRef` is the key; on `subscribe`, only
@@ -185,17 +209,24 @@ tear down DOM unnecessarily.
 references would always say "no change." `snapshot = Array.from(next)`
 is critical.
 
-**List per-row Scope**: each new row gets its own
-`Scope.makeUnsafe()`. The row's render Effect runs in that scope so
-`Effect.acquireRelease(acquire, release)` inside the row component
-registers `release` on the row scope. On row removal,
-`Scope.closeUnsafe(rowScope, Exit.void)` fires the release. This is
-the mechanism Lifecycle.efx exercises.
+**List per-row Scope is a `Scope.forkUnsafe` child of the List's
+scope** — not an orphan `Scope.makeUnsafe`. The row's render Effect
+runs in that scope so `Effect.acquireRelease(acquire, release)`
+inside the row component registers `release` on the row scope. On
+row removal, `Scope.closeUnsafe(rowScope, Exit.void)` fires the
+releases; on full teardown, the parent-fork cascade closes any
+remaining rows automatically — leak-safe by construction. The
+`Effect.runFork(closeExit)` shape is intentional: row releases can
+be async, and fire-and-forget matches the surrounding DOM
+synchronicity. Lifecycle.efx exercises this mechanism, and
+`scripts/probe-lifecycle.mjs` exercises both row-removal and the
+full-teardown cascade.
 
-**`mount` adds a finalizer** that removes the rendered DOM and
-calls `rendered.cleanup()` when its scope closes. The caller must
-provide a scope (`Effect.scoped` typically) and keep it alive for
-the lifetime of the rendered UI.
+**`mount`** captures the ambient `Scope` via `yield* Effect.scope`,
+threads it into `buildDom`, and adds one finalizer of its own
+(removes the rendered root from the DOM). All other cleanup is
+inside the scope. Callers must provide a scope (`Effect.scoped`
+typically) and keep it alive for the lifetime of the rendered UI.
 
 ## Anti-patterns
 
@@ -213,6 +244,17 @@ the lifetime of the rendered UI.
   async dependencies into a sync hot path or grow dead code.
 - Don't return `DocumentFragment` from `buildDom`. Stable replacement
   needs a real parent node.
+- Don't return `{ node, cleanup }` (or any wrapper around `Node`)
+  from `buildDom`. Cleanup is the scope's job — adding a tuple back
+  reintroduces parallel cleanup conventions that the scope-threading
+  refactor consolidated. If you need teardown for something, register
+  it via `Scope.addFinalizer` (or one of the `subscribe*Scoped`
+  helpers).
+- Don't call `Scope.makeUnsafe()` from inside `buildDom` to make an
+  orphan scope for a sub-tree. Use `Scope.forkUnsafe(parent, ...)`
+  so the sub-scope is parent-linked — closing the surrounding scope
+  cascades into the sub-scope. Orphan scopes leak finalizers on
+  unexpected teardown paths.
 - Don't extend `h.track`'s behavior to handle composite expressions
   — the compiler decides what's rewritten; the runtime just executes.
 - Don't subscribe to `AtomRef.Collection` per-item-value events

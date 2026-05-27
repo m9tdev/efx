@@ -1,8 +1,17 @@
-import type { VirtualCodeRegistry } from "@efx/language"
+import type { JsxRange } from "@efx/language"
 
 export interface NameSpan {
   readonly start: number
   readonly length: number
+}
+
+/**
+ * Provides JSX range data for a `.efx` file. Abstracts how ranges are stored
+ * (registry, in-memory map, etc.) so `findJsxTagPair` can be tested and reused
+ * without coupling to a specific cache implementation.
+ */
+export interface JsxTagProvider {
+  getJsxRanges(efxPath: string): ReadonlyArray<JsxRange> | undefined
 }
 
 /**
@@ -19,16 +28,19 @@ export interface NameSpan {
  *   - NOT on attributes (e.g. inside `class="x"`)
  *
  * Fragments (`<>...</>`) have no names — skipped.
+ *
+ * Callers should gate on `.efx` files before calling — this function doesn't
+ * validate the file extension.
  */
 export function findJsxTagPair(
-  registry: VirtualCodeRegistry,
+  provider: JsxTagProvider,
   efxPath: string,
   position: number,
 ): { current: NameSpan; partner: NameSpan } | null {
-  const vc = registry.get(efxPath)
-  if (!vc) return null
+  const ranges = provider.getJsxRanges(efxPath)
+  if (!ranges) return null
 
-  for (const r of vc.jsxRanges) {
+  for (const r of ranges) {
     if (r.kind === "fragment") continue
 
     // On the opening tag?

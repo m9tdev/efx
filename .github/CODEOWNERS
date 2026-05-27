@@ -1,0 +1,4 @@
+# Every file in this repo is owned by @m9tdev.
+# Branch protection rules that require Code Owner review will demand
+# approval from @m9tdev on any PR touching matched paths.
+* @m9tdev

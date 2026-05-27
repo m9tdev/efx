@@ -1,4 +1,4 @@
-import { Cause, Effect, Layer } from "effect"
+import { Cause, Effect, Fiber, Layer } from "effect"
 import { EfxLive, mount } from "@efx/runtime"
 import { Counter } from "./Counter.efx"
 import { Lifecycle } from "./Lifecycle.efx"
@@ -50,4 +50,11 @@ const program = Effect.gen(function* () {
   Effect.provide(Layer.mergeAll(EfxLive, HttpLive, ThemeLive)),
 )
 
-Effect.runFork(program)
+const fiber = Effect.runFork(program)
+
+// Test affordance: scripts/probe-lifecycle.mjs calls this to trigger a full
+// unmount via fiber interruption. Closing the program scope cascades through
+// every per-row / per-Reactive sub-scope and fires their finalizers.
+;(globalThis as { __teardown?: () => void }).__teardown = () => {
+  Effect.runFork(Fiber.interrupt(fiber))
+}
