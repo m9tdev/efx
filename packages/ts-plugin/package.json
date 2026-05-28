@@ -17,7 +17,7 @@
     "typescript": "^5.7.0"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.0-beta.70",
+    "@effect/vitest": "4.0.0-beta.71",
     "esbuild": "^0.27.0",
     "typescript": "^5.7.0"
   }
