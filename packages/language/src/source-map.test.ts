@@ -8,10 +8,11 @@ import { convertSourceMap } from "./source-map.ts"
  *
  * The point of these tests is to lock in the bidirectional position-mapping
  * contract: every Babel transform that shifts byte counts (paren strip on
- * single-arg arrows, `.value` → `h.read(x)`, bare-test → `h.peek(id)`, etc.)
- * produces mappings where source and generated lengths can differ. If we ever
- * lose track of that asymmetry, inlay-hint / hover / go-to-def positions
- * silently drift in the editor — PR #12 was one such regression.
+ * single-arg arrows, `.value` → `h.read(x)`, `.value.map(arrow → JSX)` →
+ * `list(...)`, etc.) produces mappings where source and generated lengths
+ * can differ. If we ever lose track of that asymmetry, inlay-hint / hover /
+ * go-to-def positions silently drift in the editor — PR #12 was one such
+ * regression.
  */
 
 const buildMappings = (src: string) => {
@@ -86,24 +87,65 @@ const view = <div>{x.value}</div>`
     expect(intersecting.length).toBeGreaterThan(0)
   })
 
-  it("bare-test rewrite: `{cond ? a : b}` → `h.peek(cond) ? a : b` adds 8 generated chars before `cond`", () => {
-    // The `cond` identifier in test position gets wrapped: `cond` → `h.peek(cond)`.
-    // The source `cond` (4 chars) keeps a mapping; the inserted prefix `h.peek(`
-    // and suffix `)` have no source counterpart, but together with the wrap
-    // they create a region where generated length > source length.
-    const src = `const cond = true
-const a = "a"
-const b = "b"
-const view = <div>{cond ? a : b}</div>`
+  it(".value.map → list rewrite: source `coll.value.map(...)` shrinks to `list(coll, ...)`", () => {
+    // The `<expr>.value.map(arrow → JSX)` pattern collapses into a `list()`
+    // call. Source `coll.value.map(` (15 chars) becomes generated `list(coll,`
+    // (10 chars) — a region where source length > generated length, mirror of
+    // the .value → h.read case where generated is wider.
+    const src = `import { AtomRef } from "effect/unstable/reactivity"
+const coll = AtomRef.collection<number>([])
+const view = <ul>{coll.value.map((item) => <li>{item}</li>)}</ul>`
     const { code, mappings } = buildMappings(src)
-    expect(code).toContain("h.peek(cond)")
-    // The mapping at source `cond` (inside the ternary test) should exist and
-    // have a sensible shape.
-    const condTestSrc = src.indexOf("{cond ?") + 1
-    const m = findBySourceOffset(mappings, condTestSrc)
-    expect(m, "expected a mapping at the test-position `cond`").toBeDefined()
-    expect(m!.lengths[0], "source length covers `cond`").toBeGreaterThanOrEqual(1)
-    expect(m!.generatedLengths![0]).toBeDefined()
+    expect(code).toContain("list(coll,")
+    // At least one mapping must bridge the source `coll.value.map(` region to
+    // the generated `list(coll,` region. Exact mapping shape depends on Babel
+    // codegen, but the contract is that we don't lose the span altogether.
+    const collValueMapSrc = src.indexOf("coll.value.map")
+    const generatedList = code.indexOf("list(coll,")
+    expect(collValueMapSrc).toBeGreaterThanOrEqual(0)
+    expect(generatedList).toBeGreaterThanOrEqual(0)
+    const intersecting = mappings.filter(
+      (m) =>
+        m.sourceOffsets[0]! >= collValueMapSrc &&
+        m.sourceOffsets[0]! <= collValueMapSrc + 15 &&
+        m.generatedOffsets[0]! >= generatedList &&
+        m.generatedOffsets[0]! <= generatedList + 10,
+    )
+    expect(
+      intersecting.length,
+      "expected a mapping bridging `coll.value.map(` to `list(coll,`",
+    ).toBeGreaterThan(0)
+    // Every mapping must still carry both lengths (no bare source-only or
+    // generated-only spans leaking through).
+    for (const m of mappings) {
+      expect(m.lengths).toHaveLength(1)
+      expect(m.generatedLengths).toHaveLength(1)
+    }
+  })
+
+  it("list arrow body: the inner `<Row>` tag-name position still maps for go-to-def", () => {
+    // The `.value.map → list(...)` rewrite uses `path.skip()` to halt the
+    // inner traversal, but the outer JSX traversal still rewrites the inner
+    // `<Row>` to `h(Row, ...)`. The Row tag's nameStart in source must keep
+    // a mapping that lands inside the generated `h(Row,` so editor
+    // go-to-definition on Row inside the list arrow still resolves.
+    const src = `const Row = (props: { item: number }) => null
+const coll = { value: [] as number[] }
+const view = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>`
+    const { code, mappings } = buildMappings(src)
+    expect(code).toContain("list(coll,")
+    expect(code).toContain("h(Row,")
+    // Find the `R` of `<Row` in source (the tag name's start, +1 to skip `<`).
+    const rowTagSrc = src.indexOf("<Row") + 1
+    // ...and the `R` of `h(Row,` in generated.
+    const rowGenStart = code.indexOf("h(Row,") + "h(".length
+    const m = findBySourceOffset(mappings, rowTagSrc)
+    expect(m, "expected a mapping at source `Row` tag name").toBeDefined()
+    expect(
+      m!.generatedOffsets[0],
+      "source `Row` must map into generated `h(Row,` region",
+    ).toBeGreaterThanOrEqual(rowGenStart)
+    expect(m!.generatedOffsets[0]).toBeLessThanOrEqual(rowGenStart + "Row".length)
   })
 
   it("h.track wrap: source JSX expression becomes h.track(() => <expr>)", () => {

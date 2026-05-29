@@ -1,6 +1,5 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { list, type View } from "@efx/runtime"
 
 interface Todo {
   readonly text: string
@@ -30,15 +29,14 @@ const TodoRow = Effect.fn("TodoRow")(function* (props: {
   const toggle = () => ref.update((t) => ({ ...t, done: !t.done }))
   const remove = () => todos.remove(ref)
 
-  // The compiler wraps every JSX expression in `h.track(() => …)`:
-  //  - `.value` reads become `h.read(…)` — tracks AtomRef value access
-  //  - bare identifiers in ternary/`&&`/`||`/`!` positions become
-  //    `h.peek(…)` — for AtomRefs, unwraps and tracks; for plain values,
-  //    identity. So `{done ? "✓" : "·"}` works with `done` as a ref.
+  // The compiler wraps every JSX expression in `h.track(() => …)` and
+  // rewrites `.value` reads inside to `h.read(…)`, tracking AtomRef
+  // dependencies. Always write `.value` explicitly — the types are exact
+  // (`done.value: boolean`), and the compiler handles the reactive plumbing.
   return yield* (
-    <li class={done ? "done" : ""}>
+    <li class={done.value ? "done" : ""}>
       <button class="toggle" onclick={toggle}>
-        {done ? "✓" : "·"}
+        {done.value ? "✓" : "·"}
       </button>
       <span class="text">{ref.value.text}</span>
       <button class="remove" onclick={remove}>×</button>
@@ -53,8 +51,9 @@ const remaining: AtomRef.ReadonlyRef<number> = todos.map((items) => {
 })
 
 /**
- * The list. `list(todos, ...)` returns a `View.List` IR node; `mount`
- * reconciles rows by ref identity on add/remove.
+ * The list. `todos.value.map(item => <TodoRow />)` in JSX position is
+ * compiled to a keyed `View.List` IR node; `mount` reconciles rows by ref
+ * identity on add/remove.
  */
 export const Todos = Effect.fn("Todos")(function* (_props: {} = {}) {
   return yield* (
@@ -66,7 +65,7 @@ export const Todos = Effect.fn("Todos")(function* (_props: {} = {}) {
         </span>
       </div>
       <ul>
-        {list(todos, (item) => <TodoRow item={item} />)}
+        {todos.value.map((item) => <TodoRow item={item} />)}
       </ul>
     </div>
   )

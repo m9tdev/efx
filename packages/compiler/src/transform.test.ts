@@ -65,34 +65,37 @@ describe("JSX → h() rewrites", () => {
   })
 })
 
-describe("tracking-scope rewrites (h.track / h.read / h.peek)", () => {
+describe("tracking-scope rewrites (h.track / h.read)", () => {
   it("`.value` reads become h.read(...) and the expression is wrapped in h.track", () => {
     const out = compile(`const x = <div>{ref.value}</div>`)
     expect(out).toContain(`h.read(ref)`)
     expect(out).toContain(`h.track(() =>`)
   })
 
-  it("bare identifier in ternary test becomes h.peek(...) and wraps in h.track", () => {
+  it("bare identifier in ternary test is NOT rewritten — user must write .value", () => {
+    // Removed: bare identifiers in test positions used to be wrapped in
+    // `h.peek(...)`. Users must now write `.value` explicitly so the type
+    // checker sees a `boolean` (or whatever the ref unwraps to).
     const out = compile(`const x = <div>{loading ? <a /> : <b />}</div>`)
-    expect(out).toContain(`h.peek(loading)`)
-    expect(out).toContain(`h.track(() =>`)
+    expect(out).not.toContain(`h.peek`)
+    expect(out).not.toContain(`h.track`)
   })
 
-  it("bare identifier in `&&` becomes h.peek and wraps in h.track", () => {
+  it("bare identifier in `&&` is NOT rewritten", () => {
     const out = compile(`const x = <div>{show && <p />}</div>`)
-    expect(out).toContain(`h.peek(show)`)
-    expect(out).toContain(`h.track(() =>`)
+    expect(out).not.toContain(`h.peek`)
+    expect(out).not.toContain(`h.track`)
   })
 
-  it("bare identifier under `!` becomes h.peek", () => {
+  it("bare identifier under `!` is NOT rewritten", () => {
     const out = compile(`const x = <div>{!hidden ? <a /> : <b />}</div>`)
-    expect(out).toContain(`h.peek(hidden)`)
+    expect(out).not.toContain(`h.peek`)
   })
 
   it("static expressions DO NOT get wrapped in h.track", () => {
     // `<Row item={item} />` — `item` is a bare identifier in attribute
-    // position; there's no .value read and no test-position rewrite,
-    // so wrapping would only strip the static type to `unknown`.
+    // position; there's no .value read, so wrapping would only strip the
+    // static type to `unknown`.
     const out = compile(`const x = <Row item={item} />`)
     expect(out).toContain(`h(Row, { item: item })`)
     expect(out).not.toContain(`h.track`)
@@ -107,6 +110,137 @@ describe("tracking-scope rewrites (h.track / h.read / h.peek)", () => {
     // We only intercept reads — `obj.value = …` stays as a real assignment.
     expect(compile(`const x = <div>{(ref.value = 1, ref.value)}</div>`))
       .toMatch(/ref\.value = 1/)
+  })
+
+  it("`.value++` / `--.value` are left bare — `h.read(obj)++` would be invalid JS, and TS's own `ts(2540)` already flags the read-only write at the right column", () => {
+    const post = compile(`const v = <button onclick={() => count.value++}>+</button>`)
+    expect(post).toContain(`count.value++`)
+    expect(post).not.toMatch(/h\.read\(count\)\+\+/)
+
+    const pre = compile(`const v = <button onclick={() => --count.value}>-</button>`)
+    expect(pre).toContain(`--count.value`)
+    expect(pre).not.toMatch(/--h\.read\(count\)/)
+  })
+
+  it("`.value += X` (compound assignment) is NOT rewritten — caught by the LHS escape hatch", () => {
+    // AssignmentExpression with operator `+=` still has .left === the
+    // MemberExpression, so the existing skip predicate covers it.
+    const out = compile(`const v = <button onclick={() => { count.value += 1 }}>+</button>`)
+    expect(out).toContain(`count.value += 1`)
+    expect(out).not.toMatch(/h\.read\(count\) \+=/)
+  })
+})
+
+describe(".value.map(arrow → JSX) → list(...) rewrite", () => {
+  it("rewrites `<expr>.value.map(item => <JSX/>)` to a `list(<expr>, ...)` call", () => {
+    const out = compile(
+      `const x = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>`,
+    )
+    expect(out).toContain(`list(coll, item =>`)
+    expect(out).toContain(`h(Row, { item: item })`)
+  })
+
+  it("does NOT wrap the rewritten call in h.track (no redundant reactivity)", () => {
+    const out = compile(
+      `const x = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>`,
+    )
+    expect(out).not.toContain(`h.track`)
+    // And the `.value` is consumed by the rewrite — not turned into h.read.
+    expect(out).not.toContain(`h.read(coll)`)
+  })
+
+  it("auto-imports `list` from @efx/runtime", () => {
+    const out = compile(
+      `const x = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>`,
+    )
+    expect(out).toMatch(/import \{[^}]*\blist\b[^}]*\} from "@efx\/runtime"/)
+  })
+
+  it("supports block-body arrow returning only a JSX node", () => {
+    const out = compile(
+      `const x = <ul>{coll.value.map((item) => { return <Row item={item} /> })}</ul>`,
+    )
+    expect(out).toContain(`list(coll,`)
+    expect(out).toContain(`h(Row, { item: item })`)
+  })
+
+  it("supports JSX fragment as arrow body (direct and via block)", () => {
+    // `isJsxArrowBody` accepts both JSXElement and JSXFragment — make sure
+    // both shapes flow through the rewrite. Otherwise users hitting the
+    // fragment idiom (`item => <>…</>` for multi-child rows without a wrapper
+    // element) would get a silent no-rewrite.
+    const direct = compile(
+      `const x = <ul>{coll.value.map((item) => <>{item}</>)}</ul>`,
+    )
+    expect(direct).toContain(`list(coll,`)
+    expect(direct).toContain(`h(Fragment,`)
+
+    const block = compile(
+      `const x = <ul>{coll.value.map((item) => { return <>{item}</> })}</ul>`,
+    )
+    expect(block).toContain(`list(coll,`)
+    expect(block).toContain(`h(Fragment,`)
+  })
+
+  it("does NOT rewrite when the arrow body is not JSX (preserves Array.map / Collection.map)", () => {
+    // Whole-collection derivation pattern (Collection.map((items) => derived))
+    // must NOT be touched.
+    const out = compile(
+      `const x = <span>{coll.value.map((items) => items.length)}</span>`,
+    )
+    expect(out).not.toContain(`list(`)
+    // The outer `.value` is a normal reactive read; should be rewritten to h.read.
+    expect(out).toContain(`h.read(coll)`)
+  })
+
+  it("does NOT rewrite plain `.map` (no `.value`) — leaves as-is", () => {
+    const out = compile(
+      `const x = <ul>{xs.map((x) => <li>{x}</li>)}</ul>`,
+    )
+    expect(out).not.toContain(`list(`)
+    expect(out).toContain(`h("li", {}, x)`)
+  })
+
+  it("does NOT rewrite when callee is not a function reference", () => {
+    // `.value.map(SomeFn)` — argument is an identifier, not an arrow.
+    // Conservative: the rewrite only fires when the body is unambiguously JSX.
+    // The outer `.value` still gets the normal `h.read` rewrite + h.track wrap.
+    const out = compile(`const x = <ul>{coll.value.map(SomeRow)}</ul>`)
+    expect(out).not.toContain(`list(`)
+    expect(out).toContain(`h.read(coll)`)
+    expect(out).toContain(`h.track(() =>`)
+  })
+
+  it("rewrites the innermost `.value.map → list` in nested map chains", () => {
+    // The outer arrow's body is a CallExpression, not JSX, so the outer
+    // `.value.map` stays as Array.prototype.map. The inner arrow's body IS
+    // JSX, so the inner `.value.map` becomes list(group.items, ...). The
+    // outer `.value` falls back to h.read; the whole expression wraps in
+    // h.track because that read happened.
+    const out = compile(
+      `const x = <ul>{outer.value.map((group) => group.items.value.map((item) => <li>{item}</li>))}</ul>`,
+    )
+    expect(out).toContain(`h.read(outer)`)
+    expect(out).toContain(`list(group.items,`)
+    expect(out).toContain(`h.track(() =>`)
+    // Inner `.value` was consumed by the rewrite — never turned into h.read.
+    expect(out).not.toContain(`h.read(group.items)`)
+  })
+
+  it("does NOT pre-emptively rewrite `.value` reads inside the list arrow body", () => {
+    // `ref.value` inside the arrow body is its own JSX expression
+    // (`<Row badge={ref.value}/>`). It gets its OWN h.track wrap when the
+    // outer JSX traversal reaches that inner `<Row>`. If the outer rewrite
+    // descended into the new list's children, it would (a) wrap the whole
+    // list(...) in a redundant h.track and (b) strand the inner h.read
+    // outside any active tracking scope.
+    const out = compile(
+      `const x = <ul>{coll.value.map((item) => <Row badge={ref.value} />)}</ul>`,
+    )
+    // The list(...) call is NOT wrapped in h.track.
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
+    // The inner ref.value gets its own h.track wrap around the h.read.
+    expect(out).toMatch(/h\.track\(\(\)\s*=>\s*h\.read\(ref\)\)/)
   })
 })
 

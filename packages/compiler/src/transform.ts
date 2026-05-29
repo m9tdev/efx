@@ -95,86 +95,135 @@ const attrName = (id: t.JSXIdentifier | t.JSXNamespacedName): t.Identifier | t.S
 }
 
 /**
- * Wrap a JSX-expression's value in a `h.track(() => expr)` call **only when
- * the rewriter found something to track** (a `.value` read or a bare
- * identifier in a test position). Static expressions like `{item}` or
- * `{"hello"}` pass through unchanged so their TypeScript type is preserved
- * — h.track's return is `unknown`, which would otherwise destroy the typing
- * of component props (`<Row item={item} />`, the prop's `item` type).
+ * Per-call mutable state, threaded through every helper that may emit a
+ * `list(...)` call. `transformEfx` creates a fresh instance and reads
+ * `wroteList` at the end to decide whether to auto-import `list`.
  */
-const wrapTracked = (expr: t.Expression): t.Expression => {
-  const { expr: rewritten, rewrote } = rewriteValueReads(expr)
-  if (!rewrote) return rewritten
+interface RewriteState {
+  wroteList: boolean
+}
+
+/**
+ * Wrap a JSX-expression's value in a `h.track(() => expr)` call **only when
+ * a `.value` read was found**. Static expressions like `{item}` or `{"hello"}`
+ * pass through unchanged so their TypeScript type is preserved — h.track's
+ * return is `unknown`, which would otherwise destroy the typing of component
+ * props (`<Row item={item} />`, the prop's `item` type).
+ *
+ * The `.value.map(arrow → JSX)` rewrite does **not** trigger a wrap: the
+ * resulting `list(...)` call subscribes inside `mount`, so wrapping in
+ * `h.track` would add a redundant reactive layer. It flips `state.wroteList`
+ * instead, which `transformEfx` reads to decide on the `list` auto-import.
+ */
+const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
+  const { expr: rewritten, rewroteRead } = rewriteTrackedExpression(expr, state)
+  if (!rewroteRead) return rewritten
   return t.callExpression(
     t.memberExpression(t.identifier("h"), t.identifier("track")),
     [t.arrowFunctionExpression([], rewritten)],
   )
 }
 
-const hMember = (name: "read" | "peek") =>
-  t.memberExpression(t.identifier("h"), t.identifier(name))
+const hRead = (): t.MemberExpression =>
+  t.memberExpression(t.identifier("h"), t.identifier("read"))
 
-const wrapPeek = (id: t.Identifier): t.CallExpression =>
-  t.callExpression(hMember("peek"), [id])
+/**
+ * True when an arrow body is a JSX expression — either directly
+ * (`item => <Row/>`) or via a block whose only statement is `return <JSX/>`
+ * (`item => { return <Row/> }`).
+ */
+const isJsxArrowBody = (body: t.BlockStatement | t.Expression): boolean => {
+  if (t.isJSXElement(body) || t.isJSXFragment(body)) return true
+  if (t.isBlockStatement(body) && body.body.length === 1) {
+    const stmt = body.body[0]
+    if (t.isReturnStatement(stmt) && stmt.argument) {
+      return t.isJSXElement(stmt.argument) || t.isJSXFragment(stmt.argument)
+    }
+  }
+  return false
+}
+
+/**
+ * Match `<expr>.value.map(<arrow>)` exactly. The arrow's JSX-ness is checked
+ * separately by `isJsxArrowBody` — this just confirms the call shape.
+ */
+const matchValueMapCall = (
+  node: t.CallExpression,
+): { source: t.Expression; arrow: t.ArrowFunctionExpression } | null => {
+  if (!t.isMemberExpression(node.callee) || node.callee.computed) return null
+  if (!t.isIdentifier(node.callee.property, { name: "map" })) return null
+  const valueAccess = node.callee.object
+  if (!t.isMemberExpression(valueAccess) || valueAccess.computed) return null
+  if (!t.isIdentifier(valueAccess.property, { name: "value" })) return null
+  if (node.arguments.length !== 1) return null
+  const arg = node.arguments[0]
+  if (!t.isArrowFunctionExpression(arg)) return null
+  if (!isJsxArrowBody(arg.body)) return null
+  if (t.isSuper(valueAccess.object)) return null
+  return { source: valueAccess.object, arrow: arg }
+}
 
 /**
  * In-place AST rewrites inside a tracked JSX expression:
  *
+ *   - `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)` — keyed
+ *     reactive iteration. Caught before the bare `.value` rewrite so the
+ *     `.value` doesn't get turned into an `h.read` we'd then have to undo.
+ *     Flips `state.wroteList` so `transformEfx` adds the import, then
+ *     `path.skip()`s the new list's children: any `.value` reads inside the
+ *     arrow body belong to inner JSX expressions and will get their own
+ *     `h.track` wrap when the outer JSX traversal reaches them. Descending
+ *     here would (a) wrap this `list(...)` in a redundant `h.track`, and
+ *     (b) strand the inner `h.read` calls outside any active tracking scope.
  *   - `x.value` (read) → `h.read(x)` — tracks AtomRef reads via `.value`.
- *   - bare `x` in a test position (`x ? … : …`, `x && …`, `!x`, etc.) →
- *     `h.peek(x)` — for non-AtomRef `x`, identity; for AtomRef, unwraps
- *     value and tracks. Lets `{loading ? <A/> : <B/>}` work without `.value`.
- *
- * Both rewrites are leaf-local; composite expressions like `x.length > 0`
- * are left alone (the user can add `.value` explicitly).
+ *     Sets local `rewroteRead`, which triggers the surrounding `h.track`
+ *     wrap in `wrapTracked`.
  */
-const rewriteValueReads = (expr: t.Expression): { expr: t.Expression; rewrote: boolean } => {
+const rewriteTrackedExpression = (
+  expr: t.Expression,
+  state: RewriteState,
+): { expr: t.Expression; rewroteRead: boolean } => {
   const file = t.file(t.program([t.expressionStatement(expr)]))
-  let rewrote = false
+  let rewroteRead = false
   traverse(file, {
+    CallExpression(path) {
+      const matched = matchValueMapCall(path.node)
+      if (!matched) return
+      const newCall = t.callExpression(t.identifier("list"), [matched.source, matched.arrow])
+      path.replaceWith(copyLoc(newCall, path.node))
+      state.wroteList = true
+      path.skip()
+    },
     MemberExpression(path) {
+      // Rewrite `obj.value` → `h.read(obj)` for *reads only*. Anything that
+      // writes to `.value` (assignment LHS `=`/`+=`/etc., `++`/`--`) is left
+      // bare so the emitted JS stays well-formed (`h.read(obj)++` would be
+      // a SyntaxError). For AtomRefs this is also exactly what the user
+      // wants surfaced — TypeScript's own `ts(2540) Cannot assign to
+      // 'value' because it is a read-only property` already fires at the
+      // right position. No custom diagnostic needed.
       const n = path.node
-      if (
-        !n.computed &&
-        t.isIdentifier(n.property) &&
-        n.property.name === "value" &&
-        !(t.isAssignmentExpression(path.parent) && path.parent.left === n)
-      ) {
-        path.replaceWith(t.callExpression(hMember("read"), [n.object as t.Expression]))
-        rewrote = true
-      }
-    },
-    ConditionalExpression(path) {
-      if (t.isIdentifier(path.node.test)) {
-        path.node.test = wrapPeek(path.node.test)
-        rewrote = true
-      }
-    },
-    LogicalExpression(path) {
-      if (t.isIdentifier(path.node.left)) {
-        path.node.left = wrapPeek(path.node.left)
-        rewrote = true
-      }
-      if (t.isIdentifier(path.node.right)) {
-        path.node.right = wrapPeek(path.node.right)
-        rewrote = true
-      }
-    },
-    UnaryExpression(path) {
-      if (path.node.operator === "!" && t.isIdentifier(path.node.argument)) {
-        path.node.argument = wrapPeek(path.node.argument)
-        rewrote = true
-      }
+      if (n.computed) return
+      if (!t.isIdentifier(n.property)) return
+      if (n.property.name !== "value") return
+      const parent = path.parent
+      if (t.isAssignmentExpression(parent) && parent.left === n) return
+      if (t.isUpdateExpression(parent) && parent.argument === n) return
+      path.replaceWith(t.callExpression(hRead(), [n.object as t.Expression]))
+      rewroteRead = true
     },
   })
   return {
     expr: (file.program.body[0] as t.ExpressionStatement).expression,
-    rewrote,
+    rewroteRead,
   }
 }
 
 /** Build the props object from JSX attributes. */
-const buildProps = (attrs: ReadonlyArray<t.JSXAttribute | t.JSXSpreadAttribute>): t.Expression => {
+const buildProps = (
+  attrs: ReadonlyArray<t.JSXAttribute | t.JSXSpreadAttribute>,
+  state: RewriteState,
+): t.Expression => {
   const properties: Array<t.ObjectProperty | t.SpreadElement> = []
   for (const attr of attrs) {
     if (t.isJSXSpreadAttribute(attr)) {
@@ -190,10 +239,10 @@ const buildProps = (attrs: ReadonlyArray<t.JSXAttribute | t.JSXSpreadAttribute>)
     } else if (t.isJSXExpressionContainer(attr.value)) {
       value = t.isJSXEmptyExpression(attr.value.expression)
         ? t.booleanLiteral(true)
-        : wrapTracked(attr.value.expression)
+        : wrapTracked(attr.value.expression, state)
     } else {
       // JSXElement/JSXFragment values are exotic — fall back to recursive transform
-      value = transformJsxNode(attr.value as t.JSXElement | t.JSXFragment)
+      value = transformJsxNode(attr.value as t.JSXElement | t.JSXFragment, state)
     }
     properties.push(
       t.objectProperty(
@@ -248,6 +297,7 @@ const jsxMemberToMember = (m: t.JSXMemberExpression): t.MemberExpression => {
 /** Transform a single JSX child node into an expression. */
 const transformChild = (
   child: t.JSXElement["children"][number],
+  state: RewriteState,
 ): t.Expression | null => {
   if (t.isJSXText(child)) {
     // Collapse JSX whitespace per JSX spec: trim trailing newlines, keep
@@ -260,21 +310,18 @@ const transformChild = (
   if (t.isJSXExpressionContainer(child)) {
     return t.isJSXEmptyExpression(child.expression)
       ? null
-      : wrapTracked(child.expression)
+      : wrapTracked(child.expression, state)
   }
   if (t.isJSXSpreadChild(child)) {
     // Rare; treat as a passthrough spread.
     return child.expression
   }
-  return transformJsxNode(child)
+  return transformJsxNode(child, state)
 }
 
 const RUNTIME_PKG = "@efx/runtime"
 
-const ensureRuntimeImports = (program: t.Program, wantFragment: boolean): void => {
-  const wanted = new Set(["h"])
-  if (wantFragment) wanted.add("Fragment")
-
+const ensureRuntimeImports = (program: t.Program, wanted: Set<string>): void => {
   // First pass: find an existing import from the runtime; drop names that
   // are already imported under their own identifier (no `as` alias).
   let existing: t.ImportDeclaration | undefined
@@ -356,18 +403,21 @@ const collectJsxRange = (node: t.JSXElement | t.JSXFragment): JsxRange => {
 }
 
 /** Transform a JSX element or fragment node into an h(...) call expression. */
-const transformJsxNode = (node: t.JSXElement | t.JSXFragment): t.CallExpression => {
+const transformJsxNode = (
+  node: t.JSXElement | t.JSXFragment,
+  state: RewriteState,
+): t.CallExpression => {
   const tag: t.Expression = t.isJSXFragment(node)
     ? copyLoc(t.identifier("Fragment"), node)
     : tagExpression(node.openingElement.name)
 
   const props: t.Expression = t.isJSXFragment(node)
     ? t.objectExpression([])
-    : buildProps(node.openingElement.attributes)
+    : buildProps(node.openingElement.attributes, state)
 
   const childArgs: t.Expression[] = []
   for (const child of node.children) {
-    const transformed = transformChild(child)
+    const transformed = transformChild(child, state)
     if (transformed) childArgs.push(transformed)
   }
 
@@ -405,18 +455,19 @@ export const transformEfx = (source: string, filename: string): TransformResult 
     },
   })
 
+  const state: RewriteState = { wroteList: false }
   let usedH = false
   let usedFragment = false
 
   traverse(ast, {
     JSXElement(path: NodePath<t.JSXElement>) {
       usedH = true
-      path.replaceWith(transformJsxNode(path.node))
+      path.replaceWith(transformJsxNode(path.node, state))
     },
     JSXFragment(path: NodePath<t.JSXFragment>) {
       usedH = true
       usedFragment = true
-      path.replaceWith(transformJsxNode(path.node))
+      path.replaceWith(transformJsxNode(path.node, state))
     },
   })
 
@@ -424,7 +475,12 @@ export const transformEfx = (source: string, filename: string): TransformResult 
   // Looks for an existing `import … from "@efx/runtime"` and adds the
   // missing names there; otherwise prepends a new import. Keeps the user's
   // imports untouched and avoids duplicate specifiers.
-  if (usedH) ensureRuntimeImports(ast.program, usedFragment)
+  if (usedH) {
+    const wanted = new Set(["h"])
+    if (usedFragment) wanted.add("Fragment")
+    if (state.wroteList) wanted.add("list")
+    ensureRuntimeImports(ast.program, wanted)
+  }
 
   const result = generate(
     ast,

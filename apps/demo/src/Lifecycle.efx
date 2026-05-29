@@ -1,6 +1,5 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { list } from "@efx/runtime"
 
 // Module-level event log, exposed on `window.__lifecycle` so the probe can
 // read it. Cleared on each fresh page load.
@@ -46,7 +45,7 @@ export const Lifecycle = Effect.fn("Lifecycle")(function* (_props: {} = {}) {
         <button onclick={removeLast}>− remove last</button>
       </div>
       <ul>
-        {list(items, (item) => <Row item={item} />)}
+        {items.value.map((item) => <Row item={item} />)}
       </ul>
       <p class="hint">
         Open devtools and inspect <code>__lifecycle</code> — expect a paired

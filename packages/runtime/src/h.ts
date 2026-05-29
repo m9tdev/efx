@@ -71,22 +71,6 @@ function readImpl(obj: unknown): unknown {
 }
 
 /**
- * "Use this value, track if it's an AtomRef, otherwise pass through."
- * Called by the compiler when it sees a bare identifier in a test
- * position (ternary test, `&&`/`||` operand, `!` argument) so that
- * `{loading ? <X /> : <Y />}` works without an explicit `.value`.
- */
-function peekImpl<T>(obj: AtomRef.ReadonlyRef<T>): T
-function peekImpl<T>(obj: T): T
-function peekImpl(obj: unknown): unknown {
-  if (isAtomRef(obj)) {
-    if (currentTracker) currentTracker.add(obj)
-    return obj.value
-  }
-  return obj
-}
-
-/**
  * The view factory.
  *
  * Takes a tag (intrinsic element name or a component function) and any
@@ -130,13 +114,14 @@ type HFn = <
  * - `h.read(obj)` — like `obj?.value` but, when called inside an
  *   `h.track` scope, registers `obj` as a dependency if it's an AtomRef.
  *
- * The compiler wraps every JSX expression in `h.track(() => …)` and
- * rewrites every `x.value` member access inside to `h.read(x)`, so users
- * can write `<div>{loading.value ? <X /> : <Y />}</div>` and have it be
- * reactive without any explicit subscribe code.
+ * Inside any JSX expression `{…}` that contains a `.value` read, the
+ * compiler rewrites each `x.value` to `h.read(x)` and wraps the whole
+ * expression in `h.track(() => …)` — so `<div>{loading.value ? <X /> : <Y />}</div>`
+ * becomes reactive without any explicit subscribe code. JSX expressions
+ * with no `.value` read pass through unwrapped so their static type is
+ * preserved.
  */
 export const h: HFn & {
   readonly track: typeof trackImpl
   readonly read: typeof readImpl
-  readonly peek: typeof peekImpl
-} = Object.assign(_h as HFn, { track: trackImpl, read: readImpl, peek: peekImpl })
+} = Object.assign(_h as HFn, { track: trackImpl, read: readImpl })

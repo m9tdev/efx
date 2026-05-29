@@ -105,8 +105,10 @@ apps/
 | `effect`             | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …  |
 | `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                  |
 
-`h.track` / `h.read` / `h.peek` are compiler-emitted; you generally never
-write them by hand.
+`h.track` / `h.read` are compiler-emitted; you generally never write them
+by hand. Reactive reads are always explicit through `.value` — the compiler
+rewrites those calls into tracked reads under the hood, and the surrounding
+JSX expression is automatically wrapped in a tracking scope.
 
 ## Workflow
 

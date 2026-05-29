@@ -15,7 +15,7 @@ they can be exercised in a browser side-by-side.
 | `Counter.efx` | Local `AtomRef` state, no Effect services. Reactive `.value` interpolation inside `{...}` expressions. |
 | `UserPage.efx` | Synchronous-style Effect.fn returning a view with `R = Http \| Theme` and `E = HttpError` channels in scope. |
 | `LiveUser.efx` | `AtomRef` + `AsyncResult` pattern matching for loading/success/failure shapes. |
-| `Todos.efx` | Keyed reactive list (`list(coll, ...)`). Per-row reactivity: toggling one row doesn't tear down others. |
+| `Todos.efx` | Keyed reactive list (`{coll.value.map(item => <Row item={item}/>)}` compiles to `list(coll, render)`). Per-row reactivity: toggling one row doesn't tear down others. |
 | `Lifecycle.efx` | `Effect.acquireRelease` inside a row — release fires when the row is removed (per-row Scope in mount). |
 | `main.efx` | Wires Layers (`EfxLive`, `HttpLive`, `ThemeLive`) + `Effect.scoped` + `Effect.never` (keep scope alive for page lifetime). |
 | `services.ts` | Mock Http + Theme services. `Data.TaggedError` for `HttpError`. |
