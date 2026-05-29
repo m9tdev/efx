@@ -4,7 +4,7 @@
  * Each assertion either holds or produces a type error naming the
  * mismatched channel — this *is* the demonstration.
  */
-import type { Effect } from "effect"
+import type { Chunk, Effect, Option, Result } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
 import { h, type View } from "@efx/runtime"
 import { Counter } from "./Counter.efx"
@@ -122,6 +122,25 @@ void WrongType
 // @ts-expect-error — extra prop not declared on component
 const Extra = h(UserPage, { userId: "42", nope: true })
 void Extra
+
+// ─── Container parity: ChildE/ChildR must peel exactly what coerceAsync
+//     peels at runtime (Fold.ts ↔ coerce.ts). A shape folded here but not
+//     peeled there makes the channel claim a *lie* (the type promises an E/R
+//     the runtime would `String(v)` away). These pin the inner Effect's E/R
+//     folding through each peelable container. `Stream` is in NEITHER — it is
+//     deliberately not peeled, so it contributes no channels.
+
+declare const optEff: Option.Option<Effect.Effect<View, HttpError, Http>>
+const WithOption = h("div", {}, optEff)
+assertEquals<typeof WithOption, Effect.Effect<View, HttpError, Http>>()
+
+declare const resEff: Result.Result<Effect.Effect<View, HttpError, Http>, unknown>
+const WithResult = h("div", {}, resEff)
+assertEquals<typeof WithResult, Effect.Effect<View, HttpError, Http>>()
+
+declare const chunkEff: Chunk.Chunk<Effect.Effect<View, HttpError, Http>>
+const WithChunk = h("div", {}, chunkEff)
+assertEquals<typeof WithChunk, Effect.Effect<View, HttpError, Http>>()
 
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
