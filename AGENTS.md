@@ -91,6 +91,12 @@ compiler eats and converts into `h()` calls." Not the React thing.
   Oxc type-strip via `transformWithOxc`, returning `moduleType: "js"`),
   rewrites `.efx` URLs with `?import` so strict-MIME browsers accept the
   response.
+- **[`packages/testing/`](./packages/testing/AGENTS.md)** — in-process
+  component test harness. `render(app, layer?)` mounts a component into a
+  happy-dom DOM, drives it (click/fire/tick), and tears it down — the
+  deterministic middle layer between `channels.test-d.ts` (compile-time)
+  and the browser probes. The `layer` requirement is type-enforced so a
+  missing service is a compile error (channels not swallowed).
 - **[`apps/demo/`](./apps/demo/AGENTS.md)** — usage patterns by
   primitive (Counter, UserPage, LiveUser, Todos, Lifecycle).
   Also home to `channels.test-d.ts`, the compile-time proof.
@@ -152,7 +158,7 @@ compiler eats and converts into `h()` calls." Not the React thing.
 
 ## Tooling at a glance
 
-- pnpm workspace, 6 packages (4 publishable + demo + workspace root).
+- pnpm workspace, 7 packages (4 publishable + `@efx/testing` + demo + workspace root).
 - Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.70`).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.
