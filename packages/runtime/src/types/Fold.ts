@@ -1,4 +1,4 @@
-import type { Chunk, Effect, Option, Result, Stream } from "effect"
+import type { Chunk, Effect, Option, Result } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { View } from "../View.ts"
 import type { IntrinsicProps } from "./Html.ts"
@@ -10,6 +10,12 @@ import type { IntrinsicProps } from "./Html.ts"
  *
  * Recursion is handled at the use site by `ChildE`/`ChildR` — they recurse
  * via `infer` inside conditional types, which TS does support.
+ *
+ * This set must stay in lockstep with the containers `coerceAsync` peels in
+ * `../coerce.ts` (Effect, Option, Result, Chunk, Atom, AtomRef, array). A
+ * shape listed here but not peeled there makes the channel fold *lie* — the
+ * type claims an E/R the runtime never produces (it would `String(v)` the
+ * value instead). `apps/demo/src/channels.test-d.ts` pins this parity.
  */
 export type Child =
   | Effect.Effect<View, any, any>
@@ -22,7 +28,6 @@ export type Child =
   | Option.Option<unknown>
   | Result.Result<unknown, any>
   | Chunk.Chunk<unknown>
-  | Stream.Stream<unknown, any, any>
   | Atom.Atom<unknown>
   | AtomRef.ReadonlyRef<unknown>
   | ReadonlyArray<unknown>
@@ -36,7 +41,6 @@ export type Child =
  */
 export type ChildE<C> =
   C extends Effect.Effect<any, infer E, any> ? E :
-  C extends Stream.Stream<infer T, infer E, any> ? E | ChildE<T> :
   C extends Option.Option<infer T> ? ChildE<T> :
   C extends Result.Result<infer A, any> ? ChildE<A> :
   C extends Chunk.Chunk<infer T> ? ChildE<T> :
@@ -54,7 +58,6 @@ export type ChildE<C> =
  */
 export type ChildR<C> =
   C extends Effect.Effect<any, any, infer R> ? R :
-  C extends Stream.Stream<infer T, any, infer R> ? R | ChildR<T> :
   C extends Option.Option<infer T> ? ChildR<T> :
   C extends Result.Result<infer A, any> ? ChildR<A> :
   C extends Chunk.Chunk<infer T> ? ChildR<T> :
