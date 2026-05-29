@@ -13,7 +13,7 @@
   "devDependencies": {
     "@types/node": "^25.9.1",
     "playwright-core": "^1.60.0",
-    "typescript": "^5.7.2",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   },
   "packageManager": "pnpm@11.3.0"
