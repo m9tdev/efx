@@ -2,6 +2,18 @@ packages:
   - "packages/*"
   - "apps/*"
 
+# Supply-chain defense: refuse to install/lock any package version younger
+# than this many minutes. A compromised release is most dangerous in the
+# hours right after publish, before anyone notices; a cooldown lets the
+# ecosystem catch and yank a bad version before it reaches us. pnpm checks
+# the WHOLE lockfile, so the ceiling is the youngest dep already locked —
+# 1 day clears the current tree (effect@beta.71 from #33 is the youngest at
+# ~2 days). Raise it (e.g. 4320 = 3d, 10080 = 7d) once recent betas age past
+# the new value. Never lower it to sneak a young package in, never disable
+# it, and never add minimumReleaseAgeExclude entries — if a target is too
+# young, install an older qualifying version or wait for it to age.
+minimumReleaseAge: 1440
+
 # pnpm 11 errors on dependencies with postinstall scripts unless they
 # appear in allowBuilds. These two have scripts we deliberately skip:
 # esbuild ships its platform binary via optionalDependencies (the
