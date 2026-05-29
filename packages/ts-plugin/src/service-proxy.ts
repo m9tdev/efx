@@ -4,6 +4,7 @@ import type * as ts from "typescript"
 import { createEfxLanguagePlugin, EfxVirtualCode } from "@efx/language"
 import { findJsxTagPair, type JsxTagProvider } from "./jsx-tags.ts"
 import { classifyRefs } from "./classify-references.ts"
+import { hintText, SUPPRESS_RE } from "./hint-text.ts"
 
 // tsserver identifies scripts by file path strings — asFileName is identity.
 const efxLanguagePlugin = createEfxLanguagePlugin<string>((scriptId) => scriptId)
@@ -194,21 +195,10 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
           if (prop === "provideInlayHints") {
             return wrapMethod("provideInlayHints", (hints, fileName) => {
               if (!fileName.endsWith(".efx")) return hints
-              return hints.filter((hint: ts.InlayHint) => {
-                // Extract text from various possible structures
-                let text = ""
-                if (typeof hint.text === "string") {
-                  text = hint.text
-                } else if (Array.isArray(hint.text)) {
-                  text = (hint.text as Array<{ text: string }>).map((p) => p.text).join("")
-                }
-                // Also check displayParts which is used in newer TS versions
-                const hintAny = hint as { displayParts?: Array<{ text: string }> }
-                if (hintAny.displayParts && Array.isArray(hintAny.displayParts)) {
-                  text = hintAny.displayParts.map((p) => p.text).join("")
-                }
-                return !/^_?(tag|props|children):?$/i.test(text)
-              })
+              // Drop the h() parameter labels (_tag/_props/_children). Text
+              // extraction + the suppression regex live in hint-text.ts so
+              // they're unit-testable without a tsserver.
+              return hints.filter((hint: ts.InlayHint) => !SUPPRESS_RE.test(hintText(hint)))
             })
           }
 

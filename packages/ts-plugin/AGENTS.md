@@ -22,6 +22,7 @@ for tsserver to `require()`.
 | `src/index.ts` | Entry. Re-exports `pluginFactory` via `export =`. |
 | `src/jsx-tags.ts` | `findJsxTagPair` — takes a `JsxTagProvider` (the in-process seam) and uses its `jsxRanges` from the shared `EfxVirtualCode` to find tag-pair partners for document highlights. The service-proxy builds the provider by resolving the `EfxVirtualCode` from Volar's context. |
 | `src/classify-references.ts` | `classifyRefs` — decorates each ref with `{ isDef, isImport }` in one pass, with a per-call file-content cache so each source file is read at most once. `findReferences` then sorts on the precomputed booleans instead of doing disk I/O inside the comparator. |
+| `src/hint-text.ts` | `hintText(hint)` — reads an inlay hint's label across the shapes different TS versions use (`hint.text` string, `hint.text` parts, `hint.displayParts`), returning the first non-empty. Plus `SUPPRESS_RE`, the `_tag`/`_props`/`_children` regex. Pure + unit-tested so the filter doesn't need a tsserver. |
 | `src/service-proxy.ts` | `pluginFactory` — instantiates the shared LanguagePlugin via `createEfxLanguagePlugin<string>(identity)`, builds Volar's `createLanguageServicePlugin` (capturing the session `Language` through its `setup(language)` hook), then wraps the resulting `LanguageService` in a Proxy with a few method overrides (filter `@efx/runtime`'s `h.ts` from definition results, JSX tag-pair document highlights, `_tag`/`_props`/`_children` inlay-hint filter, reference dedup + sort). Resolves the per-`.efx` `EfxVirtualCode` from `language.scripts` when it needs `jsxRanges` or `source`. |
 | `src/classify-references.test.ts` | Unit tests for `classifyRefs` — injects a fake `readFile` to assert classification rules and per-call caching without touching disk. |
 | `src/plugin.test.mjs` | Manual smoke test loading the built bundle (`dist/index.cjs`) and asserting plugin shape. Not run by `pnpm test` (vitest config only picks up `*.test.ts`); invoke directly with `node` after building. |
@@ -135,9 +136,12 @@ hand-rolled.
 
 - **`provideInlayHints`** — `.efx`-only filter. Volar gives us all
   hints including the h() parameter labels (`_tag`, `_props`,
-  `_children`). We drop any hint whose text matches
-  `/^_?(tag|props|children):?$/i`. Reads `hint.text` AND
-  `hint.displayParts` (newer TS uses the latter).
+  `_children`). We drop any hint whose label matches `SUPPRESS_RE`.
+  Label extraction (`hintText`) and the regex live in `hint-text.ts`
+  (pure + unit-tested); `hintText` reads the first non-empty of
+  `hint.text` (string), `hint.text` (parts), or `hint.displayParts`
+  (newer TS) — first-non-empty so an empty `displayParts` can't clobber
+  a found label.
 
 - **`getCompletionsAtPosition`** — `.efx`-only span clamp. When the
   user types `count.` mid-edit and triggers completions, Babel's
@@ -249,7 +253,8 @@ pnpm --filter @efx/ts-plugin test
 ```
 
 Three phases: vitest runs the `*.test.ts` unit suites
-(currently `src/classify-references.test.ts`), the package builds
+(`classify-references.test.ts`, `jsx-tags.test.ts`,
+`hint-text.test.ts`), the package builds
 its CJS bundle, and `node test/integration.mjs` spawns a real
 tsserver subprocess and exercises the LSP protocol against it.
 The integration harness is the acceptance-level definition of "the
