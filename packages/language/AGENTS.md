@@ -17,11 +17,10 @@ certainly want to depend on this package rather than copy it.
 
 | File | Purpose |
 |---|---|
-| `src/language-plugin.ts` | `createEfxLanguagePlugin<T>(asFileName, registry)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Writes per-`.efx` `EfxVirtualCode` into the supplied `VirtualCodeRegistry`. Returns `LanguagePlugin<T, EfxVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
+| `src/language-plugin.ts` | `createEfxLanguagePlugin<T>(asFileName)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns each per-`.efx` `EfxVirtualCode` to Volar, which owns and indexes it. Returns `LanguagePlugin<T, EfxVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
 | `src/source-map.ts` | `convertSourceMap` — thin translator from `@efx/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
-| `src/virtual-code.ts` | `EfxVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.efx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Plus `VirtualCodeRegistry` — the per-consumer `Map<string, EfxVirtualCode>` cache (one per tsserver session, one per `runCheck`). |
+| `src/virtual-code.ts` | `EfxVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.efx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`. |
 | `src/source-map.test.ts` | Vitest suite pinning `convertSourceMap`'s span-length passthrough and the user/h-call/punctuation profile assignments. |
-| `src/virtual-code-registry.test.ts` | Vitest suite asserting registry isolation: each `createEfxLanguagePlugin` call gets its own registry; no cross-consumer state. |
 | `src/index.ts` | Re-exports. |
 
 ## Why a factory over a fixed plugin
@@ -31,11 +30,11 @@ Different Volar hosts identify scripts differently:
 - tsserver passes string filenames (`"/path/to/Counter.efx"`).
 - `@volar/kit` passes `URI` objects (`URI.file("/path/to/Counter.efx")`).
 
-`createEfxLanguagePlugin<T>(asFileName: (id: T) => string, registry: VirtualCodeRegistry)`
+`createEfxLanguagePlugin<T>(asFileName: (id: T) => string)`
 lets each consumer collapse its native id type to a file-path string at
-the boundary. Internally the plugin always works in path strings:
+the boundary. `asFileName` is the plugin's only axis of variation.
+Internally the plugin always works in path strings:
 
-- The `VirtualCodeRegistry` keyed by file path is the cache.
 - `transformEfx` is called with file path (it's used as the source
   map filename).
 - `getLanguageId` decides language by `.efx` suffix on the path.
@@ -43,13 +42,11 @@ the boundary. Internally the plugin always works in path strings:
 This means consumers can write:
 
 ```ts
-// tsserver (@efx/ts-plugin) — one registry per session
-const registry = new VirtualCodeRegistry()
-createEfxLanguagePlugin<string>((s) => s, registry)
+// tsserver (@efx/ts-plugin)
+createEfxLanguagePlugin<string>((s) => s)
 
-// kit (@efx/check) — one registry per runCheck call
-const registry = new VirtualCodeRegistry()
-createEfxLanguagePlugin<URI>((uri) => uri.fsPath, registry)
+// kit (@efx/check)
+createEfxLanguagePlugin<URI>((uri) => uri.fsPath)
 ```
 
 ## The `extraFileExtensions` shape is load-bearing
@@ -134,44 +131,46 @@ tests pinning this exact case.
 `convertSourceMap` just copies the lengths through — the compiler
 produces them.
 
-## The registry is per-consumer state
+## Volar owns the `EfxVirtualCode` instance
 
-`virtual-code.ts` exports `VirtualCodeRegistry` — a class holding a
-`Map<string, EfxVirtualCode>`. The host that constructs the plugin
-also constructs the registry and passes it to `createEfxLanguagePlugin`:
-`@efx/ts-plugin` creates one at module scope (tsserver loads the
-plugin once per session), `@efx/check` creates one inside each
-`runCheck` call.
+`createVirtualCode` returns each per-`.efx` `EfxVirtualCode` to
+Volar. Volar holds it and indexes it on the source script —
+reachable at `language.scripts.get(scriptId).generated.root`. There
+is **no side-channel cache** in this package; Volar's own context is
+the single source of truth.
 
-The plugin writes into the registry from `createVirtualCode`;
-ts-plugin's `jsx-tags.ts` reads from it to fetch `jsxRanges` for
-tag-pair document highlights. The instance Volar holds (as the
-return value of `createVirtualCode`) is the same instance the
-registry holds — no duplication, no synchronization needed. Volar
-consumes the `mappings` array directly via its own `SourceMap`
-indexing, so source ↔ generated offset translation never goes
-through this cache.
+Downstream consumers read the instance back from Volar rather than a
+parallel index. `@efx/ts-plugin` captures the session's `Language`
+via the `setup(language)` hook of Volar's `createLanguageServicePlugin`,
+then resolves the compiled file with an `instanceof EfxVirtualCode`
+narrow when it needs `jsxRanges` (tag-pair document highlights) or
+`source` (whitespace-at-cursor suppression). The instance it gets is
+the exact one `createVirtualCode` returned — no duplication, no
+synchronization. Volar consumes the `mappings` array directly via its
+own `SourceMap` indexing, so source ↔ generated offset translation
+never goes through this package either.
 
-In tsserver, the registry lives for the editor session. In
-`efx-check`'s CLI, each `runCheck` call owns its own — repeated
-in-process invocations don't see each other's virtual codes.
-There's no cross-process sharing — Map state is per-Node-process.
+Lifetime is Volar's concern: each tsserver session and each
+`@volar/kit` `createTypeScriptChecker` call has its own `Language`,
+so two in-process `runCheck` calls never see each other's virtual
+codes. Re-compilation on edits, eviction of deleted files, and
+staleness are all handled by Volar's script lifecycle — this package
+holds no state that could drift.
 
-If `createVirtualCode` is called twice for the same `.efx` (rapid
-edits), the entry is overwritten with a fresh `EfxVirtualCode`.
-Stale entries for files that have been deleted persist until the
-registry is dropped; that's fine in practice.
+### Why read from Volar's context, not a threaded cache
 
-### Why a per-consumer registry, not a module-level singleton
-
-Earlier versions kept the cache as a module-level `Map`. That tied
-the cache lifetime to module-load (i.e. process lifetime), so two
-`runCheck` calls in one Node process would share entries — including
-stale ones from a previous run. Threading a `VirtualCodeRegistry`
-through the factory makes the lifetime explicit and matches what each
-consumer actually wants. The registry deliberately exposes only
-`get` and `set` — `clear` was considered and dropped because no
-caller needs it (consumers throw the whole registry away).
+Earlier versions threaded a `VirtualCodeRegistry` (a
+`Map<string, EfxVirtualCode>`) through the factory so consumers could
+look compiled files back up. But that registry was a *second index of
+the very objects Volar already owns* — `@efx/check` constructed one
+and never read it (pure write-only ceremony), and picking the wrong
+instance silently yielded stale `jsxRanges` with no compile-time
+guard. Resolving through `language.scripts.get(id).generated.root`
+(the idiom Vue's `typescript-plugin` uses) deletes the second index,
+the per-consumer lifetime question, and the stale-instance bug class
+in one move — and shrinks the factory to a transform from host
+identity + source to a Volar plugin, with `asFileName` as its only
+parameter.
 
 ### Parameter properties are deliberately avoided
 
@@ -209,14 +208,14 @@ without arranging for a build step.
   `structure` / `format`. Subtle combinations matter — for
   instance, removing `navigation: true` on the h-call profile
   would break go-to-definition through JSX expressions.
-- Don't reintroduce a module-level singleton cache. The registry
-  is per-consumer on purpose: in one Node process, multiple
-  `runCheck` calls (and theoretically multiple tsserver-plugin
-  setups) must not share virtual-code state. If you add a new
-  consumer, give it its own `VirtualCodeRegistry`.
-- Don't add a `clear` (or `delete`) method to `VirtualCodeRegistry`
-  without a real caller. Consumers throw the whole registry away;
-  growing the surface invites resurrection of stale-state bugs.
+- Don't reintroduce a side-channel cache (a `Map`, a registry, a
+  module-level singleton) for compiled `.efx` files. Volar already
+  owns each `EfxVirtualCode` and indexes it on the source script —
+  resolve it through `language.scripts.get(id).generated.root`
+  (`instanceof EfxVirtualCode` to narrow) instead of building a
+  second index that can fall out of sync. A new consumer captures
+  the `Language` from its host (the `setup(language)` hook for
+  tsserver; the kit checker for `@efx/check`) and reads from it.
 - Don't switch `EfxVirtualCode`'s constructor to parameter
   properties (`constructor(readonly source: string, ...)`). They
   desugar into field assignments and break Node's
@@ -232,9 +231,6 @@ In-package vitests:
 
 - `src/source-map.test.ts` — pins the bidirectional source/generated
   position-mapping contract through `convertSourceMap`.
-- `src/virtual-code-registry.test.ts` — pins the per-consumer
-  isolation of `VirtualCodeRegistry` (two plugins, two registries,
-  no cross-pollination).
 
 Broader behavior is covered by:
 

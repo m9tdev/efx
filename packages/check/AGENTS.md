@@ -69,19 +69,21 @@ LSP protocol.
 - **Exit code**: 0 if `result.errors === 0`, else 1. Warnings do
   not fail. (`tsc` matches: warnings only fail with `noEmitOnError`
   or `strict` flags that promote them.)
-- **In-process isolation**: each `runCheck` call constructs its own
-  `VirtualCodeRegistry`. Two calls in the same Node process — e.g.
-  a test that exercises the fixture, mutates it, then re-runs —
-  see independent virtual-code state, not leftovers from the
-  previous invocation.
+- **In-process isolation**: each `runCheck` call builds its own
+  `@volar/kit` checker, which owns the virtual-code lifetime for that
+  call. Two calls in the same Node process — e.g. a test that
+  exercises the fixture, mutates it, then re-runs — see independent
+  virtual-code state, not leftovers from the previous invocation.
+  This package holds no virtual-code cache of its own: it only
+  *writes* (compiles) `.efx` files through the LanguagePlugin and
+  never reads them back, so there is nothing here to share or leak.
 
 ## Coupling
 
-- **`@efx/language`** — provides `createEfxLanguagePlugin` and
-  `VirtualCodeRegistry`. The CLI instantiates the plugin with
-  `<URI>(uri => uri.fsPath, registry)` because kit uses `URI` as
-  its script-id type, and constructs a fresh `VirtualCodeRegistry`
-  per `runCheck` call.
+- **`@efx/language`** — provides `createEfxLanguagePlugin`. The CLI
+  instantiates the plugin with `<URI>(uri => uri.fsPath)` because kit
+  uses `URI` as its script-id type. No registry is threaded: the kit
+  checker owns the virtual-code lifetime per `runCheck` call.
 - **`@volar/kit`** — `createTypeScriptChecker`,
   `createTypeScriptInferredChecker` (not currently used; would be
   needed for "no tsconfig" mode).
