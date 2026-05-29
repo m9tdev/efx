@@ -27,8 +27,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/runtime
       effect:
-        specifier: 4.0.0-beta.70
-        version: 4.0.0-beta.70
+        specifier: 4.0.0-beta.71
+        version: 4.0.0-beta.71
     devDependencies:
       '@efx/check':
         specifier: workspace:*
@@ -84,8 +84,8 @@ importers:
         version: 1.5.5
     devDependencies:
       '@effect/vitest':
-        specifier: 4.0.0-beta.70
-        version: 4.0.0-beta.70(effect@4.0.0-beta.70)(vitest@4.1.7(@types/node@25.9.1)(vite@7.3.3(@types/node@25.9.1)(yaml@2.9.0)))
+        specifier: 4.0.0-beta.71
+        version: 4.0.0-beta.71(effect@4.0.0-beta.71)(vitest@4.1.7(@types/node@25.9.1)(vite@7.3.3(@types/node@25.9.1)(yaml@2.9.0)))
       '@types/babel__generator':
         specifier: ^7
         version: 7.27.0
@@ -115,12 +115,12 @@ importers:
   packages/runtime:
     dependencies:
       effect:
-        specifier: 4.0.0-beta.70
-        version: 4.0.0-beta.70
+        specifier: 4.0.0-beta.71
+        version: 4.0.0-beta.71
     devDependencies:
       '@effect/vitest':
-        specifier: 4.0.0-beta.70
-        version: 4.0.0-beta.70(effect@4.0.0-beta.70)(vitest@4.1.7(@types/node@25.9.1)(vite@7.3.3(@types/node@25.9.1)(yaml@2.9.0)))
+        specifier: 4.0.0-beta.71
+        version: 4.0.0-beta.71(effect@4.0.0-beta.71)(vitest@4.1.7(@types/node@25.9.1)(vite@7.3.3(@types/node@25.9.1)(yaml@2.9.0)))
 
   packages/ts-plugin:
     dependencies:
@@ -135,8 +135,8 @@ importers:
         version: 2.4.28
     devDependencies:
       '@effect/vitest':
-        specifier: 4.0.0-beta.70
-        version: 4.0.0-beta.70(effect@4.0.0-beta.70)(vitest@4.1.7(@types/node@25.9.1)(vite@7.3.3(@types/node@25.9.1)(yaml@2.9.0)))
+        specifier: 4.0.0-beta.71
+        version: 4.0.0-beta.71(effect@4.0.0-beta.71)(vitest@4.1.7(@types/node@25.9.1)(vite@7.3.3(@types/node@25.9.1)(yaml@2.9.0)))
       esbuild:
         specifier: ^0.27.0
         version: 0.27.7
@@ -192,10 +192,10 @@ packages:
     resolution: {integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==}
     engines: {node: '>=6.9.0'}
 
-  '@effect/vitest@4.0.0-beta.70':
-    resolution: {integrity: sha512-XDteNN0xfOgoMauAVoN5iylxVgEjp7kFsGFq18tZ5XYjek0eOZa0nOoes5s7Bs71VvwjnCeCbFMD7IhxswEt8A==}
+  '@effect/vitest@4.0.0-beta.71':
+    resolution: {integrity: sha512-URADF7bj/CXfyq8Nut1Xi/OeBI+WCl4Gij4rdo7Mxd75/BIeQWOQHUxv9fsRRbo7K5Nh2SWpX0UrbrYiTgbprA==}
     peerDependencies:
-      effect: ^4.0.0-beta.70
+      effect: ^4.0.0-beta.71
       vitest: ^3.0.0 || ^4.0.0
 
   '@esbuild/aix-ppc64@0.27.7':
@@ -626,8 +626,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  effect@4.0.0-beta.70:
-    resolution: {integrity: sha512-8AwGTRiNriirHGEYHrOS0E9fzdhIqCdZjiHP1YXmNo2UyPGS43ILsymsSHT7V0DJS+8dvlKq2RxnrDBUhDNZHg==}
+  effect@4.0.0-beta.71:
+    resolution: {integrity: sha512-DKnsUK3/DnCU4GfiOnw7DVXkKeg+UTh2J92rgVLpLZYUrfvQd5h7FasFm125/613Cbn/P0iPXkMnmFCd0fxV4g==}
 
   es-module-lexer@2.1.0:
     resolution: {integrity: sha512-n27zTYMjYu1aj4MjCWzSP7G9r75utsaoc8m61weK+W8JMBGGQybd43GstCXZ3WNmSFtGT9wi59qQTW6mhTR5LQ==}
@@ -960,9 +960,9 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
 
-  '@effect/vitest@4.0.0-beta.70(effect@4.0.0-beta.70)(vitest@4.1.7(@types/node@25.9.1)(vite@7.3.3(@types/node@25.9.1)(yaml@2.9.0)))':
+  '@effect/vitest@4.0.0-beta.71(effect@4.0.0-beta.71)(vitest@4.1.7(@types/node@25.9.1)(vite@7.3.3(@types/node@25.9.1)(yaml@2.9.0)))':
     dependencies:
-      effect: 4.0.0-beta.70
+      effect: 4.0.0-beta.71
       vitest: 4.1.7(@types/node@25.9.1)(vite@7.3.3(@types/node@25.9.1)(yaml@2.9.0))
 
   '@esbuild/aix-ppc64@0.27.7':
@@ -1255,7 +1255,7 @@ snapshots:
   detect-libc@2.1.2:
     optional: true
 
-  effect@4.0.0-beta.70:
+  effect@4.0.0-beta.71:
     dependencies:
       '@standard-schema/spec': 1.1.0
       fast-check: 4.8.0
