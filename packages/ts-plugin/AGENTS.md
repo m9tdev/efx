@@ -50,10 +50,11 @@ live in [`@efx/language`](../language/AGENTS.md) — shared with
         LanguageService results in .efx coords
                │
                ▼  our Proxy wrapper
-               │    filterRuntimeHit()        — drop hits in runtime/h.ts
-               │    getDocumentHighlights()   — JSX tag pair custom path
-               │    provideInlayHints()       — filter _tag/_props/_children
-               │    get/findReferences()      — dedupe + sort
+               │    filterRuntimeHit()         — drop hits in runtime/h.ts
+               │    getDocumentHighlights()    — JSX tag pair custom path
+               │    provideInlayHints()        — filter _tag/_props/_children
+               │    getCompletionsAtPosition() — clamp cross-line replacementSpans
+               │    get/findReferences()       — dedupe + sort
                ▼
         Final LanguageService results
 ```
@@ -93,13 +94,15 @@ proxy wrapper below doesn't translate offsets itself: Volar's own
 `SourceMap` indexes `mappings` and maps virtual-code coordinates back
 to `.efx` source before results reach us. We resolve the
 `EfxVirtualCode` only for `jsxRanges` (via the `JsxTagProvider` handed
-to `jsx-tags.ts`) and `source` (whitespace-at-cursor suppression).
+to `jsx-tags.ts`) and `source` (whitespace-at-cursor suppression in
+`getDocumentHighlights`, cross-line span detection in
+`getCompletionsAtPosition`).
 
 ## The proxy wrapper
 
 Volar produces a working LanguageService. We then wrap it in a
-`Proxy` (in the outer `pluginFactory`) and override four groups of
-methods. Six of the seven overrides route through a local
+`Proxy` (in the outer `pluginFactory`) and override five groups of
+methods. Seven of the eight overrides route through a local
 `wrapMethod(name, transform)` helper — it calls the underlying
 LanguageService method eagerly and hands the result plus the
 original args to `transform`. `getDocumentHighlights` is the
@@ -135,6 +138,20 @@ hand-rolled.
   `_children`). We drop any hint whose text matches
   `/^_?(tag|props|children):?$/i`. Reads `hint.text` AND
   `hint.displayParts` (newer TS uses the latter).
+
+- **`getCompletionsAtPosition`** — `.efx`-only span clamp. When the
+  user types `count.` mid-edit and triggers completions, Babel's
+  `errorRecovery: true` (in `@efx/compiler`) parses
+  `count.\n\nreturn yield*` as `count.return` (the next keyword
+  becomes the synthesized property name). That gives us the right
+  completion list — members of `count` — but tsserver's
+  `optionalReplacementSpan` covers the `return` keyword on the
+  next line. Applying it would delete `return`. We detect spans
+  whose range crosses a newline relative to the cursor position
+  and clamp them to a zero-width span at the cursor, so the
+  editor inserts the picked entry rather than replacing the
+  next-line token. Same treatment for per-entry `replacementSpan`
+  in case tsserver populates it.
 
 - **`getReferencesAtPosition` / `findReferences`** — dedupe + sort:
   - Filter out hits in `@efx/runtime`'s `h.ts` (same reason as the

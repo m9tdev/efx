@@ -152,6 +152,45 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
             }
           }
 
+          if (prop === "getCompletionsAtPosition") {
+            return wrapMethod("getCompletionsAtPosition", (result, fileName, position) => {
+              if (!fileName.endsWith(".efx") || !result) return result
+              const source = getEfxVirtualCode(fileName)?.source
+              if (!source) return result
+              // Babel's errorRecovery turns mid-edit `count.\n...return` into a
+              // `count.return` MemberExpression — convenient for letting
+              // tsserver enumerate `count`'s members, but the resulting
+              // replacementSpan covers `return` on the next line. If the
+              // editor applied it, picking `set` would delete `return`.
+              // Clamp any span that sits across a newline from the cursor to
+              // an insert-at-cursor (zero-width at position). Deliberately
+              // coarse: we don't try to identify the synthesized property
+              // text — any cross-line span gets clamped. In practice, no
+              // legitimate completion wants to delete content from a
+              // different line than the cursor.
+              const crossesNewlineFromCursor = (span: ts.TextSpan): boolean => {
+                const lo = Math.min(position, span.start)
+                const hi = Math.max(position, span.start + span.length)
+                return source.slice(lo, hi).includes("\n")
+              }
+              const insertAtCursor: ts.TextSpan = { start: position, length: 0 }
+
+              const entries = result.entries.map((e) => {
+                if (e.replacementSpan && crossesNewlineFromCursor(e.replacementSpan)) {
+                  return { ...e, replacementSpan: insertAtCursor }
+                }
+                return e
+              })
+              const orig = result.optionalReplacementSpan
+              const clamped = orig && crossesNewlineFromCursor(orig) ? insertAtCursor : orig
+              // Spread the optional field only when defined — exactOptionalPropertyTypes
+              // rejects `optionalReplacementSpan: undefined` as a value.
+              return clamped
+                ? { ...result, optionalReplacementSpan: clamped, entries }
+                : { ...result, entries }
+            })
+          }
+
           if (prop === "provideInlayHints") {
             return wrapMethod("provideInlayHints", (hints, fileName) => {
               if (!fileName.endsWith(".efx")) return hints

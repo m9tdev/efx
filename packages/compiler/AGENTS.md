@@ -221,6 +221,22 @@ attributes, source maps. Run with `pnpm --filter @efx/compiler test`.
 - No file watching, no caching. Pure function of `(source, filename)`.
   Callers cache.
 
+## Parse-error tolerance
+
+`@babel/parser` runs with `errorRecovery: true`. The editor calls
+`transformEfx` on every keystroke; mid-edit source is routinely
+unparseable (`count.` with no property name yet). Without recovery,
+Babel throws → `createVirtualCode` propagates → Volar has no virtual
+code for the file → tsserver returns the project's *global scope*
+(999 entries — every DOM ambient declaration) for completion
+requests instead of the member list the user expects.
+
+With recovery, Babel emits a partial AST and attaches parse errors
+to `ast.errors`. We don't read that array — downstream `tsc` will
+surface real errors as diagnostics. Recovery isn't omnipotent: some
+mid-edit states inside JSX expressions (`<div>{x.}</div>`) still
+throw. The common case — typing a `.` in plain user code — works.
+
 ## Anti-patterns
 
 - Don't add a rewrite that fires on composite expressions
@@ -233,3 +249,6 @@ attributes, source maps. Run with `pnpm --filter @efx/compiler test`.
 - Don't depend on `@babel/preset-*`. We use parser + traverse +
   generate directly to keep the bundle small (the ts-plugin ships
   this transform inside its dist).
+- Don't remove `errorRecovery: true` from the parser options. See
+  "Parse-error tolerance" above — completions silently regress to
+  the project global scope without it.
