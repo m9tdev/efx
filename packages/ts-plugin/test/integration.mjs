@@ -11,6 +11,7 @@ import { spawn } from "node:child_process"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createInterface } from "node:readline"
+import { readFileSync } from "node:fs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, "../../..")
@@ -315,6 +316,50 @@ async function main() {
     console.log("   FAIL: No .efx files in project (getExternalFiles not working)")
     process.exitCode = 1
   }
+
+  console.log("\n10. Test mid-edit completions don't replace next-line tokens...")
+  // The user reported: typing `count.` and picking an entry glued onto the
+  // `return` keyword on the next line. Babel's errorRecovery parses
+  // `count.\n\nreturn` as `count.return`, so tsserver's replacementSpan
+  // covers `return` — picking `set` would delete it. The proxy clamps any
+  // cross-line span to insert-at-cursor.
+  const lines = readFileSync(counterEfx, "utf-8").split("\n")
+  // Insert "  count." at index 16 → 1-based line 17, with `return yield* (`
+  // shifted to line 18.
+  lines.splice(16, 0, "  count.")
+  const modified = lines.join("\n")
+  await client.send("open", {
+    file: counterEfx,
+    fileContent: modified,
+    projectRootPath: demoRoot,
+  })
+  await new Promise((r) => setTimeout(r, 500))
+
+  const complResp = await client.send("completionInfo", {
+    file: counterEfx,
+    line: 17,
+    offset: 9, // right after the `.` in "  count."
+    triggerCharacter: ".",
+    includeExternalModuleExports: false,
+  })
+  const replSpan = complResp.body?.optionalReplacementSpan
+  if (!replSpan) {
+    console.log("   No optionalReplacementSpan returned — likely OK (editor inserts at cursor).")
+  } else if (replSpan.start.line === replSpan.end.line && replSpan.start.line === 17) {
+    console.log(`   PASS: replacementSpan stays on line 17 (cursor line), cols ${replSpan.start.offset}-${replSpan.end.offset}`)
+  } else {
+    console.log(`   FAIL: replacementSpan crosses lines: ${JSON.stringify(replSpan)}`)
+    process.exitCode = 1
+  }
+  const setEntry = (complResp.body?.entries || []).find((e) => e.name === "set")
+  if (setEntry) {
+    console.log("   PASS: 'set' entry present (AtomRef members enumerated)")
+  } else {
+    console.log("   FAIL: 'set' entry missing — completion didn't enumerate count's members")
+    process.exitCode = 1
+  }
+  // Close the modified file so other test runs don't see it
+  await client.send("close", { file: counterEfx })
 
   await client.close()
   console.log("\nDone.")

@@ -240,3 +240,28 @@ describe("TypeScript syntax survives", () => {
       .toMatch(/<T(,)?>/)
   })
 })
+
+describe("parse-error tolerance (mid-edit source)", () => {
+  // The editor calls transformEfx on every keystroke; mid-edit source is
+  // routinely unparseable. Throwing would leave the language plugin without a
+  // virtual code, and completion requests would fall back to the project's
+  // global scope (999 entries of DOM ambient declarations instead of the
+  // expected member list). errorRecovery: true on @babel/parser keeps the AST
+  // coming. Note: recovery isn't omnipotent — JSX-interior parse errors like
+  // `<div>{x.}</div>` still throw — but the common "type a dot in user code"
+  // case works.
+  it("does not throw on `obj.` followed by a keyword", () => {
+    const src = `function* f() { const x = { a: 1 }; x.\n\nreturn yield* g() }`
+    expect(() => transformEfx(src, "test.efx")).not.toThrow()
+  })
+
+  it("emits a recognizable member access for `obj.` recovery", () => {
+    // Babel's recovery turns `x.\n\nreturn` into `x.return` (next keyword
+    // becomes the property name). The exact property name doesn't matter
+    // — what matters is that `x.` lands inside a member-access shape so the
+    // source map covers it and tsserver returns members of `x`.
+    const src = `function* f() { const x = { a: 1 }; x.\n\nreturn yield* g() }`
+    const out = compile(src)
+    expect(out).toMatch(/x\.\w+/)
+  })
+})

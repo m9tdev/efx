@@ -71,6 +71,14 @@ export type JsxRange = JsxElementRange | JsxFragmentRange
 const PARSER_OPTIONS: ParserOptions = {
   sourceType: "module",
   plugins: ["typescript", "jsx"],
+  // Editor calls this on every keystroke; mid-edit source is routinely
+  // unparseable (`count.` with no property name yet). Without recovery,
+  // Babel throws → createVirtualCode propagates the throw → Volar has no
+  // virtual code for the file → tsserver returns the project's global scope
+  // for completion requests instead of the expected member list. With
+  // recovery, Babel emits a partial AST and attaches errors to `ast.errors`
+  // (which we don't read — downstream tsc surfaces real errors).
+  errorRecovery: true,
 }
 
 /**
