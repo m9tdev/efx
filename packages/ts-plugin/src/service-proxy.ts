@@ -1,24 +1,27 @@
 import { createLanguageServicePlugin } from "@volar/typescript/lib/quickstart/createLanguageServicePlugin"
+import type { Language } from "@volar/language-core"
 import type * as ts from "typescript"
-import { createEfxLanguagePlugin, VirtualCodeRegistry } from "@efx/language"
+import { createEfxLanguagePlugin, EfxVirtualCode } from "@efx/language"
 import { findJsxTagPair, type JsxTagProvider } from "./jsx-tags.ts"
 import { classifyRefs } from "./classify-references.ts"
 
-// One registry per tsserver session. tsserver loads this plugin module once,
-// so this single instance is the cache for the editor's lifetime — and is
-// passed to both the LanguagePlugin (writer) and the JsxTagProvider (reader).
-const registry = new VirtualCodeRegistry()
-
-const jsxTagProvider: JsxTagProvider = {
-  getJsxRanges: (efxPath) => registry.get(efxPath)?.jsxRanges,
-}
-
 // tsserver identifies scripts by file path strings — asFileName is identity.
-const efxLanguagePlugin = createEfxLanguagePlugin<string>((scriptId) => scriptId, registry)
+const efxLanguagePlugin = createEfxLanguagePlugin<string>((scriptId) => scriptId)
 
-// Create the base Volar plugin
+// Volar hands us the `Language` for this tsserver session via the `setup`
+// hook, which fires synchronously inside `volarModule.create(info)`. We stash
+// it here and immediately read it back into a per-`create` const below, before
+// any language-service method can run — so concurrent projects don't clobber
+// each other. The `Language` is the single source of truth for compiled `.efx`
+// files: we look the `EfxVirtualCode` back up through it instead of keeping a
+// side-channel cache.
+let pendingLanguage: Language<string> | undefined
+
 const volarPluginFactory = createLanguageServicePlugin((_ts, _info) => ({
   languagePlugins: [efxLanguagePlugin],
+  setup(language) {
+    pendingLanguage = language
+  },
 }))
 
 /**
@@ -42,6 +45,23 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
     ...volarModule,
     create(info) {
       const service = volarModule.create(info)
+      // `setup` ran synchronously during the create() above; capture its
+      // `Language` before any async method call can overwrite the slot.
+      const language = pendingLanguage
+      pendingLanguage = undefined
+
+      // Resolve the compiled `.efx` representation from Volar's own context —
+      // the same instance Volar indexed in `createVirtualCode`. The
+      // `instanceof` narrows away `.ts`/other virtual codes and the
+      // not-yet-compiled case. No side-channel cache to fall out of sync.
+      const getEfxVirtualCode = (fileName: string): EfxVirtualCode | undefined => {
+        const root = language?.scripts.get(fileName)?.generated?.root
+        return root instanceof EfxVirtualCode ? root : undefined
+      }
+
+      const jsxTagProvider: JsxTagProvider = {
+        getJsxRanges: (efxPath) => getEfxVirtualCode(efxPath)?.jsxRanges,
+      }
 
       // Filter out h.ts definitions (runtime internals) - these appear due to h() calls.
       // Cross-file path/offset rewriting isn't needed anymore: Volar maps virtual-code
@@ -107,7 +127,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               }
 
               // Whitespace at cursor → suppress; tsserver otherwise returns spurious empty hits
-              const vc = registry.get(fileName)
+              const vc = getEfxVirtualCode(fileName)
               const charAtPos = vc?.source[position]
               if (charAtPos && /\s/.test(charAtPos)) {
                 return undefined
