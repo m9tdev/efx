@@ -43,16 +43,26 @@ local AST rewrite.
 
 Every JSX expression `{...}` triggers up to three local rewrites:
 
-1. **Wrap in `h.track(() => ...)`** — *only if something else got
-   rewritten*. See `wrapTracked` + `rewrote` flag in `transform.ts`.
+1. **Wrap in `h.track(() => ...)`** — *only if a `.value` read got
+   rewritten*. See `wrapTracked` + `rewroteRead` flag in `transform.ts`.
    This is load-bearing: `h.track`'s return is `unknown`, which would
    destroy the typing of static expressions like
    `<Row item={item} />` (where `item` is a generic `T`). Static
-   passes through with no wrap.
+   passes through with no wrap. The `.value.map → list(...)` rewrite
+   (#3) also does **not** trigger a wrap — `list()` subscribes inside
+   `mount`, so wrapping in `h.track` would be a redundant layer.
 
 2. **`x.value` → `h.read(x)`** inside the wrapped expression. Tracks
-   AtomRef reads. Skipped when `x.value` is on the LHS of an
-   assignment (`x.value = ...` stays bare).
+   AtomRef reads. Left bare on any write to `.value` — assignment LHS
+   (`x.value = …`, `x.value += …`) **and** update expressions
+   (`x.value++`, `--x.value`). The bare-write fallback exists so the
+   emitted JS stays well-formed (`h.read(x)++` would be a SyntaxError
+   in strict modules). The compiler intentionally does not raise its
+   own diagnostic for `.value++` on an AtomRef: TypeScript already
+   surfaces `ts(2540) Cannot assign to 'value' because it is a
+   read-only property` at the right column for `=`, `+=`, `++`, and
+   `--`, which is the familiar idiomatic error. The right idiom is
+   `ref.update(v => v + 1)`.
 
    **Destructuring blind spot.** The rewrite matches `MemberExpression`
    shapes only, so `const { value } = ref` inside a JSX expression is
@@ -63,35 +73,50 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    reads as the idiom; don't extend the rewrite to destructuring
    without thinking through the alias-tracking ramifications.
 
-3. **Bare identifier in a test position → `h.peek(id)`**:
-   `cond ? A : B` (ConditionalExpression.test),
-   `a && b` / `a || b` (LogicalExpression operands),
-   `!x` (UnaryExpression argument with `!`).
-   `h.peek` is identity for non-AtomRef values; for AtomRefs it
-   unwraps + tracks. Lets `{loading ? <X /> : <Y />}` work with
-   `loading: AtomRef<boolean>`.
+3. **`<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`** —
+   keyed reactive iteration. Caught before the bare `.value` rewrite
+   so the `.value` doesn't get turned into an `h.read` we'd then have
+   to undo. The arrow body must syntactically be a JSX node (direct
+   `item => <Row/>` or `item => <></>`) or a block whose only statement
+   is `return <JSX/>` — anything else (`.value.map(item => item.text)`,
+   `.value.map(Component)`) is left as a plain `.map` and the outer
+   `.value` is rewritten normally.
 
-**The test-position rewrite (#3) is leaf-local.** It only fires
-when the test is a bare identifier. Composite test expressions —
-`x.length > 0`, `items.find(...)`, `a.value === b.value` — are
-NOT auto-tracked. They won't react to AtomRef changes unless the
-user puts `.value` somewhere in the expression (the `.value`
-rewrite #2 fires through composites on the object side, so
-`arr[0].value` does work).
+   The rewrite is purely structural; it fires whenever the shape
+   matches, without consulting types. If `<expr>` isn't actually a
+   `Collection<T>`, the emitted `list(<expr>, arrow)` call fails to
+   type-check with a diagnostic like
+   `Argument of type 'X[]' is not assignable to parameter of type 'Collection<...>'`,
+   pointing at the source `<expr>.value.map(...)` site. That's the
+   intended user-facing signal — there's no way to do a type-aware
+   Babel pass.
 
-Whether the test-position rule should extend to simple shapes
-like `x.length` is an open question — predictability and easy
-debugging are the current rationale, not a closed decision. If
-you change it, update this section.
+   After the rewrite, `path.skip()` halts the inner traversal so it
+   doesn't descend into the new list's arrow body. `.value` reads
+   inside the arrow are part of inner JSX expressions and will get
+   their own `h.track` wrap when the outer `JSXElement` visitor in
+   `transformEfx` reaches them. Pre-emptively rewriting them here
+   would (a) wrap this `list(...)` in a redundant `h.track`, and (b)
+   strand the resulting `h.read` outside any active tracking scope.
+
+**No test-position magic.** Bare identifiers in `cond ? A : B`,
+`a && b`, `!x` positions are **not** rewritten. Users must write
+`.value` explicitly — that keeps the types honest
+(`ref.value: boolean`, not `AtomRef<boolean>`) and avoids surprising
+reads where none looked syntactically present. An earlier version of
+the compiler emitted `h.peek(...)` for bare test-position identifiers;
+that was removed because the implicit unwrap diverged from the type
+TS would assign at the source site.
 
 ## Auto-injected imports
 
 If any JSX rewrote to an `h()` call, the transform ensures
-`import { h } from "@efx/runtime"` exists. If `<>...</>` was used,
-`Fragment` is added too. `ensureRuntimeImports` finds an existing
-import from `@efx/runtime` and appends to it; otherwise it prepends
-a new declaration. Names already imported under their own identifier
-(no alias) are skipped to avoid duplicates.
+`import { h } from "@efx/runtime"` exists. `Fragment` is added when
+`<>...</>` is used. `list` is added when the `.value.map → list(...)`
+rewrite fires. `ensureRuntimeImports` finds an existing import from
+`@efx/runtime` and appends to it; otherwise it prepends a new
+declaration. Names already imported under their own identifier (no
+alias) are skipped to avoid duplicates.
 
 ## Tag dispatch
 
@@ -212,8 +237,8 @@ attributes, source maps. Run with `pnpm --filter @efx/compiler test`.
 ## What this package does NOT do
 
 - No type checking. That's tsc's job (post-transform).
-- No reactivity wiring. `h.track`/`read`/`peek` live in
-  `@efx/runtime`; the compiler only emits *calls* to them.
+- No reactivity wiring. `h.track`/`read` live in `@efx/runtime`;
+  the compiler only emits *calls* to them.
 - No `CodeInformation` profile assignment. The compiler classifies
   each span as `"user"` / `"h-call"` / `"punctuation"` (a
   Volar-free taxonomy); `@efx/language` translates kind → Volar
@@ -244,8 +269,8 @@ throw. The common case — typing a `.` in plain user code — works.
   "rewrite only bare identifiers / `.value` reads" rule is what
   keeps the system debuggable.
 - Don't emit `h.track(...)` unconditionally — generics die.
-- Don't auto-import anything except `h` and `Fragment`. Users
-  manage their own imports.
+- Don't auto-import anything except `h`, `Fragment`, and `list`.
+  Users manage their own imports.
 - Don't depend on `@babel/preset-*`. We use parser + traverse +
   generate directly to keep the bundle small (the ts-plugin ships
   this transform inside its dist).

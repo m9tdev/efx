@@ -70,7 +70,7 @@ compiler eats and converts into `h()` calls." Not the React thing.
   components import from.
 - **[`packages/compiler/`](./packages/compiler/AGENTS.md)** — the Babel
   transform. Three rewrites: JSX → `h()`, `.value` → `h.read()`,
-  bare test-position identifiers → `h.peek()`. Smart-skip wrap.
+  `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`. Smart-skip wrap.
 - **[`packages/language/`](./packages/language/AGENTS.md)** — the Volar
   `LanguagePlugin` describing `.efx` files (file id, virtual code,
   source-map conversion, JSX region tagging). Shared by `ts-plugin`

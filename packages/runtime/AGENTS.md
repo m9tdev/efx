@@ -4,7 +4,7 @@ What the user actually imports from when writing components.
 Public surface (from `src/index.ts`):
 
 - `h` — the view factory (the compile target for `<...>` source
-  syntax) + `h.track`/`h.read`/`h.peek` (compiler hooks)
+  syntax) + `h.track`/`h.read` (compiler hooks)
 - `mount` — DOM renderer (returns `Effect<void, E, R | AtomRegistry | Scope>`)
 - `list` — keyed reactive list helper (`View.List` IR node)
 - `Fragment` — `<>...</>` compile target
@@ -30,7 +30,7 @@ the editor margin. If you rename them, update the regex.
 
 | File | Purpose |
 |---|---|
-| `src/h.ts` | `h()` factory + `track`/`read`/`peek` reactivity-tracking machinery |
+| `src/h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery |
 | `src/coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId` from `effect/unstable/reactivity`) |
 | `src/View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
 | `src/mount.ts` | DOM renderer. `buildDom(view, registry, scope) → Node`, `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close |
@@ -54,21 +54,18 @@ ship our own atom/signal primitive.
 
 `mount` requires `AtomRegistry` in `R`. `EfxLive` provides it.
 
-## The track/read/peek dance
+## The track/read dance
 
 The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
-**only when** it actually rewrote something inside (see
+**only when** it actually rewrote a `.value` read inside (see
 [compiler AGENTS.md](../compiler/AGENTS.md)). Inside that scope:
 
 - `h.read(ref)` — reads `.value`, registers `ref` as a tracked dep.
-- `h.peek(id)` — for AtomRef, unwraps + tracks; for non-AtomRef,
-  identity. Used for bare identifiers in test positions.
 
 `h.track` itself:
 
 1. Sets module-level `currentTracker` to a fresh dep set.
-2. Runs the thunk; `h.read`/`h.peek` add to the set when they see an
-   AtomRef.
+2. Runs the thunk; `h.read` adds to the set when it sees an AtomRef.
 3. **If the set is empty**, returns the thunk's result directly
    (no AtomRef wrap, no reactivity overhead — and the caller's
    static typing is preserved).
@@ -270,8 +267,14 @@ site preserves `T`, and accept a function child instead of a JSX
 list<T>(coll: AtomRef.Collection<T>, render: (item: AtomRef.AtomRef<T>, i: number) => …)
 ```
 
-Don't "fix" this by widening `h()`'s signature — see the root
-[AGENTS.md](../../AGENTS.md) anti-pattern about pluggable JSX
+Users normally never write `list()` by hand — the compiler rewrites
+`{coll.value.map(item => <Row item={item} />)}` in JSX expression
+position into this call. The function is exported and stable so the
+generated code has something to link to (and so escape hatches like
+"call `list` from non-JSX code" stay possible).
+
+Don't "fix" generic erasure by widening `h()`'s signature — see the
+root [AGENTS.md](../../AGENTS.md) anti-pattern about pluggable JSX
 backends. The narrow `h()` signature is what makes channel folding
 work; carrying a component's inner generic would require
 higher-rank polymorphism TS doesn't have.
