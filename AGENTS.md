@@ -87,9 +87,10 @@ compiler eats and converts into `h()` calls." Not the React thing.
   shared language plugin. Replaces `tsc --noEmit` for `.efx`
   projects without needing a tsserver process.
 - **[`packages/vite-plugin/`](./packages/vite-plugin/AGENTS.md)** — Vite
-  dev integration. Compiles `.efx` on the fly, extends esbuild's
-  include glob, rewrites `.efx` URLs with `?import` so strict-MIME
-  browsers accept the response.
+  dev integration. Owns the full `.efx` compile (Babel JSX→`h()`, then
+  Oxc type-strip via `transformWithOxc`, returning `moduleType: "js"`),
+  rewrites `.efx` URLs with `?import` so strict-MIME browsers accept the
+  response.
 - **[`apps/demo/`](./apps/demo/AGENTS.md)** — usage patterns by
   primitive (Counter, UserPage, LiveUser, Todos, Lifecycle).
   Also home to `channels.test-d.ts`, the compile-time proof.

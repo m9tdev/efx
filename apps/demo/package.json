@@ -17,6 +17,6 @@
     "@efx/check": "workspace:*",
     "@efx/ts-plugin": "workspace:*",
     "@efx/vite-plugin": "workspace:*",
-    "vite": "^7.0.0"
+    "vite": "^8.0.0"
   }
 }

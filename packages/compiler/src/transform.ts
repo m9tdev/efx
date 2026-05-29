@@ -11,6 +11,18 @@ const traverse: typeof _traverse =
 const generate: typeof _generate =
   (_generate as unknown as { default: typeof _generate }).default ?? _generate
 
+export interface TransformOptions {
+  /**
+   * Whether Babel recovers from parse errors (emitting a partial AST) instead
+   * of throwing. Defaults to `true` for the editor/language-service path,
+   * which transforms routinely-unparseable mid-edit source. The build path
+   * (`@efx/vite-plugin`) passes `false` so a real syntax error fails loudly —
+   * a Vite error overlay in dev, a failed build in CI — rather than silently
+   * shipping a recovered module.
+   */
+  readonly errorRecovery?: boolean
+}
+
 export interface TransformResult {
   readonly code: string
   readonly map: object | null
@@ -71,14 +83,6 @@ export type JsxRange = JsxElementRange | JsxFragmentRange
 const PARSER_OPTIONS: ParserOptions = {
   sourceType: "module",
   plugins: ["typescript", "jsx"],
-  // Editor calls this on every keystroke; mid-edit source is routinely
-  // unparseable (`count.` with no property name yet). Without recovery,
-  // Babel throws → createVirtualCode propagates the throw → Volar has no
-  // virtual code for the file → tsserver returns the project's global scope
-  // for completion requests instead of the expected member list. With
-  // recovery, Babel emits a partial AST and attaches errors to `ast.errors`
-  // (which we don't read — downstream tsc surfaces real errors).
-  errorRecovery: true,
 }
 
 /**
@@ -434,9 +438,23 @@ const transformJsxNode = (
  * TypeScript's JSX type-checker is therefore never engaged; channel
  * propagation comes from `h()`'s generic signature alone.
  */
-export const transformEfx = (source: string, filename: string): TransformResult => {
+export const transformEfx = (
+  source: string,
+  filename: string,
+  options: TransformOptions = {},
+): TransformResult => {
   const ast = parse(source, {
     ...PARSER_OPTIONS,
+    // The editor/language-service path (default) needs error recovery: it
+    // calls this on every keystroke over routinely-unparseable mid-edit
+    // source (`count.` with no property yet). Without recovery Babel throws →
+    // createVirtualCode propagates → Volar has no virtual code → tsserver
+    // returns the global scope for completions. With recovery Babel emits a
+    // partial AST and attaches errors to `ast.errors` (which we don't read —
+    // tsc surfaces the real errors). The build path passes `false` so a
+    // genuine syntax error throws loudly here instead of silently emitting a
+    // recovered/garbage module that the bundler would then ship.
+    errorRecovery: options.errorRecovery ?? true,
     sourceFilename: filename,
   })
 

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises"
-import type { Plugin } from "vite"
+import { type Plugin, transformWithOxc } from "vite"
 import { transformEfx } from "@efx/compiler"
 
 const EFX_RE = /\.efx(?:\?[^.]*)?$/
@@ -11,11 +11,19 @@ const HAS_IMPORT_RE = /[?&]import(=|&|$)/
 /**
  * Vite plugin that handles `.efx` files.
  *
- * Pipeline per `.efx` request:
- *   1. Plugin's `transform` hook compiles JSX → `h()` calls via @efx/compiler.
- *      Output is plain TypeScript (no JSX nodes left).
- *   2. Vite's built-in esbuild step strips TypeScript types. We extend its
- *      `include` glob so .efx files go through the same TS pipeline as .ts.
+ * Pipeline per `.efx` request (the plugin owns the whole transform):
+ *   1. `@efx/compiler`'s `transformEfx` rewrites JSX → `h()` calls. Output is
+ *      plain TypeScript (no JSX nodes left), with a source map back to `.efx`.
+ *   2. Vite's `transformWithOxc` strips the TypeScript types → JavaScript,
+ *      chaining the Babel map (passed as `inMap`) so the final map still
+ *      points at the original `.efx` source.
+ *
+ * We return `moduleType: 'js'` so Rolldown treats the result as plain
+ * JavaScript instead of trying to infer a language from the unknown `.efx`
+ * extension (Vite 8's Rolldown/Oxc pipeline errors with "Failed to detect the
+ * lang" otherwise). Owning both steps keeps the plugin bundler-agnostic — it
+ * no longer leans on Vite's built-in transformer to finish `.efx` files, which
+ * is what broke across the esbuild → oxc swap.
  *
  * TypeScript's JSX type checker never sees the JSX — it sees only the emitted
  * call expressions and runs ordinary generic inference on `h`'s signature.
@@ -24,14 +32,6 @@ export function efx(): Plugin {
   return {
     name: "vite-plugin-efx",
     enforce: "pre",
-    config() {
-      return {
-        esbuild: {
-          include: [/\.efx$/, /\.tsx?$/],
-          loader: "ts",
-        },
-      }
-    },
     // Server middleware: every request for a `.efx` URL gets `?import`
     // appended (if not already present) before any of Vite's built-in
     // middleware runs. This forces `.efx` through the module pipeline
@@ -64,8 +64,30 @@ export function efx(): Plugin {
     },
     async transform(code, id) {
       if (!EFX_RE.test(id)) return null
-      const result = transformEfx(code, id)
-      return { code: result.code, map: result.map as never }
+      // 1. JSX → h() (still TypeScript). `errorRecovery: false` so a genuine
+      //    syntax error throws here — Vite surfaces it as an error overlay in
+      //    dev and fails the build in CI, rather than the compiler silently
+      //    recovering and us shipping a broken module. (The editor path keeps
+      //    the default recovery; see @efx/compiler's TransformOptions.)
+      const { code: tsCode, map: babelMap } = transformEfx(code, id, {
+        errorRecovery: false,
+      })
+      // 2. TypeScript → JavaScript. `lang: "ts"` tells Oxc the input is TS
+      //    (it can't infer that from the `.efx` id); `inMap` chains the Babel
+      //    map so the final map still resolves to the original `.efx`.
+      const stripped = await transformWithOxc(
+        tsCode,
+        id,
+        { lang: "ts" },
+        babelMap ?? undefined,
+      )
+      // Spread `map` only when present — `exactOptionalPropertyTypes` rejects
+      // an explicit `map: undefined` against the transform result type.
+      return {
+        code: stripped.code,
+        moduleType: "js",
+        ...(stripped.map ? { map: stripped.map } : {}),
+      }
     },
   }
 }

@@ -8,15 +8,54 @@ The user adds it to their `vite.config.ts` plugins array.
 
 ## What it does
 
-Four hooks, each load-bearing:
+The plugin **owns the full `.efx` → JavaScript transform** and hands
+Vite finished JS. It does *not* lean on Vite's built-in transformer to
+strip the TypeScript — see "Why we own the whole transform" below.
+
+Three hooks, each load-bearing:
 
 | Hook | Purpose |
 |---|---|
-| `enforce: "pre"` | Run before Vite's built-in transforms, so esbuild's TS-stripping step sees the compiled output rather than the raw `.efx` source. The specific failure mode without it isn't documented from a real incident — if you drop the flag and something breaks, ordering is the first thing to check. |
-| `config()` | Extend esbuild's `include` glob to match `.efx` (alongside `.ts`/`.tsx`) with `loader: "ts"`. This makes Vite's type-stripping step accept `.efx` extensions. |
+| `enforce: "pre"` | Run before other plugins' transforms so our hook is the one that turns a `.efx` id into a module. If you drop the flag and something breaks, ordering is the first thing to check. |
 | `configureServer(server)` middleware | Rewrites every `.efx` request URL to add `?import` (if not already present). |
-| `transform(code, id)` | Calls `transformEfx(code, id)` — turns JSX into `h()` calls, emits source map. |
+| `transform(code, id)` | Two steps: (1) `transformEfx(code, id, { errorRecovery: false })` turns JSX into `h()` calls (still TypeScript); (2) Vite's `transformWithOxc(ts, id, { lang: "ts" }, babelMap)` strips the types → JS and chains the Babel map. Returns `{ code, map, moduleType: "js" }`. |
 | `load(id)` | Reads the raw file from disk for `?import`-suffixed requests. Belt-and-suspenders — the middleware ensures every `.efx` request hits this path. |
+
+## Why we own the whole transform (Vite 8 / Oxc)
+
+Earlier versions did **not** strip types themselves. They set
+`config().esbuild.include = [/\.efx$/, …]` so `.efx` rode Vite's
+built-in esbuild TS-stripping step. That coupled the plugin to Vite's
+internal transformer — and broke in Vite 8, which swapped esbuild+Rollup
+for **Rolldown+Oxc**: the `esbuild` config option is deprecated, and
+Rolldown's `builtin:vite-transform` errors with *"Failed to detect the
+lang of …/main.efx"* because it infers a module's language from its
+extension and `.efx` is unknown.
+
+The fix is to do the type-strip *in the plugin* and return plain JS:
+
+- `transformWithOxc(tsCode, id, { lang: "ts" }, babelMap)` — Vite 8's
+  exported Oxc transform. `lang: "ts"` tells Oxc the post-Babel code is
+  TypeScript (it can't infer that from the `.efx` id); the 4th arg
+  `inMap` chains the Babel `.efx` → TS map so the returned map resolves
+  to the original `.efx`.
+- `moduleType: "js"` on the result tells Rolldown the output is plain
+  JavaScript, so it never runs lang-detection on the `.efx` id.
+
+This keeps the plugin **bundler-agnostic** — it no longer depends on
+whatever transformer Vite ships, which is exactly the coupling that
+snapped across the esbuild → Oxc swap. The same `transform` runs in dev
+and build, so both paths fixed at once.
+
+### Build vs. editor error policy
+
+`transformEfx`'s default `errorRecovery: true` lets the editor tolerate
+mid-edit unparseable source (see [`@efx/compiler`](../compiler/AGENTS.md)).
+The build path passes **`errorRecovery: false`** so a genuine syntax
+error throws here — a Vite error overlay in dev, a failed build in CI —
+instead of the compiler silently recovering and us shipping a broken
+module. Vite (not tsc) is the only checker on the build path, so this
+plugin is where "fail loudly on bad syntax" has to live.
 
 ## Why the URL-rewrite middleware exists
 
@@ -71,10 +110,10 @@ vs Vite id vs path-only). Don't unify naively.
 
 - No HMR logic of its own — Vite's built-in HMR works because the
   output of `transform` is JavaScript modules.
-- No source map combining — Babel's source map is passed straight
-  through to Vite (the `as never` cast bypasses Vite's strict
-  `RawSourceMap` type, which Babel's loose-but-compatible map
-  trips on at type-check time).
+- No *manual* source-map composition. The two-stage map (Babel
+  `.efx`→TS, then Oxc TS→JS) is chained by `transformWithOxc`'s
+  `inMap` argument — we pass the Babel map in and get the composed
+  `.efx`→JS map back. No remapping library, no hand-rolled merge.
 - No caching. `transformEfx` is called on every request. The
   compiler is fast enough that this hasn't been a problem; if it
   becomes one, cache by file mtime.

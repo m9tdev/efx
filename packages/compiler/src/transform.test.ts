@@ -398,4 +398,17 @@ describe("parse-error tolerance (mid-edit source)", () => {
     const out = compile(src)
     expect(out).toMatch(/x\.\w+/)
   })
+
+  // The build path (@efx/vite-plugin) passes `errorRecovery: false` so a real
+  // syntax error throws loudly — a Vite overlay in dev, a failed build in CI —
+  // instead of the compiler silently recovering and shipping a broken module.
+  it("throws on genuinely broken source when errorRecovery is false", () => {
+    const src = `function* f() { const x = { a: 1 }; x.\n\nreturn yield* g() }`
+    expect(() => transformEfx(src, "test.efx", { errorRecovery: false })).toThrow()
+  })
+
+  it("still recovers by default (editor path) for the same source", () => {
+    const src = `function* f() { const x = { a: 1 }; x.\n\nreturn yield* g() }`
+    expect(() => transformEfx(src, "test.efx")).not.toThrow()
+  })
 })
