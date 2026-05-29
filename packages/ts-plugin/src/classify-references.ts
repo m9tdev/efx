@@ -17,6 +17,48 @@ export type ClassifiedRef<R> = {
   readonly isImport: boolean
 }
 
+/**
+ * Identity key for a reference: file path + start offset. The single
+ * definition of "these two reference hits are the same one" — both reference
+ * handlers in `service-proxy.ts` dedupe with this. They iterate different
+ * shapes (a flat `ReferenceEntry[]` vs the flattened nested
+ * `ReferencedSymbol[]`), so they share the key formula, not the loop.
+ */
+export const refKey = (ref: { fileName: string; textSpan: ts.TextSpan }): string =>
+  `${ref.fileName}:${ref.textSpan.start}`
+
+/** Drop duplicate reference hits (same `refKey`), preserving first-seen order. */
+export function dedupeRefs<R extends { fileName: string; textSpan: ts.TextSpan }>(
+  refs: ReadonlyArray<R>,
+): R[] {
+  const seen = new Set<string>()
+  const out: R[] = []
+  for (const ref of refs) {
+    const key = refKey(ref)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(ref)
+  }
+  return out
+}
+
+/**
+ * Ordering policy for find-references results: definition first, then usages,
+ * then imports last. Sorts on the precomputed `isDef`/`isImport` booleans
+ * (from `classifyRefs`) so no source re-reads happen in the comparator.
+ * Stable for the equal (usage) case — Node's sort preserves input order, so
+ * usages keep tsserver's original ordering.
+ */
+export function sortClassifiedRefs<R>(
+  classified: ReadonlyArray<ClassifiedRef<R>>,
+): ClassifiedRef<R>[] {
+  return [...classified].sort((a, b) => {
+    if (a.isDef !== b.isDef) return a.isDef ? -1 : 1
+    if (a.isImport !== b.isImport) return a.isImport ? 1 : -1
+    return 0
+  })
+}
+
 export function classifyRefs<R extends { fileName: string; textSpan: ts.TextSpan }>(
   refs: ReadonlyArray<R>,
   def: { fileName: string; textSpan: ts.TextSpan },

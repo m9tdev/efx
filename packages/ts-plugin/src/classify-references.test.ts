@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 import type * as ts from "typescript"
-import { classifyRefs } from "./classify-references.ts"
+import {
+  classifyRefs,
+  dedupeRefs,
+  refKey,
+  sortClassifiedRefs,
+  type ClassifiedRef,
+} from "./classify-references.ts"
 
 const span = (start: number, length = 1): ts.TextSpan => ({ start, length })
 
@@ -102,5 +108,82 @@ describe("classifyRefs", () => {
     const refs = [{ fileName: "b.ts", textSpan: span(content.indexOf("X")) }]
     const out = classifyRefs(refs, def, () => content)
     expect(out[0]?.isImport).toBe(true)
+  })
+})
+
+describe("refKey", () => {
+  it("combines file path and start offset", () => {
+    expect(refKey({ fileName: "a.ts", textSpan: span(42) })).toBe("a.ts:42")
+  })
+
+  it("distinguishes same offset in different files and different offsets", () => {
+    expect(refKey({ fileName: "a.ts", textSpan: span(1) })).not.toBe(
+      refKey({ fileName: "b.ts", textSpan: span(1) }),
+    )
+    expect(refKey({ fileName: "a.ts", textSpan: span(1) })).not.toBe(
+      refKey({ fileName: "a.ts", textSpan: span(2) }),
+    )
+  })
+})
+
+describe("dedupeRefs", () => {
+  it("drops same-(file,start) duplicates, keeping first-seen order", () => {
+    const refs = [
+      { fileName: "a.ts", textSpan: span(10) },
+      { fileName: "a.ts", textSpan: span(20) },
+      { fileName: "a.ts", textSpan: span(10) }, // dup of #0
+      { fileName: "b.ts", textSpan: span(10) }, // same start, other file → kept
+    ]
+    const out = dedupeRefs(refs)
+    expect(out.map(refKey)).toEqual(["a.ts:10", "a.ts:20", "b.ts:10"])
+  })
+
+  it("dedupes by start only, ignoring length", () => {
+    const out = dedupeRefs([
+      { fileName: "a.ts", textSpan: span(5, 1) },
+      { fileName: "a.ts", textSpan: span(5, 99) },
+    ])
+    expect(out).toHaveLength(1)
+  })
+})
+
+describe("sortClassifiedRefs", () => {
+  const mk = (id: string, isDef: boolean, isImport: boolean): ClassifiedRef<string> => ({
+    ref: id,
+    isDef,
+    isImport,
+  })
+
+  it("orders definition first, then usages, then imports last", () => {
+    const sorted = sortClassifiedRefs([
+      mk("import1", false, true),
+      mk("usage1", false, false),
+      mk("def", true, false),
+      mk("import2", false, true),
+      mk("usage2", false, false),
+    ])
+    expect(sorted.map((c) => c.ref)).toEqual([
+      "def",
+      "usage1",
+      "usage2",
+      "import1",
+      "import2",
+    ])
+  })
+
+  it("is stable within the usage tier (preserves input order)", () => {
+    const sorted = sortClassifiedRefs([
+      mk("u1", false, false),
+      mk("u2", false, false),
+      mk("u3", false, false),
+    ])
+    expect(sorted.map((c) => c.ref)).toEqual(["u1", "u2", "u3"])
+  })
+
+  it("does not mutate the input array", () => {
+    const input = [mk("import1", false, true), mk("def", true, false)]
+    const snapshot = input.map((c) => c.ref)
+    sortClassifiedRefs(input)
+    expect(input.map((c) => c.ref)).toEqual(snapshot)
   })
 })

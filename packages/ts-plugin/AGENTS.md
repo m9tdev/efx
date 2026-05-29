@@ -21,10 +21,10 @@ for tsserver to `require()`.
 |---|---|
 | `src/index.ts` | Entry. Re-exports `pluginFactory` via `export =`. |
 | `src/jsx-tags.ts` | `findJsxTagPair` — takes a `JsxTagProvider` (the in-process seam) and uses its `jsxRanges` from the shared `EfxVirtualCode` to find tag-pair partners for document highlights. The service-proxy builds the provider by resolving the `EfxVirtualCode` from Volar's context. |
-| `src/classify-references.ts` | `classifyRefs` — decorates each ref with `{ isDef, isImport }` in one pass, with a per-call file-content cache so each source file is read at most once. `findReferences` then sorts on the precomputed booleans instead of doing disk I/O inside the comparator. |
+| `src/classify-references.ts` | `classifyRefs` — decorates each ref with `{ isDef, isImport }` in one pass, with a per-call file-content cache so each source file is read at most once. Plus `refKey` (the `${fileName}:${textSpan.start}` identity), `dedupeRefs` (drop same-key hits, first-seen order), and `sortClassifiedRefs` (def→usages→imports ordering on the precomputed booleans). The two reference handlers compose these instead of inlining the key/sort logic. |
 | `src/hint-text.ts` | `hintText(hint)` — reads an inlay hint's label across the shapes different TS versions use (`hint.text` string, `hint.text` parts, `hint.displayParts`), returning the first non-empty. Plus `SUPPRESS_RE`, the `_tag`/`_props`/`_children` regex. Pure + unit-tested so the filter doesn't need a tsserver. |
 | `src/service-proxy.ts` | `pluginFactory` — instantiates the shared LanguagePlugin via `createEfxLanguagePlugin<string>(identity)`, builds Volar's `createLanguageServicePlugin` (capturing the session `Language` through its `setup(language)` hook), then wraps the resulting `LanguageService` in a Proxy with a few method overrides (filter `@efx/runtime`'s `h.ts` from definition results, JSX tag-pair document highlights, `_tag`/`_props`/`_children` inlay-hint filter, reference dedup + sort). Resolves the per-`.efx` `EfxVirtualCode` from `language.scripts` when it needs `jsxRanges` or `source`. |
-| `src/classify-references.test.ts` | Unit tests for `classifyRefs` — injects a fake `readFile` to assert classification rules and per-call caching without touching disk. |
+| `src/classify-references.test.ts` | Unit tests for `classifyRefs` (injected fake `readFile`, no disk), plus `refKey`/`dedupeRefs`/`sortClassifiedRefs` — pins the dedup key, first-seen order, and the def→usages→imports ordering (incl. usage-tier stability) without a tsserver. |
 | `src/plugin.test.mjs` | Manual smoke test loading the built bundle (`dist/index.cjs`) and asserting plugin shape. Not run by `pnpm test` (vitest config only picks up `*.test.ts`); invoke directly with `node` after building. |
 | `vitest.config.ts` | Picks up `src/**/*.test.ts`. The package's `test` script runs vitest first, then builds and runs the integration harness. |
 | `test/integration.mjs` | tsserver-subprocess harness. The acceptance-level check that the plugin really works end-to-end. |
@@ -157,21 +157,25 @@ hand-rolled.
   next-line token. Same treatment for per-entry `replacementSpan`
   in case tsserver populates it.
 
-- **`getReferencesAtPosition` / `findReferences`** — dedupe + sort:
+- **`getReferencesAtPosition` / `findReferences`** — dedupe + sort.
+  Both compose the helpers in `classify-references.ts` rather than
+  inlining the logic; the two handlers iterate different shapes (a
+  flat `ReferenceEntry[]` vs the flattened nested `ReferencedSymbol[]`),
+  so they share the key formula, not the loop.
   - Filter out hits in `@efx/runtime`'s `h.ts` (same reason as the
     definition overrides).
-  - Deduplicate by `${fileName}:${textSpan.start}`. `findReferences`
-    in particular dedupes **across symbols** (its result is an
-    array of symbols, each with references), because TS often
-    returns the same logical reference under both the renamed
-    component name and the `h(...)` call symbol.
-  - Sort: definition first, then non-imports (usages), then
-    imports. The "is this an import line?" decision needs to read
-    the source file — `classifyRefs` does that **once** per
-    distinct file before the sort runs, so the comparator only
-    looks at precomputed booleans. Previously the comparator
-    called `ts.sys.readFile` inline, paying O(N log N) reads of
-    the same handful of files.
+  - `dedupeRefs` deduplicates by `refKey` (`${fileName}:${textSpan.start}`).
+    `findReferences` flattens its nested result first and dedupes
+    **across symbols**, because TS often returns the same logical
+    reference under both the renamed component name and the `h(...)`
+    call symbol.
+  - `sortClassifiedRefs` orders definition first, then usages, then
+    imports. The "is this an import line?" decision needs to read the
+    source file — `classifyRefs` does that **once** per distinct file
+    before the sort, so the comparator only looks at precomputed
+    booleans. (Previously the comparator called `ts.sys.readFile`
+    inline, paying O(N log N) reads of the same handful of files; and
+    the policy itself was untestable inside the Proxy closure.)
 
 ## Cross-file resolution
 

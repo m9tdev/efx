@@ -3,7 +3,7 @@ import type { Language } from "@volar/language-core"
 import type * as ts from "typescript"
 import { createEfxLanguagePlugin, EfxVirtualCode } from "@efx/language"
 import { findJsxTagPair, type JsxTagProvider } from "./jsx-tags.ts"
-import { classifyRefs } from "./classify-references.ts"
+import { classifyRefs, dedupeRefs, sortClassifiedRefs } from "./classify-references.ts"
 import { hintText, SUPPRESS_RE } from "./hint-text.ts"
 
 // tsserver identifies scripts by file path strings — asFileName is identity.
@@ -205,45 +205,23 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
           if (prop === "getReferencesAtPosition") {
             return wrapMethod("getReferencesAtPosition", (result) => {
               if (!result) return result
-              const filtered = filterRuntimeHits(result)
-              const seen = new Set<string>()
-              return filtered.filter(r => {
-                const key = `${r.fileName}:${r.textSpan.start}`
-                if (seen.has(key)) return false
-                seen.add(key)
-                return true
-              })
+              return dedupeRefs(filterRuntimeHits(result))
             })
           }
 
           if (prop === "findReferences") {
             return wrapMethod("findReferences", (result) => {
               if (!result) return result
-              // Deduplicate across ALL symbols, not per-symbol
-              const allRefs: ts.ReferencedSymbolEntry[] = []
-              const seen = new Set<string>()
-              for (const symbol of result) {
-                for (const ref of symbol.references) {
-                  const filtered = filterRuntimeHit(ref)
-                  if (!filtered) continue
-                  const key = `${filtered.fileName}:${filtered.textSpan.start}`
-                  if (seen.has(key)) continue
-                  seen.add(key)
-                  allRefs.push(filtered)
-                }
-              }
               const firstSymbol = result[0]
               if (!firstSymbol) return result
               const def = firstSymbol.definition
-              // Classify once (one read per distinct file), then sort on the
-              // booleans. Otherwise the comparator would re-read source for
-              // each pair it compared.
-              const classified = classifyRefs(allRefs, def, ts.sys.readFile)
-              classified.sort((a, b) => {
-                if (a.isDef !== b.isDef) return a.isDef ? -1 : 1
-                if (a.isImport !== b.isImport) return a.isImport ? 1 : -1
-                return 0
-              })
+              // Flatten the nested ReferencedSymbol[] into one list, drop h.ts
+              // hits, then dedupe across ALL symbols (not per-symbol) with the
+              // shared refKey. Classify once (one read per distinct file), then
+              // apply the def→usages→imports ordering — both extracted next to
+              // classifyRefs so the policy is unit-tested without a tsserver.
+              const allRefs = dedupeRefs(filterRuntimeHits(result.flatMap((s) => s.references)))
+              const classified = sortClassifiedRefs(classifyRefs(allRefs, def, ts.sys.readFile))
               return [{
                 definition: def,
                 references: classified.map((c) => c.ref),
