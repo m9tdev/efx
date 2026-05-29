@@ -1,5 +1,6 @@
 export {
   transformEfx,
+  type TransformOptions,
   type TransformResult,
   type JsxRange,
   type JsxElementRange,
