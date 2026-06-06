@@ -28,8 +28,8 @@ await runProbe({
     const countAfter3 = await page.locator(".counter .count").innerText()
     console.log("count after 3 clicks:", JSON.stringify(countAfter3))
 
-    // Click reset
-    await page.locator(".counter button").nth(1).click()
+    // Reset via the demo's reset button (recreates the component → count 0)
+    await page.locator('[data-demo="counter"]').locator("..").locator(".demo-refresh").click()
     await page.waitForTimeout(50)
     const countAfterReset = await page.locator(".counter .count").innerText()
     console.log("count after reset:", JSON.stringify(countAfterReset))

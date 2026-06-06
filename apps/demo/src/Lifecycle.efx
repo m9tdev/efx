@@ -10,9 +10,6 @@ interface Item {
   readonly id: number
 }
 
-const items = AtomRef.collection<Item>([{ id: 1 }, { id: 2 }])
-let nextId = 3
-
 const Row = Effect.fn("Row")(function* (props: {
   readonly item: AtomRef.AtomRef<Item>
 }) {
@@ -30,13 +27,17 @@ const Row = Effect.fn("Row")(function* (props: {
   )
 })
 
-const addRow = () => items.push({ id: nextId++ })
-const removeLast = () => {
-  const current = items.value
-  if (current.length > 0) items.remove(current[current.length - 1]!)
-}
-
 export const Lifecycle = Effect.fn("Lifecycle")(function* (_props: {} = {}) {
+  // State lives in the component, so the demo's reset button recreates it back
+  // to two rows (the event log on `__lifecycle` is module-level and persists).
+  const items = AtomRef.collection<Item>([{ id: 1 }, { id: 2 }])
+  let nextId = 3
+  const addRow = () => items.push({ id: nextId++ })
+  const removeLast = () => {
+    const current = items.value
+    if (current.length > 0) items.remove(current[current.length - 1]!)
+  }
+
   return yield* (
     <div class="lifecycle">
       <h3>Per-component lifecycle (Effect.acquireRelease)</h3>

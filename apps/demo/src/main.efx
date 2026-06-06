@@ -63,7 +63,7 @@ const demoSlot = (id: string) => (
         title="recreate this component from scratch"
         onclick={() => refreshers.get(id)?.()}
       >
-        ↻ refresh
+        ↻ reset
       </button>
     </div>
     <div class="demo-mount" data-demo={id}></div>
@@ -104,7 +104,7 @@ const App = (
           . Each section pairs the source on the left with the running component
           on the right. Interact with any demo — the brief highlight marks the
           exact DOM node that re-rendered; nothing around it does. Hit{" "}
-          <strong>↻ refresh</strong> to recreate a component and watch its
+          <strong>↻ reset</strong> to recreate a component and watch its
           initial state (loading, count 0) from the top.
         </p>
       </div>
@@ -149,7 +149,7 @@ const user = yield* http.getUser(id)
         step: "03",
         title: "Await boundary (non-blocking)",
         concept:
-          "Same fetch, wrapped in Await. A pending placeholder shows immediately; onError handles failure locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. The Scope is Await's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the element's own demo scope, so refresh interrupts an in-flight fetch.",
+          "Same fetch, wrapped in Await. A pending placeholder shows immediately; onError handles failure locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. The Scope is Await's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the element's own demo scope, so reset interrupts an in-flight fetch.",
         type: "Effect<View, never, Http | Scope>",
         code: `Await(() => http.getUser(id), {
   pending:   <p>loading…</p>,
@@ -199,7 +199,7 @@ Await(() => http.getUser(userId.value), { … })
         step: "06",
         title: "Per-component lifecycle",
         concept:
-          "Every row mounts in its own Effect Scope, so a finalizer registered with Effect.acquireRelease fires when that row's DOM is removed — not when the whole app unmounts. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Refresh closes the demo's scope, firing every remaining row's finalizer at once.)",
+          "Every row mounts in its own Effect Scope, so a finalizer registered with Effect.acquireRelease fires when that row's DOM is removed — not when the whole app unmounts. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Reset closes the demo's scope, firing every remaining row's finalizer at once.)",
         type: "Effect<View, never, never>",
         code: `yield* Effect.acquireRelease(
   Effect.sync(() => log(\`mount:\${id}\`)),

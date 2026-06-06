@@ -6,28 +6,19 @@ interface Todo {
   readonly done: boolean
 }
 
-// Reactive collection — each item is wrapped in its own AtomRef so per-row
-// updates don't tear down the whole list.
-const todos = AtomRef.collection<Todo>([
-  { text: "build a UI framework", done: true },
-  { text: "use it for something", done: false },
-  { text: "write a blog post", done: false },
-])
-
-const addTodo = () => todos.push({ text: "new todo", done: false })
-
 /**
  * One row. Reads from a single item ref; toggling `done` updates only this
  * row, not the rest of the list (because the framework's reactive bindings
- * subscribe per-ref).
+ * subscribe per-ref). `remove` is passed in so the row needn't reach for the
+ * collection — that lives inside `Todos`.
  */
 const TodoRow = Effect.fn("TodoRow")(function* (props: {
   readonly item: AtomRef.AtomRef<Todo>
+  readonly remove: () => void
 }) {
   const ref = props.item
   const done = ref.map((t) => t.done)         // ReadonlyRef<boolean>
   const toggle = () => ref.update((t) => ({ ...t, done: !t.done }))
-  const remove = () => todos.remove(ref)
 
   // The compiler wraps every JSX expression in `h.track(() => …)` and
   // rewrites `.value` reads inside to `h.read(…)`, tracking AtomRef
@@ -39,23 +30,32 @@ const TodoRow = Effect.fn("TodoRow")(function* (props: {
         {done.value ? "✓" : "·"}
       </button>
       <span class="text">{ref.value.text}</span>
-      <button class="remove" onclick={remove}>×</button>
+      <button class="remove" onclick={props.remove}>×</button>
     </li>
   )
 })
 
-const remaining: AtomRef.ReadonlyRef<number> = todos.map((items) => {
-  let n = 0
-  for (const ref of items) if (!ref.value.done) n++
-  return n
-})
-
 /**
- * The list. `todos.value.map(item => <TodoRow />)` in JSX position is
- * compiled to a keyed `View.List` IR node; `mount` reconciles rows by ref
- * identity on add/remove.
+ * The list. State lives *inside* the component, so recreating it (the demo's
+ * reset button) starts from the initial todos again. `todos.value.map(item =>
+ * <TodoRow />)` in JSX position is compiled to a keyed `View.List` IR node;
+ * `mount` reconciles rows by ref identity on add/remove.
  */
 export const Todos = Effect.fn("Todos")(function* (_props: {} = {}) {
+  // Reactive collection — each item is wrapped in its own AtomRef so per-row
+  // updates don't tear down the whole list.
+  const todos = AtomRef.collection<Todo>([
+    { text: "build a UI framework", done: true },
+    { text: "use it for something", done: false },
+    { text: "write a blog post", done: false },
+  ])
+  const addTodo = () => todos.push({ text: "new todo", done: false })
+  const remaining: AtomRef.ReadonlyRef<number> = todos.map((items) => {
+    let n = 0
+    for (const ref of items) if (!ref.value.done) n++
+    return n
+  })
+
   return yield* (
     <div class="todos">
       <div class="controls">
@@ -65,7 +65,7 @@ export const Todos = Effect.fn("Todos")(function* (_props: {} = {}) {
         </span>
       </div>
       <ul>
-        {todos.value.map((item) => <TodoRow item={item} />)}
+        {todos.value.map((item) => <TodoRow item={item} remove={() => todos.remove(item)} />)}
       </ul>
     </div>
   )
