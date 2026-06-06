@@ -2,39 +2,211 @@ import { Cause, Effect, Fiber, Layer } from "effect"
 import { EfxLive, mount } from "@efx/runtime"
 import { Counter } from "./Counter.efx"
 import { AsyncUserPage } from "./AsyncUserPage.efx"
+import { flashOnUpdate } from "./flash.ts"
+import { highlight } from "./highlight.ts"
 import { Lifecycle } from "./Lifecycle.efx"
 import { LiveUser } from "./LiveUser.efx"
 import { HttpLive, ThemeLive } from "./services.ts"
 import { Todos } from "./Todos.efx"
 import { UserPage } from "./UserPage.efx"
 
+const REPO = "https://github.com/m9tdev/efx"
+const SRC = `${REPO}/blob/main/apps/demo/src`
+
+/**
+ * The static left column of a guided-tour section: a step number, the concept
+ * the primitive teaches, the *inferred* `Effect<View, E, R>` type, a curated
+ * source snippet, and a link to the full file.
+ *
+ * This is a plain function (not an `Effect.fn` component) returning JSX, so it
+ * folds to `Effect<View, never, never>` — pure presentation, no services. The
+ * live component is rendered *inline* in `App` (not routed through here) so its
+ * real `E`/`R` channels still fold into `main`'s type. That's the whole point:
+ * forget a `Layer` below and this entrypoint stops compiling.
+ */
+const copy = (meta: {
+  readonly step: string
+  readonly title: string
+  readonly concept: string
+  readonly type: string
+  readonly code: string
+  readonly file: string
+}) => (
+  <div class="tour-copy">
+    <div class="tour-head">
+      <span class="step">{meta.step}</span>
+      <h2>{meta.title}</h2>
+    </div>
+    <p class="concept">{meta.concept}</p>
+    <p class="sig-label">inferred type</p>
+    <pre class="sig"><code>{meta.type}</code></pre>
+    <pre class="code"><code>{highlight(meta.code).map((t) => <span class={`tok-${t.kind}`}>{t.text}</span>)}</code></pre>
+    <a class="src" href={`${SRC}/${meta.file}`} target="_blank" rel="noreferrer">
+      view source ↗
+    </a>
+  </div>
+)
+
 const App = (
   <div class="app">
-    <h1>efx demo — channels through the tree</h1>
-    <section class="section">
-      <h2>Reactive counter (AtomRef)</h2>
-      <Counter />
+    <header class="hero">
+      <p class="eyebrow">a guided tour</p>
+      <h1>efx</h1>
+      <p class="tagline">
+        an <a href="https://effect.website" target="_blank" rel="noreferrer">Effect</a>-native
+        UI framework where the <code>{"<A, E, R>"}</code> channels survive from
+        every leaf of the view tree to the root. Forget to provide a service{" "}
+        <code>Layer</code> and you get a <em>compile-time error that names the
+        missing service</em> — not a runtime crash.
+      </p>
+      <div class="how">
+        <h3>the trick, in one breath</h3>
+        <p>
+          TypeScript erases generics at the JSX boundary, collapsing every
+          component to <code>JSX.Element</code> — fatal for a framework whose
+          point is that <code>E</code>/<code>R</code> survive composition. So
+          efx never lets <code>tsc</code> see JSX: source files use a{" "}
+          <code>.efx</code> extension, and <code>@efx/compiler</code> rewrites
+          every <code>{"<tag/>"}</code> into an <code>h(tag, props, …children)</code>{" "}
+          call <em>before</em> tsc parses the file. <code>h()</code>'s
+          conditional-type signature then unions every child's <code>E</code>{" "}
+          and <code>R</code> into the result. tsc only ever type-checks plain
+          function calls — so the channels can't be erased.
+        </p>
+        <p class="how-note">
+          Every <code>inferred type</code> below is real, checked by{" "}
+          <a href={`${REPO}/blob/main/apps/demo/src/channels.test-d.ts`} target="_blank" rel="noreferrer">
+            channels.test-d.ts
+          </a>
+          . Each section pairs the source on the left with the running component
+          on the right. Interact with any demo — the brief highlight marks the
+          exact DOM node that re-rendered; nothing around it does.
+        </p>
+      </div>
+    </header>
+
+    <section class="tour">
+      {copy({
+        step: "01",
+        title: "Reactive state",
+        concept:
+          "Local state is an Effect AtomRef — efx ships no signal of its own. Drop the ref straight into child position and h() emits a reactive node; on update, only that text node re-renders. No services, so R is never.",
+        type: "Effect<View, never, never>",
+        code: `const count = AtomRef.make(0)
+
+<button onclick={() => count.update(n => n + 1)}>+</button>
+<span class="count">clicks: {count}</span>`,
+        file: "Counter.efx",
+      })}
+      <div class="tour-demo">
+        <span class="demo-label">live</span>
+        <Counter />
+      </div>
     </section>
-    <section class="section">
-      <h2>Async data, in-component (E + R fold to root, blocking)</h2>
-      <UserPage userId="42" />
+
+    <section class="tour">
+      {copy({
+        step: "02",
+        title: "Effectful data (channels fold to root)",
+        concept:
+          "Fetch inside the component. `yield* Http` adds Http to R; the request can fail, so HttpError rides E. Both surface in the type and must be satisfied at mount — drop HttpLive below and main stops compiling. The subtree blocks until the request resolves.",
+        type: "Effect<View, HttpError, Http | Theme>",
+        code: `const http = yield* Http              // → adds Http to R
+const user = yield* http.getUser(id)  // can fail → HttpError in E
+
+<h1>{user.name}</h1>`,
+        file: "UserPage.efx",
+      })}
+      <div class="tour-demo">
+        <span class="demo-label">live</span>
+        <UserPage userId="42" />
+      </div>
     </section>
-    <section class="section">
-      <h2>Async data via Await boundary (local loading + error, non-blocking)</h2>
-      <AsyncUserPage userId="42" />
+
+    <section class="tour">
+      {copy({
+        step: "03",
+        title: "Await boundary (non-blocking)",
+        concept:
+          "Same fetch, wrapped in Await. A pending placeholder shows immediately; onError handles failure locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. The Scope is Await's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the root app scope, but under a reactive/list slot it's the element's own scope.",
+        type: "Effect<View, never, Http | Scope>",
+        code: `Await(() => http.getUser(id), {
+  pending:   <p>loading…</p>,
+  onError:   cause => <p>error</p>,         // E → never
+  onSuccess: user  => <UserCard user={user} />,
+})`,
+        file: "AsyncUserPage.efx",
+      })}
+      <div class="tour-demo">
+        <span class="demo-label">live</span>
+        <AsyncUserPage userId="42" />
+      </div>
     </section>
-    <section class="section">
-      <h2>Live atom (AsyncResult)</h2>
-      <LiveUser />
+
+    <section class="tour">
+      {copy({
+        step: "04",
+        title: "Await, auto-tracking (deps discovered)",
+        concept:
+          "The Await thunk reads userId.value, so the compiler tracks it as a dependency and re-runs the fetch whenever the id changes — interrupting the stale request. Deps are discovered, not declared: there is no `from`, no key array. Click the buttons to refetch.",
+        type: "Effect<View, never, Http | Scope>",
+        code: `// buttons call userId.set(...)
+const userId = AtomRef.make("42")
+
+Await(() => http.getUser(userId.value), { … })
+// reads .value → tracked dep → refetch on change`,
+        file: "LiveUser.efx",
+      })}
+      <div class="tour-demo">
+        <span class="demo-label">live</span>
+        <LiveUser />
+      </div>
     </section>
-    <section class="section">
-      <h2>Keyed reactive list (AtomRef.collection)</h2>
-      <Todos />
+
+    <section class="tour">
+      {copy({
+        step: "05",
+        title: "Keyed reactive list",
+        concept:
+          "A collection where each row is its own AtomRef. `coll.value.map(x => <Row/>)` in JSX compiles to a keyed View.List node; mount reconciles by ref identity on add/remove. Each row subscribes to its own ref, so toggling one doesn't re-render the rest.",
+        type: "Effect<View, never, never>",
+        code: `const todos = AtomRef.collection<Todo>([...])
+
+<ul>{todos.value.map(item => <TodoRow item={item} />)}</ul>
+// → keyed View.List; reconciled by ref identity`,
+        file: "Todos.efx",
+      })}
+      <div class="tour-demo">
+        <span class="demo-label">live</span>
+        <Todos />
+      </div>
     </section>
-    <section class="section">
-      <h2>Per-component lifecycle scopes</h2>
-      <Lifecycle />
+
+    <section class="tour">
+      {copy({
+        step: "06",
+        title: "Per-component lifecycle",
+        concept:
+          "Every row mounts in its own Effect Scope, so a finalizer registered with Effect.acquireRelease fires when that row's DOM is removed — not when the whole app unmounts. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N.",
+        type: "Effect<View, never, never>",
+        code: `yield* Effect.acquireRelease(
+  Effect.sync(() => log(\`mount:\${id}\`)),
+  () => Effect.sync(() => log(\`unmount:\${id}\`)),
+)`,
+        file: "Lifecycle.efx",
+      })}
+      <div class="tour-demo">
+        <span class="demo-label">live</span>
+        <Lifecycle />
+      </div>
     </section>
+
+    <footer class="site-footer">
+      <p>
+        efx is an experimental proof-of-concept.{" "}
+        <a href={REPO} target="_blank" rel="noreferrer">source on GitHub ↗</a>
+      </p>
+    </footer>
   </div>
 )
 
@@ -43,6 +215,10 @@ if (!rootEl) throw new Error("missing #root")
 
 const program = Effect.gen(function* () {
   yield* mount(App, rootEl)
+  // Demo sugar: flash each node as efx re-renders it, so fine-grained
+  // reactivity is visible. Started after mount so the initial render doesn't
+  // flash; later updates (interactions, async resolves) do.
+  yield* Effect.sync(() => flashOnUpdate(rootEl))
   // Keep the scope alive so subscriptions and DOM persist for the page's lifetime.
   yield* Effect.never
 }).pipe(

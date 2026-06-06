@@ -48,7 +48,7 @@ export const Lifecycle = Effect.fn("Lifecycle")(function* (_props: {} = {}) {
         {items.value.map((item) => <Row item={item} />)}
       </ul>
       <p class="hint">
-        Open devtools and inspect <code>__lifecycle</code> — expect a paired
+        Open devtools and inspect <code>__lifecycle</code> — expect a paired{" "}
         <code>unmount:N</code> for every <code>mount:N</code> once that row is removed.
       </p>
     </div>
