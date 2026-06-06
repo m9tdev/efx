@@ -108,20 +108,42 @@ interface RewriteState {
 }
 
 /**
+ * True when `expr` is a top-level `Await(...)` call. The `Await` boundary does
+ * its OWN dependency tracking (it runs its thunk under the same tracker as
+ * `h.track`), so wrapping it in `h.track` is redundant *and* harmful: `h.track`
+ * is typed `(thunk) => unknown`, which erases `Await`'s `Effect<View, never, R |
+ * Scope>` to `unknown` and drops its channels from the `h()` fold. Same reason
+ * `.value.map(...)` → `list(...)` is left unwrapped. The inner `.value` reads
+ * are still rewritten to `h.read` (Await's tracker needs them).
+ *
+ * Matched purely by callee name (the compiler has no types). So
+ * `import { Await as A }` defeats the skip — `A(...)` would be wrongly
+ * `h.track`-wrapped and lose its channels (a loud type error at the call site).
+ * Import `Await` unaliased.
+ */
+const isAwaitCall = (expr: t.Expression): boolean =>
+  t.isCallExpression(expr) && t.isIdentifier(expr.callee, { name: "Await" })
+
+/**
  * Wrap a JSX-expression's value in a `h.track(() => expr)` call **only when
  * a `.value` read was found**. Static expressions like `{item}` or `{"hello"}`
  * pass through unchanged so their TypeScript type is preserved — h.track's
  * return is `unknown`, which would otherwise destroy the typing of component
  * props (`<Row item={item} />`, the prop's `item` type).
  *
- * The `.value.map(arrow → JSX)` rewrite does **not** trigger a wrap: the
- * resulting `list(...)` call subscribes inside `mount`, so wrapping in
- * `h.track` would add a redundant reactive layer. It flips `state.wroteList`
- * instead, which `transformEfx` reads to decide on the `list` auto-import.
+ * Two rewrites are deliberately NOT wrapped, because they self-subscribe and
+ * wrapping would erase their channels:
+ *   - `.value.map(arrow → JSX)` → `list(...)` (flips `state.wroteList` for the
+ *     `list` auto-import; subscribes inside `mount`).
+ *   - `Await(() => …)` calls — the boundary tracks its own deps (see
+ *     `isAwaitCall`).
  */
 const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
   const { expr: rewritten, rewroteRead } = rewriteTrackedExpression(expr, state)
   if (!rewroteRead) return rewritten
+  // Await self-tracks; the `.value`→`h.read` rewrite inside it is kept, but the
+  // outer `h.track` wrap is skipped so Await's channels survive the fold.
+  if (isAwaitCall(rewritten)) return rewritten
   return t.callExpression(
     t.memberExpression(t.identifier("h"), t.identifier("track")),
     [t.arrowFunctionExpression([], rewritten)],

@@ -12,7 +12,8 @@ re-renders when you click +".
 | Script | What it verifies |
 |---|---|
 | `probe.mjs` | Counter increments; UserPage's async fetch resolves; screenshots saved to `/tmp/efx-verify/`. |
-| `probe-liveuser.mjs` | `Atom` + `AsyncResult` cycles Initial → Success → Failure → recovery as the user clicks the LiveUser actions. |
+| `probe-liveuser.mjs` | Keyed `Await`: clicking the LiveUser buttons changes the trigger `AtomRef`, refetching through Initial → Success → Failure → recovery. |
+| `probe-async-userpage.mjs` | Once-form `Await`: the boundary renders a pending placeholder then swaps in the success arm (`.async-user-page .user-body`). Non-blocking counterpart to `probe.mjs`'s in-component UserPage check. |
 | `probe-todos.mjs` | Keyed reactive list: add/remove/toggle a row leaves sibling DOM nodes untouched (tagged-node identity check). |
 | `probe-lifecycle.mjs` | Per-component lifecycle scope, three phases: (1) initial mount-event count, (2) removing a row fires its matching unmount via `Scope.closeUnsafe`, (3) full teardown via `__teardown` cascades through every row scope so every outstanding mount has a matching unmount. |
 | `probe-hmr.mjs` | Vite HMR on a `.efx` edit propagates without a full reload. |

@@ -1,68 +1,46 @@
-import { Cause, Effect, Layer } from "effect"
-import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity"
-import { Http, HttpLive } from "./services.ts"
-
-// AtomRuntime baked with HttpLive — atoms below run effects in this context.
-const appRuntime = Atom.runtime(Layer.mergeAll(HttpLive))
-
-// Which user to show. Writable.
-const userIdAtom = Atom.make("42")
-
-// AsyncResult<User, HttpError>. Re-runs whenever userIdAtom changes.
-const userAtom = appRuntime.atom((get) =>
-  Effect.gen(function* () {
-    const id = get(userIdAtom)
-    const http = yield* Http
-    return yield* http.getUser(id)
-  }),
-)
-
-// Derived atom mapping the AsyncResult to JSX. Each match arm is itself
-// `Effect<View, never, never>` (what `h(...)` returns) — the runtime
-// auto-runSyncs them when rendering the Reactive node.
-const userView = userAtom.pipe(
-  Atom.map(
-    AsyncResult.match({
-      onInitial: () => <span>—</span>,
-      onFailure: (f) => (
-        <span class="error">error: {Cause.pretty(f.cause)}</span>
-      ),
-      onSuccess: (s) => (
-        <div class="user-card">
-          <strong>{s.value.name}</strong>
-          {s.value.bio && <p class="bio">{s.value.bio}</p>}
-        </div>
-      ),
-    }),
-  ),
-)
-
-const loadingView = userAtom.pipe(
-  Atom.map((r) =>
-    AsyncResult.isWaiting(r) ? <span class="loading">  loading…</span> : null,
-  ),
-)
+import { Cause, Effect } from "effect"
+import { AtomRef } from "effect/unstable/reactivity"
+import { Await } from "@efx/runtime"
+import { Http } from "./services.ts"
 
 /**
- * `Atom` wrapping an `Effect`, rendered through `AsyncResult`.
+ * Live, reactive async data via the `Await` boundary, auto-tracking form.
  *
- * Inferred type: `Effect<View, never, AtomRegistry>`
- *   — AtomRegistry is needed for write operations from event handlers.
+ * The user id is local writable state (`AtomRef`); the buttons set it. The
+ * `Await` thunk reads `userId.value`, so it becomes a tracked dependency and
+ * the fetch re-runs whenever the id changes — interrupting the stale request
+ * and rendering pending/success/error. No explicit trigger to declare.
+ *
+ * Inferred type: `Effect<View, never, Http | Scope>`
+ *   — the service is extracted up front (`const http = yield* Http`), so `Http`
+ *   folds into the component's `R` and is provided at `mount`; the fetch runs on
+ *   the mount fiber, not a baked `Atom.runtime`. Forgetting the `Http` layer is
+ *   a compile error, not a runtime failure.
  */
 export const LiveUser = Effect.fn("LiveUser")(function* (_props: {} = {}) {
-  const registry = yield* AtomRegistry.AtomRegistry
+  const userId = AtomRef.make("42")
+  const http = yield* Http
 
   return yield* (
     <div class="live-user">
-      <h3>Atom + AsyncResult (live, reactive)</h3>
+      <h3>Async data via Await (live, reactive, channels intact)</h3>
       <div class="controls">
-        <button onclick={() => registry.set(userIdAtom, "42")}>Ada (42)</button>
-        <button onclick={() => registry.set(userIdAtom, "7")}>Grace (7)</button>
-        <button onclick={() => registry.set(userIdAtom, "999")}>Bad id</button>
-        <button onclick={() => registry.refresh(userAtom)}>Refresh</button>
+        <button onclick={() => userId.set("42")}>Ada (42)</button>
+        <button onclick={() => userId.set("7")}>Grace (7)</button>
+        <button onclick={() => userId.set("999")}>Bad id</button>
       </div>
-      {userView}
-      {loadingView}
+      {Await(() => http.getUser(userId.value), {
+        pending: <span class="loading">  loading…</span>,
+        onError: (cause) => (
+          <span class="error">error: {Cause.pretty(cause)}</span>
+        ),
+        onSuccess: (user) => (
+          <div class="user-card">
+            <strong>{user.name}</strong>
+            {user.bio && <p class="bio">{user.bio}</p>}
+          </div>
+        ),
+      })}
     </div>
   )
 })

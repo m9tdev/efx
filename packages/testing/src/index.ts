@@ -33,6 +33,13 @@ export interface RenderResult {
   fire(selector: string, type: string): void
   /** Flush microtasks + one macrotask so async/atom-driven updates settle. */
   tick(): Promise<void>
+  /**
+   * Poll until `selector` matches (or `timeoutMs` elapses, then throw). Use for
+   * async-driven updates whose exact settle-tick count is nondeterministic
+   * (e.g. an `Atom`/`AsyncResult` flushing through the registry's async
+   * scheduler), instead of guessing a fixed number of `tick()`s.
+   */
+  waitFor(selector: string, timeoutMs?: number): Promise<HTMLElement>
   /** Close the scope (firing every finalizer) and detach the container. */
   unmount(): Promise<void>
 }
@@ -98,6 +105,20 @@ const renderImpl = async (
       el(container, s).dispatchEvent(new Event(type, { bubbles: true }))
     },
     tick: () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
+    waitFor: async (selector, timeoutMs = 1000) => {
+      const deadline = Date.now() + timeoutMs
+      for (;;) {
+        const found = container.querySelector(selector) as HTMLElement | null
+        if (found) return found
+        if (Date.now() > deadline) {
+          throw new Error(
+            `waitFor(): ${JSON.stringify(selector)} did not appear within ${timeoutMs}ms. ` +
+              `Container: ${container.innerHTML}`,
+          )
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 5))
+      }
+    },
     unmount: async () => {
       await Effect.runPromise(Scope.close(scope, Exit.void))
       container.remove()
