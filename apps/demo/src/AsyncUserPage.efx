@@ -1,0 +1,46 @@
+import { Cause, Effect } from "effect"
+import { Await } from "@efx/runtime"
+import { Http, Theme } from "./services.ts"
+
+/**
+ * The `Await` boundary, once form — the non-blocking counterpart to
+ * `UserPage.efx`.
+ *
+ * `UserPage` fetches in-component (`yield* http.getUser`), so the whole subtree
+ * blocks until the request resolves and a failure folds `E = HttpError` to the
+ * root. `AsyncUserPage` wraps the same fetch in `Await(() => http.getUser(id))`:
+ * a pending placeholder shows immediately and failure is handled locally
+ * (`onError`), so `E` is discharged to `never`. The thunk reads no reactive
+ * refs, so it runs once. `Http`/`Theme` are extracted up front, so they fold
+ * into `R` — a forgotten layer is still a compile error.
+ *
+ * Inferred type: `Effect<View, never, Http | Theme | Scope>`
+ */
+export const AsyncUserPage = Effect.fn("AsyncUserPage")(function* (props: { userId: string }) {
+  const theme = yield* Theme
+  const http = yield* Http
+
+  return yield* (
+    <article class={`async-user-page ${theme.mode}`}>
+      {Await(() => http.getUser(props.userId), {
+        pending: <p class="loading">  loading user…</p>,
+        onError: (cause) => <p class="error">error: {Cause.pretty(cause)}</p>,
+        onSuccess: (user) => (
+          <div class="user-body">
+            <h1>{user.name}</h1>
+            {user.bio && <p class="bio">{user.bio}</p>}
+            {user.posts.length > 0 ? (
+              <ul class="posts">
+                {user.posts.map((p) => (
+                  <li data-post-id={p.id}>{p.title}</li>
+                ))}
+              </ul>
+            ) : (
+              <p class="empty">No posts yet.</p>
+            )}
+          </div>
+        ),
+      })}
+    </article>
+  )
+})

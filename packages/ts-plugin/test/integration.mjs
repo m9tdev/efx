@@ -251,10 +251,10 @@ async function main() {
   }
 
   console.log("\n7b. Test go-to-definition on <Counter /> JSX usage...")
-  // Line 15: <Counter />
+  // Line 16: <Counter />
   const defResponse2 = await client.send("definition", {
     file: mainEfx,
-    line: 15,
+    line: 16,
     offset: 8,
   })
   console.log("   Definition response:", JSON.stringify(defResponse2.body, null, 2))

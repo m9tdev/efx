@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { coerceAsync, isAtomRef } from "./coerce.ts"
+import { coerceAsync, isAtomRef, recordDep, trackDeps } from "./coerce.ts"
 import type { FoldE, FoldR, TagE, TagProps, TagR } from "./types/Fold.ts"
 import { type Props, View } from "./View.ts"
 
@@ -10,20 +10,11 @@ import { type Props, View } from "./View.ts"
 // scope intercepts every `h.read(ref)` call inside and records the ref as
 // a dependency. If any reads occurred, h.track returns a derived AtomRef
 // that re-runs the thunk on dep changes; otherwise it returns the value
-// directly (no reactivity overhead for static expressions).
-
-let currentTracker: Set<AtomRef.ReadonlyRef<unknown>> | null = null
+// directly (no reactivity overhead for static expressions). The collector
+// itself lives in coerce.ts (`trackDeps`/`recordDep`) so `Await` can share it.
 
 const trackImpl = (thunk: () => unknown): unknown => {
-  const deps = new Set<AtomRef.ReadonlyRef<unknown>>()
-  const prev = currentTracker
-  currentTracker = deps
-  let result: unknown
-  try {
-    result = thunk()
-  } finally {
-    currentTracker = prev
-  }
+  const { result, deps } = trackDeps(thunk)
   if (deps.size === 0) return result
 
   // At least one ref was read — wrap in a derived AtomRef that re-runs
@@ -40,14 +31,8 @@ const trackImpl = (thunk: () => unknown): unknown => {
   const rerun = () => {
     for (const u of unsubs) u()
     unsubs = []
-    const nextDeps = new Set<AtomRef.ReadonlyRef<unknown>>()
-    const prevTracker = currentTracker
-    currentTracker = nextDeps
-    try {
-      derived.set(thunk() as never)
-    } finally {
-      currentTracker = prevTracker
-    }
+    const { result: next, deps: nextDeps } = trackDeps(thunk)
+    derived.set(next as never)
     subscribeAll(nextDeps)
   }
 
@@ -62,7 +47,7 @@ function readImpl<T extends HasValue>(obj: T): T["value"]
 function readImpl<T extends HasValue | null | undefined>(obj: T): T extends HasValue ? T["value"] : undefined
 function readImpl(obj: unknown): unknown {
   if (isAtomRef(obj)) {
-    if (currentTracker) currentTracker.add(obj)
+    recordDep(obj)
     return obj.value
   }
   // Identical semantics to `.value` access — preserves the typing TS would
