@@ -240,8 +240,8 @@ const App = (
         step: "06",
         title: "Per-component lifecycle",
         concept:
-          "Every row mounts in its own Effect Scope, so a finalizer registered with Effect.acquireRelease fires when that row's DOM is removed — not when the whole app unmounts. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Reset closes the demo's scope, firing every remaining row's finalizer at once.)",
-        type: "Effect<View, never, never>",
+          "Effect.acquireRelease registers a finalizer against the current Scope, so it rides Row's R — that's the inferred type shown. Each row mounts in its own Scope, so the release fires when that row's DOM is removed, not when the whole app unmounts. list() supplies each row's Scope, so a parent that renders the list stays Scope-free. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Reset closes the demo's scope, firing every remaining row's finalizer at once.)",
+        type: "Effect<View, never, Scope>",
         code: `const Row = Effect.fn("Row")(function* (props: {
   item: AtomRef<Item>
 }) {
@@ -253,6 +253,8 @@ const App = (
   return yield* <li>row {id}</li>
 })
 
+// in a parent component — the map compiles to list(), which gives
+// each Row its own Scope, so the parent's own R stays never:
 <ul>{items.value.map(item => <Row item={item} />)}</ul>`,
         file: "Lifecycle.efx",
       })}
