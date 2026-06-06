@@ -695,3 +695,41 @@ describe("parse-error tolerance (mid-edit source)", () => {
     expect(() => transformEfx(src, "test.efx")).not.toThrow()
   })
 })
+
+describe("JSX text whitespace (cleanJSXElementLiteralChild parity)", () => {
+  it("collapses a newline between two words to a single space", () => {
+    const src = `const x = <p>a framework whose
+      point is honesty</p>`
+    expect(compile(src)).toContain(`"a framework whose point is honesty"`)
+  })
+
+  it("preserves internal spaces in single-line text", () => {
+    expect(compile(`const x = <span> clicks: </span>`))
+      .toContain(`h("span", {}, " clicks: ")`)
+  })
+
+  it("drops pure-whitespace / blank-line nodes", () => {
+    const src = `const x = <div>
+
+      hi
+
+    </div>`
+    expect(compile(src)).toContain(`h("div", {}, "hi")`)
+  })
+
+  it("trims whitespace adjacent to an element boundary (React parity: a tag on its own line concatenates)", () => {
+    const src = `const x = <p>paired
+      <code>unmount</code></p>`
+    // "paired" carries no trailing space — the source must add {" "} for one,
+    // exactly as in React.
+    expect(compile(src)).toContain(`"paired"`)
+    expect(compile(src)).not.toContain(`"paired "`)
+  })
+
+  it("keeps an explicit {\" \"} spacer between text and an element", () => {
+    const src = `const x = <p>use a{" "}
+      <code>.efx</code> file</p>`
+    expect(compile(src)).toContain(`"use a"`)
+    expect(compile(src)).toContain(`" "`)
+  })
+})

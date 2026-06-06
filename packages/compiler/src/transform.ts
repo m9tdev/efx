@@ -375,16 +375,42 @@ const jsxMemberToMember = (m: t.JSXMemberExpression): t.MemberExpression => {
   return copyLoc(t.memberExpression(object, property), m)
 }
 
+/**
+ * Collapse JSX text whitespace per the JSX spec — a faithful port of Babel's
+ * `cleanJSXElementLiteralChild`. Tabs become spaces; leading spaces are trimmed
+ * on every line but the first, trailing spaces on every line but the last;
+ * blank lines drop; surviving lines join with a single space.
+ *
+ * The load-bearing difference from the old newline-stripping regex: a newline
+ * between two words collapses to one space, not to nothing — so multi-line prose
+ * reads "whose point" instead of "whosepoint". Whitespace adjacent to an
+ * element/expression boundary still trims to nothing, so (exactly as in React)
+ * a tag on its own line concatenates unless the source adds an explicit space.
+ */
+const cleanJsxText = (value: string): string => {
+  const lines = value.split(/\r\n|\n|\r/)
+  let lastNonEmpty = 0
+  for (let i = 0; i < lines.length; i++) {
+    if (/[^ \t]/.test(lines[i]!)) lastNonEmpty = i
+  }
+  let out = ""
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i]!.replace(/\t/g, " ")
+    if (i !== 0) line = line.replace(/^ +/, "")
+    if (i !== lines.length - 1) line = line.replace(/ +$/, "")
+    if (line === "") continue
+    out += i !== lastNonEmpty ? line + " " : line
+  }
+  return out
+}
+
 /** Transform a single JSX child node into an expression. */
 const transformChild = (
   child: t.JSXElement["children"][number],
   state: RewriteState,
 ): t.Expression | null => {
   if (t.isJSXText(child)) {
-    // Collapse JSX whitespace per JSX spec: trim trailing newlines, keep
-    // internal whitespace, drop pure-whitespace nodes.
-    const text = child.value
-      .replace(/\s*\n\s*/g, "") // collapse newline-surrounded whitespace
+    const text = cleanJsxText(child.value)
     if (text === "") return null
     return t.stringLiteral(text)
   }

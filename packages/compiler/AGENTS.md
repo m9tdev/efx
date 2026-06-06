@@ -182,11 +182,24 @@ identifier (no alias) are skipped to avoid duplicates.
 
 ## JSX text whitespace
 
-`transformChild` collapses newlines-surrounded whitespace via
-`replace(/\s*\n\s*/g, "")`. Pure-whitespace nodes drop. Internal
-spaces inside non-newline text are preserved. This matches React's
-JSX whitespace rules closely enough for the cases the demo
-exercises — diverge with care.
+`transformChild` runs JSX text through `cleanJsxText`, a faithful port
+of Babel's `cleanJSXElementLiteralChild`: tabs → spaces, leading spaces
+trimmed on every line but the first, trailing spaces on every line but
+the last, blank lines dropped, surviving lines joined with a single
+space. Pure-whitespace nodes drop.
+
+The subtlety that bit us: a newline *between two words* must collapse to
+one space, not to nothing — otherwise multi-line prose renders
+`whosepoint`. The earlier `replace(/\s*\n\s*/g, "")` deleted that space;
+the port restores it. Whitespace adjacent to an element/expression
+boundary still trims to nothing, so — exactly as in React — a tag on its
+own line concatenates with neighbouring text unless the source adds an
+explicit `{" "}`.
+
+(Watch the JSDoc on `cleanJsxText`: don't write the literal
+newline-stripping regex inside a block comment — the `*` `/` it contains
+closes the comment early. The function comment spells the rule out in
+prose for that reason.)
 
 ## Babel ESM gotcha
 
