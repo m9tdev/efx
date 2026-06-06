@@ -4,10 +4,12 @@
  * Each assertion either holds or produces a type error naming the
  * mismatched channel — this *is* the demonstration.
  */
-import type { Chunk, Effect, Option, Result } from "effect"
+import type { Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
 import { h, type View } from "@efx/runtime"
+import { AsyncUserPage } from "./AsyncUserPage.efx"
 import { Counter } from "./Counter.efx"
+import { LiveUser } from "./LiveUser.efx"
 import { HttpError, Http, Theme } from "./services.ts"
 import { UserPage } from "./UserPage.efx"
 
@@ -15,15 +17,36 @@ type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B
 declare function assertEquals<A, B extends Equals<A, B> extends true ? unknown : never>(): void
 
 // ─── UserPage carries E = HttpError, R = Http | Theme ───────────────────
+//     (in-component fetch: failure folds E to the root, blocking)
 
 type UserPageType = ReturnType<typeof UserPage>
 assertEquals<UserPageType, Effect.Effect<View, HttpError, Http | Theme>>()
+
+// ─── AsyncUserPage: the same fetch behind an `Await` boundary. The boundary
+//     handles failure locally (onError), so E is `never`; Http still folds
+//     (fetch on the mount fiber) and Theme is read in-component, plus Scope
+//     from the fork. Same data, opposite E — the boundary vs. fold-to-root
+//     contrast, both compile-time enforced.
+
+type AsyncUserPageType = ReturnType<typeof AsyncUserPage>
+assertEquals<AsyncUserPageType, Effect.Effect<View, never, Http | Theme | Scope.Scope>>()
 
 // ─── Counter is pure (no E or R from the component itself; AtomRegistry
 //     is added at mount) ──────────────────────────────────────────────────
 
 type CounterType = ReturnType<typeof Counter>
 assertEquals<CounterType, Effect.Effect<View, never, never>>()
+
+// ─── LiveUser fetches async data via the auto-tracking `Await` boundary
+//     (`Await(() => http.getUser(userId.value), …)`). Because the service is
+//     extracted up front (`const http = yield* Http`) and the fetch runs on the
+//     mount fiber (not a baked Atom.runtime), `Http` stays in R — a forgotten
+//     layer is a compile error. `E` is `never`: the boundary renders failure via
+//     onError rather than propagating it. (This is the thesis the boundary
+//     protects.)
+
+type LiveUserType = ReturnType<typeof LiveUser>
+assertEquals<LiveUserType, Effect.Effect<View, never, Http | Scope.Scope>>()
 
 // ─── Composition: a tree containing UserPage AND Counter unions channels ─
 

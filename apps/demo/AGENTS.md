@@ -13,8 +13,9 @@ they can be exercised in a browser side-by-side.
 | File | Primitive |
 |---|---|
 | `Counter.efx` | Local `AtomRef` state, no Effect services. Reactive `.value` interpolation inside `{...}` expressions. |
-| `UserPage.efx` | Synchronous-style Effect.fn returning a view with `R = Http \| Theme` and `E = HttpError` channels in scope. |
-| `LiveUser.efx` | `AtomRef` + `AsyncResult` pattern matching for loading/success/failure shapes. |
+| `UserPage.efx` | In-component fetch: `Effect.fn` that `yield*`s `http.getUser` directly, so the subtree blocks until it resolves and `E = HttpError` + `R = Http \| Theme` fold to the root (root-handled failure). The channel-propagation example. |
+| `AsyncUserPage.efx` | The same fetch behind the `Await` boundary, once form: `Await(http.getUser(id), { pending, onSuccess, onError })`. Non-blocking (pending placeholder) and failure handled locally (`onError`), so `E = never`; `Http` still folds (fetch on the mount fiber) → `Effect<View, never, Http \| Theme \| Scope>`. The boundary counterpart to `UserPage` — same data, opposite `E`. Renders into `.async-user-page` (distinct from UserPage's `.user-page`). |
+| `LiveUser.efx` | The `Await` boundary, auto-tracking form: `Await(() => http.getUser(userId.value), { … })`. The thunk reads a writable `AtomRef`'s `.value`, so it becomes a tracked dep and the fetch re-runs on change (interrupting the stale run) — no explicit trigger declared. Service extracted up front → `Effect<View, never, Http>` (Http folded), unlike a baked `Atom.runtime` which would discharge it. |
 | `Todos.efx` | Keyed reactive list (`{coll.value.map(item => <Row item={item}/>)}` compiles to `list(coll, render)`). Per-row reactivity: toggling one row doesn't tear down others. |
 | `Lifecycle.efx` | `Effect.acquireRelease` inside a row — release fires when the row is removed (per-row Scope in mount). |
 | `main.efx` | Wires Layers (`EfxLive`, `HttpLive`, `ThemeLive`) + `Effect.scoped` + `Effect.never` (keep scope alive for page lifetime). |
