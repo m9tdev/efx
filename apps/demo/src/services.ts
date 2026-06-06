@@ -52,8 +52,9 @@ export const HttpLive: Layer.Layer<Http> = Layer.succeed(
     getUser: (id) =>
       Effect.gen(function* () {
         // Simulate latency — long enough that the loading state is easy to see,
-        // especially after hitting a demo's reset button.
-        yield* Effect.sleep("1200 millis")
+        // especially after hitting a demo's reset button. Kept longer than the
+        // reactivity-flash duration (flash.ts) so the flash blips before content.
+        yield* Effect.sleep("900 millis")
         const user = usersDb[id]
         if (!user) {
           return yield* new HttpError({ status: 404, message: `User ${id} not found` })
