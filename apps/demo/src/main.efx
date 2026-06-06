@@ -117,10 +117,16 @@ const App = (
         concept:
           "Local state is an Effect AtomRef — efx ships no signal of its own. Drop the ref straight into child position and h() emits a reactive node; on update, only that text node re-renders. No services, so R is never.",
         type: "Effect<View, never, never>",
-        code: `const count = AtomRef.make(0)
+        code: `export const Counter = Effect.fn("Counter")(function* () {
+  const count = AtomRef.make(0)
 
-<button onclick={() => count.update(n => n + 1)}>+</button>
-<span class="count">clicks: {count}</span>`,
+  return yield* (
+    <div class="counter">
+      <button onclick={() => count.update(n => n + 1)}>+</button>
+      <span class="count">clicks: {count}</span>
+    </div>
+  )
+})`,
         file: "Counter.efx",
       })}
       {demoSlot("counter")}
@@ -133,12 +139,20 @@ const App = (
         concept:
           "Fetch inside the component. `yield* Http` adds Http to R; the request can fail, so HttpError rides E. Both surface in the type and must be satisfied at mount — drop HttpLive below and main stops compiling. The subtree blocks until the request resolves.",
         type: "Effect<View, HttpError, Http | Theme>",
-        code: `// adds Http to R
-const http = yield* Http
-// can fail → HttpError in E
-const user = yield* http.getUser(id)
+        code: `export const UserPage = Effect.fn("UserPage")(function* (props: {
+  userId: string
+}) {
+  const http = yield* Http        // adds Http to R
+  const theme = yield* Theme      // adds Theme to R
+  const user = yield* http.getUser(props.userId) // may fail → HttpError in E
 
-<h1>{user.name}</h1>`,
+  return yield* (
+    <article class={\`user-page \${theme.mode}\`}>
+      <h1>{user.name}</h1>
+      {user.bio && <p class="bio">{user.bio}</p>}
+    </article>
+  )
+})`,
         file: "UserPage.efx",
       })}
       {demoSlot("userpage")}
@@ -151,10 +165,20 @@ const user = yield* http.getUser(id)
         concept:
           "Same fetch, wrapped in Await. A pending placeholder shows immediately; onError handles failure locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. The Scope is Await's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the element's own demo scope, so reset interrupts an in-flight fetch.",
         type: "Effect<View, never, Http | Scope>",
-        code: `Await(() => http.getUser(id), {
-  pending:   <p>loading…</p>,
-  onError:   cause => <p>error</p>, // E → never
-  onSuccess: user  => <UserCard user={user} />,
+        code: `export const AsyncUserPage = Effect.fn("AsyncUserPage")(function* (props: {
+  userId: string
+}) {
+  const http = yield* Http   // folds into R; Scope comes from Await
+
+  return yield* (
+    <article>
+      {Await(() => http.getUser(props.userId), {
+        pending:   <p class="loading">loading…</p>,
+        onError:   cause => <p class="error">{Cause.pretty(cause)}</p>,
+        onSuccess: user  => <h1>{user.name}</h1>,
+      })}
+    </article>
+  )
 })`,
         file: "AsyncUserPage.efx",
       })}
@@ -168,11 +192,24 @@ const user = yield* http.getUser(id)
         concept:
           "The Await thunk reads userId.value, so the compiler tracks it as a dependency and re-runs the fetch whenever the id changes — interrupting the stale request. Deps are discovered, not declared: there is no `from`, no key array. Click the buttons to refetch.",
         type: "Effect<View, never, Http | Scope>",
-        code: `// buttons call userId.set(...)
-const userId = AtomRef.make("42")
+        code: `export const LiveUser = Effect.fn("LiveUser")(function* () {
+  const userId = AtomRef.make("42")
+  const http = yield* Http
 
-Await(() => http.getUser(userId.value), { … })
-// reads .value → tracked dep → refetch on change`,
+  return yield* (
+    <div class="live-user">
+      <button onclick={() => userId.set("7")}>Grace</button>
+      <button onclick={() => userId.set("999")}>Bad id</button>
+
+      {Await(() => http.getUser(userId.value), {
+        pending:   <span>loading…</span>,
+        onError:   () => <span>not found</span>,
+        onSuccess: user => <strong>{user.name}</strong>,
+      })}
+      {/* the thunk reads userId.value → refetch when it changes */}
+    </div>
+  )
+})`,
         file: "LiveUser.efx",
       })}
       {demoSlot("live")}
@@ -185,10 +222,20 @@ Await(() => http.getUser(userId.value), { … })
         concept:
           "A collection where each row is its own AtomRef. `coll.value.map(x => <Row/>)` in JSX compiles to a keyed View.List node; mount reconciles by ref identity on add/remove. Each row subscribes to its own ref, so toggling one doesn't re-render the rest.",
         type: "Effect<View, never, never>",
-        code: `const todos = AtomRef.collection<Todo>([...])
+        code: `export const Todos = Effect.fn("Todos")(function* () {
+  const todos = AtomRef.collection<Todo>([
+    { text: "build a UI framework", done: true },
+    { text: "write a blog post", done: false },
+  ])
 
-<ul>{todos.value.map(item => <TodoRow item={item} />)}</ul>
-// → keyed View.List; reconciled by ref identity`,
+  return yield* (
+    <ul>
+      {todos.value.map(item =>
+        <TodoRow item={item} remove={() => todos.remove(item)} />)}
+    </ul>
+  )
+})
+// → keyed View.List; mount reconciles rows by ref identity`,
         file: "Todos.efx",
       })}
       {demoSlot("todos")}
@@ -201,10 +248,18 @@ Await(() => http.getUser(userId.value), { … })
         concept:
           "Every row mounts in its own Effect Scope, so a finalizer registered with Effect.acquireRelease fires when that row's DOM is removed — not when the whole app unmounts. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Reset closes the demo's scope, firing every remaining row's finalizer at once.)",
         type: "Effect<View, never, never>",
-        code: `yield* Effect.acquireRelease(
-  Effect.sync(() => log(\`mount:\${id}\`)),
-  () => Effect.sync(() => log(\`unmount:\${id}\`)),
-)`,
+        code: `const Row = Effect.fn("Row")(function* (props: {
+  item: AtomRef<Item>
+}) {
+  const id = props.item.value.id
+  yield* Effect.acquireRelease(
+    Effect.sync(() => log(\`mount:\${id}\`)),
+    () => Effect.sync(() => log(\`unmount:\${id}\`)),
+  )
+  return yield* <li>row {id}</li>
+})
+
+<ul>{items.value.map(item => <Row item={item} />)}</ul>`,
         file: "Lifecycle.efx",
       })}
       {demoSlot("lifecycle")}
