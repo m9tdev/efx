@@ -1,6 +1,7 @@
 import { Cause, Effect, Fiber, Layer } from "effect"
 import { EfxLive, mount } from "@efx/runtime"
 import { Counter } from "./Counter.efx"
+import { AsyncUserPage } from "./AsyncUserPage.efx"
 import { Lifecycle } from "./Lifecycle.efx"
 import { LiveUser } from "./LiveUser.efx"
 import { HttpLive, ThemeLive } from "./services.ts"
@@ -15,8 +16,12 @@ const App = (
       <Counter />
     </section>
     <section class="section">
-      <h2>Async data (Http effect, E + R channels)</h2>
+      <h2>Async data, in-component (E + R fold to root, blocking)</h2>
       <UserPage userId="42" />
+    </section>
+    <section class="section">
+      <h2>Async data via Await boundary (local loading + error, non-blocking)</h2>
+      <AsyncUserPage userId="42" />
     </section>
     <section class="section">
       <h2>Live atom (AsyncResult)</h2>
@@ -52,9 +57,9 @@ const program = Effect.gen(function* () {
 
 const fiber = Effect.runFork(program)
 
-// Test affordance: scripts/probe-lifecycle.mjs calls this to trigger a full
-// unmount via fiber interruption. Closing the program scope cascades through
-// every per-row / per-Reactive sub-scope and fires their finalizers.
-;(globalThis as { __teardown?: () => void }).__teardown = () => {
-  Effect.runFork(Fiber.interrupt(fiber))
-}
+  // Test affordance: scripts/probe-lifecycle.mjs calls this to trigger a full
+  // unmount via fiber interruption. Closing the program scope cascades through
+  // every per-row / per-Reactive sub-scope and fires their finalizers.
+  ; (globalThis as { __teardown?: () => void }).__teardown = () => {
+    Effect.runFork(Fiber.interrupt(fiber))
+  }
