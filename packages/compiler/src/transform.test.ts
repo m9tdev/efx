@@ -397,13 +397,19 @@ describe("runtime auto-imports", () => {
   })
 
   it("does NOT inject if `h` is already imported under its own name", () => {
-    const src = `import { h } from "@efx/runtime"\nconst x = <div />`
+    const src = `
+      import { h } from "@efx/runtime"
+      const x = <div />
+    `
     const matches = compile(src).match(/import \{[^}]*\bh\b[^}]*\} from "@efx\/runtime"/g)
     expect(matches?.length).toBe(1)
   })
 
   it("extends an existing @efx/runtime import instead of adding a new one", () => {
-    const src = `import { mount } from "@efx/runtime"\nconst x = <div />`
+    const src = `
+      import { mount } from "@efx/runtime"
+      const x = <div />
+    `
     const out = compile(src)
     expect(out).toMatch(/import \{[^}]*mount[^}]*h[^}]*\} from "@efx\/runtime"/)
     const importLines = out.split(";").filter((s) => s.includes(`from "@efx/runtime"`))
@@ -416,7 +422,10 @@ describe("runtime auto-imports", () => {
   })
 
   it("preserves unrelated imports verbatim", () => {
-    const out = compile(`import { Effect } from "effect"\nconst x = <div />`)
+    const out = compile(`
+      import { Effect } from "effect"
+      const x = <div />
+    `)
     expect(out).toContain(`import { Effect } from "effect"`)
   })
 })

@@ -24,7 +24,10 @@ describe("efx() transform", () => {
 
   it("strips TypeScript types (Oxc step ran)", async () => {
     const out = await runTransform(
-      `const n: number = 1\nconst v = <div>{n}</div>`,
+      `
+        const n: number = 1
+        const v = <div>{n}</div>
+      `,
       "/abs/Typed.efx",
     )
     expect(out!.code).not.toContain(": number")
