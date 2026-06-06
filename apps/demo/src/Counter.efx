@@ -18,7 +18,6 @@ export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
     <div class="counter">
       <button onclick={() => count.update((n) => n + 1)}>+</button>
       <span class="count"> clicks: {count} </span>
-      <button onclick={() => count.set(0)}>reset</button>
     </div>
   )
 })

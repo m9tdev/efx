@@ -225,54 +225,58 @@ async function main() {
     process.exitCode = 1
   }
 
-  console.log("\n7. Test go-to-definition on Counter import in main.efx...")
+  // Positions are located dynamically (scan for the token) so these survive
+  // demo-layout edits. tsserver positions are 1-based; +1 past `indexOf` lands
+  // on the identifier's first char.
   const mainEfx = join(demoRoot, "src/main.efx")
+  const todosEfx = join(demoRoot, "src/Todos.efx")
   await client.send("open", { file: mainEfx })
-  // Also open Counter.efx so tsserver knows its content
   await client.send("open", { file: counterEfx })
-  // Line 3: import { Counter } from "./Counter"
-  // 'Counter' starts around column 10
+  await client.send("open", { file: todosEfx })
+
+  console.log("\n7. Test cross-file go-to-definition on the Counter import...")
+  // Resolve `Counter` in `import { Counter } from "./Counter.efx"` → Counter.efx.
+  const mainLines = readFileSync(mainEfx, "utf8").split("\n")
+  const importIdx = mainLines.findIndex((l) => l.includes(`from "./Counter.efx"`))
+  if (importIdx === -1) throw new Error("could not find the Counter import in main.efx")
   const defResponse = await client.send("definition", {
     file: mainEfx,
-    line: 3,
-    offset: 10,
+    line: importIdx + 1,
+    offset: mainLines[importIdx].indexOf("Counter") + 1,
   })
-  console.log("   Definition response:", JSON.stringify(defResponse.body, null, 2))
   if (defResponse.body?.length > 0) {
     const def = defResponse.body[0]
     console.log(`   Definition: ${def.file} line ${def.start?.line}`)
-    if (def.file?.endsWith("Counter.efx")) {
-      console.log("   PASS: Go-to-definition works")
-    } else {
-      console.log("   PARTIAL: Definition found but not in .efx file")
-    }
+    console.log(def.file?.endsWith("Counter.efx")
+      ? "   PASS: cross-file go-to-definition works"
+      : "   PARTIAL: Definition found but not in .efx file")
   } else {
     console.log("   FAIL: No definition returned")
   }
 
-  console.log("\n7b. Test go-to-definition on <Counter /> JSX usage...")
-  // Line 16: <Counter />
+  console.log("\n7b. Test go-to-definition on a <TodoRow /> JSX usage...")
+  // The .efx-specific path: a JSX tag (rewritten to h(TodoRow, …)) must map
+  // back through the source map to the component definition. TodoRow is used
+  // and defined in Todos.efx.
+  const todosLines = readFileSync(todosEfx, "utf8").split("\n")
+  // Match the real JSX usage (`<TodoRow item={item} />`), not the docstring
+  // mention of `<TodoRow />`.
+  const jsxIdx = todosLines.findIndex((l) => l.includes("<TodoRow item"))
+  if (jsxIdx === -1) throw new Error("could not find <TodoRow usage in Todos.efx")
+  const jsxOffset = todosLines[jsxIdx].indexOf("<TodoRow") + 2 // 1-based, land on 'T'
+  console.log(`   <TodoRow /> at line ${jsxIdx + 1}, offset ${jsxOffset}`)
   const defResponse2 = await client.send("definition", {
-    file: mainEfx,
-    line: 16,
-    offset: 8,
+    file: todosEfx,
+    line: jsxIdx + 1,
+    offset: jsxOffset,
   })
   console.log("   Definition response:", JSON.stringify(defResponse2.body, null, 2))
-  // Also test on the import to compare
-  const defResponse3 = await client.send("definition", {
-    file: mainEfx,
-    line: 3,
-    offset: 10,
-  })
-  console.log("   Import definition response:", JSON.stringify(defResponse3.body?.[0], null, 2))
   if (defResponse2.body?.length > 0) {
     const def = defResponse2.body[0]
     console.log(`   Definition: ${def.file} line ${def.start?.line}`)
-    if (def.file?.endsWith("Counter.efx")) {
-      console.log("   PASS: JSX go-to-definition works")
-    } else {
-      console.log("   PARTIAL: Definition found but not in .efx file:", def.file)
-    }
+    console.log(def.file?.endsWith("Todos.efx")
+      ? "   PASS: JSX go-to-definition works"
+      : `   PARTIAL: Definition found but not in .efx file: ${def.file}`)
   } else {
     console.log("   FAIL: No definition returned for JSX usage")
   }
