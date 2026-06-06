@@ -44,7 +44,7 @@ const copy = (meta: {
     <pre class="sig"><code>{meta.type}</code></pre>
     <pre class="code"><code>{highlight(meta.code).map((t) => <span class={`tok-${t.kind}`}>{t.text}</span>)}</code></pre>
     <a class="src" href={`${SRC}/${meta.file}`} target="_blank" rel="noreferrer">
-      view source ↗
+      view full source ↗
     </a>
   </div>
 )
