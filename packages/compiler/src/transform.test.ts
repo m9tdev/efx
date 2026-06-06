@@ -269,10 +269,10 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
   // wrap in this pass (eager reads stay one-time).
 
   it("rewrites a `.value` read in an extracted thunk (the motivating gap)", () => {
-    const out = compile(
-      `const get = () => client.getUser(userId.value)\n` +
-        `const x = <div>{Await(get, { onSuccess: (u) => <span>{u}</span> })}</div>`,
-    )
+    const out = compile(`
+      const get = () => client.getUser(userId.value)
+      const x = <div>{Await(get, { onSuccess: (u) => <span>{u}</span> })}</div>
+    `)
     expect(out).toContain(`h.read(userId)`)
     // No h.track wrap around the thunk read — Await runs it under its own tracker.
     expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*client\.getUser/)
@@ -367,10 +367,10 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
   })
 
   it("rewrites both a JSX read and a body read with a single `h` import", () => {
-    const out = compile(
-      `const dbl = () => count.value * 2\n` +
-        `const x = <div>{count.value}</div>`,
-    )
+    const out = compile(`
+      const dbl = () => count.value * 2
+      const x = <div>{count.value}</div>
+    `)
     // body read + JSX read both go through h.read
     expect(out.match(/h\.read\(count\)/g)?.length).toBe(2)
     const importLines = out.split(";").filter((s) => s.includes(`from "@efx/runtime"`))
