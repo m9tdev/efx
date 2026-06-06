@@ -24,12 +24,12 @@ assertEquals<UserPageType, Effect.Effect<View, HttpError, Http | Theme>>()
 
 // ─── AsyncUserPage: the same fetch behind an `Await` boundary. The boundary
 //     handles failure locally (onError), so E is `never`; Http still folds
-//     (fetch on the mount fiber) and Theme is read in-component, plus Scope
-//     from the fork. Same data, opposite E — the boundary vs. fold-to-root
-//     contrast, both compile-time enforced.
+//     (fetch on the mount fiber), plus Scope from the fork (`forkScoped`).
+//     Same data, opposite E — the boundary vs. fold-to-root contrast, both
+//     compile-time enforced.
 
 type AsyncUserPageType = ReturnType<typeof AsyncUserPage>
-assertEquals<AsyncUserPageType, Effect.Effect<View, never, Http | Theme | Scope.Scope>>()
+assertEquals<AsyncUserPageType, Effect.Effect<View, never, Http | Scope.Scope>>()
 
 // ─── Counter is pure (no E or R from the component itself; AtomRegistry
 //     is added at mount) ──────────────────────────────────────────────────

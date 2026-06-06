@@ -1,6 +1,6 @@
 import { Cause, Effect } from "effect"
 import { Await } from "@efx/runtime"
-import { Http, Theme } from "./services.ts"
+import { Http } from "./services.ts"
 
 /**
  * The `Await` boundary, once form — the non-blocking counterpart to
@@ -11,17 +11,22 @@ import { Http, Theme } from "./services.ts"
  * root. `AsyncUserPage` wraps the same fetch in `Await(() => http.getUser(id))`:
  * a pending placeholder shows immediately and failure is handled locally
  * (`onError`), so `E` is discharged to `never`. The thunk reads no reactive
- * refs, so it runs once. `Http`/`Theme` are extracted up front, so they fold
- * into `R` — a forgotten layer is still a compile error.
+ * refs, so it runs once. `Http` is extracted up front, so it folds into `R` —
+ * a forgotten layer is still a compile error. `Scope` is added by `Await`
+ * itself: it doesn't create a scope, it borrows the *enclosing* one (via
+ * `Effect.scope`) and forks the fetch into it with `Effect.forkScoped`, so the
+ * request is interrupted when that scope closes. The framework supplies the
+ * scope where the component is mounted — placed statically here, that's the
+ * root app scope; under a `Reactive`/`List` slot it's the per-slot scope, so
+ * the fetch is cancelled exactly on that element's unmount.
  *
- * Inferred type: `Effect<View, never, Http | Theme | Scope>`
+ * Inferred type: `Effect<View, never, Http | Scope>`
  */
 export const AsyncUserPage = Effect.fn("AsyncUserPage")(function* (props: { userId: string }) {
-  const theme = yield* Theme
   const http = yield* Http
 
   return yield* (
-    <article class={`async-user-page ${theme.mode}`}>
+    <article class="async-user-page">
       {Await(() => http.getUser(props.userId), {
         pending: <p class="loading">  loading user…</p>,
         onError: (cause) => <p class="error">error: {Cause.pretty(cause)}</p>,
