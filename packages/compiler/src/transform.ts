@@ -154,6 +154,37 @@ const hRead = (): t.MemberExpression =>
   t.memberExpression(t.identifier("h"), t.identifier("read"))
 
 /**
+ * Rewrite a single `obj.value` member *read* to `h.read(obj)`, returning whether
+ * it rewrote. Shared by the JSX-expression rewrite (`rewriteTrackedExpression`)
+ * and the whole-body pass (`transformEfx` pass 3) so both apply identical rules:
+ *
+ *   - Only non-computed `.value` reads. `obj["value"]` and other properties pass.
+ *   - Writes are left bare: assignment LHS (`= / += / …`) and `++`/`--`. Emitting
+ *     `h.read(obj)++` would be a SyntaxError, and for an AtomRef the bare form
+ *     surfaces TypeScript's own `ts(2540) Cannot assign to 'value' … read-only`
+ *     at the right column — no custom diagnostic needed.
+ *   - Optional chaining (`obj?.value`) is a different node type
+ *     (`OptionalMemberExpression`), so it is never matched here — left as-is.
+ *
+ * Detection of *what actually tracks* is deferred to runtime: `h.read` is a
+ * faithful passthrough that records a dependency only for branded AtomRefs under
+ * an active tracker (see `readImpl` in `@efx/runtime`). So this rewrite needs no
+ * compile-time "is this an AtomRef?" analysis — it routes every `.value` read
+ * through the one exact gate.
+ */
+const rewriteValueRead = (path: NodePath<t.MemberExpression>): boolean => {
+  const n = path.node
+  if (n.computed) return false
+  if (!t.isIdentifier(n.property)) return false
+  if (n.property.name !== "value") return false
+  const parent = path.parent
+  if (t.isAssignmentExpression(parent) && parent.left === n) return false
+  if (t.isUpdateExpression(parent) && parent.argument === n) return false
+  path.replaceWith(t.callExpression(hRead(), [n.object as t.Expression]))
+  return true
+}
+
+/**
  * True when an arrow body is a JSX expression — either directly
  * (`item => <Row/>`) or via a block whose only statement is `return <JSX/>`
  * (`item => { return <Row/> }`).
@@ -221,22 +252,7 @@ const rewriteTrackedExpression = (
       path.skip()
     },
     MemberExpression(path) {
-      // Rewrite `obj.value` → `h.read(obj)` for *reads only*. Anything that
-      // writes to `.value` (assignment LHS `=`/`+=`/etc., `++`/`--`) is left
-      // bare so the emitted JS stays well-formed (`h.read(obj)++` would be
-      // a SyntaxError). For AtomRefs this is also exactly what the user
-      // wants surfaced — TypeScript's own `ts(2540) Cannot assign to
-      // 'value' because it is a read-only property` already fires at the
-      // right position. No custom diagnostic needed.
-      const n = path.node
-      if (n.computed) return
-      if (!t.isIdentifier(n.property)) return
-      if (n.property.name !== "value") return
-      const parent = path.parent
-      if (t.isAssignmentExpression(parent) && parent.left === n) return
-      if (t.isUpdateExpression(parent) && parent.argument === n) return
-      path.replaceWith(t.callExpression(hRead(), [n.object as t.Expression]))
-      rewroteRead = true
+      if (rewriteValueRead(path)) rewroteRead = true
     },
   })
   return {
@@ -511,11 +527,33 @@ export const transformEfx = (
     },
   })
 
+  // Pass 3 — whole-body `.value` reads. The JSX pass above only rewrites
+  // `.value` inside JSX expressions; a `.value` read in a *statement* (an
+  // extracted `Await` thunk, a helper, a local `const`) was left bare and so
+  // never tracked. Rewrite those surviving reads too, so an AtomRef tracks
+  // anywhere in a component body, not just in JSX.
+  //
+  // Runs on the LIVE AST *after* the JSX pass, so every JSX `.value` is already
+  // an `h.read(...)` call (property name "read", not "value") and can't be
+  // double-rewritten. There is NO compile-time atom detection: `h.read` is a
+  // faithful passthrough (identical to `.value` for non-AtomRefs), so emitting
+  // it for every `.value` read is safe; the runtime brand check is the exact
+  // gate. And NO `h.track` wrap here — eager statement reads stay one-time
+  // reads (Solid/Svelte/Vue semantics); tracking only activates when the read
+  // executes under a tracker (an `Await` thunk, or a JSX `h.track` scope).
+  let usedHRead = false
+  traverse(ast, {
+    MemberExpression(path: NodePath<t.MemberExpression>) {
+      if (rewriteValueRead(path)) usedHRead = true
+    },
+  })
+
   // Auto-inject the runtime imports the rewritten code now depends on.
   // Looks for an existing `import … from "@efx/runtime"` and adds the
   // missing names there; otherwise prepends a new import. Keeps the user's
-  // imports untouched and avoids duplicate specifiers.
-  if (usedH) {
+  // imports untouched and avoids duplicate specifiers. `h` is needed if the
+  // JSX pass emitted `h(...)` OR pass 3 emitted any `h.read(...)`.
+  if (usedH || usedHRead) {
     const wanted = new Set(["h"])
     if (usedFragment) wanted.add("Fragment")
     if (state.wroteList) wanted.add("list")

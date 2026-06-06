@@ -260,6 +260,81 @@ describe("Await calls are not h.track-wrapped", () => {
   })
 })
 
+describe("whole-body `.value` reads (tracking outside JSX)", () => {
+  // The JSX pass only rewrites `.value` inside JSX expressions. A third pass
+  // rewrites `.value` reads that survive in *statements* — extracted Await
+  // thunks, helpers, locals — so an AtomRef tracks anywhere in a component
+  // body. Detection is the runtime brand inside `h.read` (faithful for
+  // non-AtomRefs); there is no compile-time atom analysis and no `h.track`
+  // wrap in this pass (eager reads stay one-time).
+
+  it("rewrites a `.value` read in an extracted thunk (the motivating gap)", () => {
+    const out = compile(
+      `const get = () => client.getUser(userId.value)\n` +
+        `const x = <div>{Await(get, { onSuccess: (u) => <span>{u}</span> })}</div>`,
+    )
+    expect(out).toContain(`h.read(userId)`)
+    // No h.track wrap around the thunk read — Await runs it under its own tracker.
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*client\.getUser/)
+  })
+
+  it("rewrites a plain statement-level `.value` read", () => {
+    const out = compile(`const n = count.value + 1`)
+    expect(out).toContain(`h.read(count)`)
+    expect(out).not.toContain(`h.track`)
+  })
+
+  it("rewrites `.value` inside a non-thunk function body", () => {
+    const out = compile(`function label() { return count.value }`)
+    expect(out).toContain(`h.read(count)`)
+  })
+
+  it("auto-imports `h` when the only rewrite is a body read (no JSX)", () => {
+    const out = compile(`const get = () => ref.value`)
+    expect(out).toContain(`h.read(ref)`)
+    expect(out).toMatch(/import \{[^}]*\bh\b[^}]*\} from "@efx\/runtime"/)
+  })
+
+  it("leaves a body `.value` *write* bare (assignment + update)", () => {
+    const assign = compile(`const f = () => { ref.value = 1 }`)
+    expect(assign).toContain(`ref.value = 1`)
+    expect(assign).not.toContain(`h.read(ref)`)
+
+    const update = compile(`const f = () => { count.value++ }`)
+    expect(update).toContain(`count.value++`)
+    expect(update).not.toMatch(/h\.read\(count\)\+\+/)
+  })
+
+  it("leaves optional-chained `obj?.value` alone (different node type)", () => {
+    const out = compile(`const v = maybe?.value`)
+    expect(out).toContain(`maybe?.value`)
+    expect(out).not.toContain(`h.read(maybe)`)
+  })
+
+  it("does NOT double-rewrite JSX `.value` reads (no h.read(h.read(...)))", () => {
+    const out = compile(`const x = <div>{ref.value}</div>`)
+    expect(out).toContain(`h.read(ref)`)
+    expect(out).not.toContain(`h.read(h.read`)
+  })
+
+  it("rewrites both a JSX read and a body read with a single `h` import", () => {
+    const out = compile(
+      `const dbl = () => count.value * 2\n` +
+        `const x = <div>{count.value}</div>`,
+    )
+    // body read + JSX read both go through h.read
+    expect(out.match(/h\.read\(count\)/g)?.length).toBe(2)
+    const importLines = out.split(";").filter((s) => s.includes(`from "@efx/runtime"`))
+    expect(importLines.length).toBe(1)
+  })
+
+  it("does NOT rewrite a non-`value` property read", () => {
+    const out = compile(`const u = props.userId`)
+    expect(out).not.toContain(`h.read`)
+    expect(out).not.toContain(`@efx/runtime`)
+  })
+})
+
 describe("runtime auto-imports", () => {
   it("adds `import { h } from \"@efx/runtime\"` when JSX is present", () => {
     const out = compile(`const x = <div />`)

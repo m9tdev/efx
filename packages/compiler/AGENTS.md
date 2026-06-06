@@ -53,7 +53,11 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    `mount`, so wrapping in `h.track` would be a redundant layer.
 
 2. **`x.value` → `h.read(x)`** inside the wrapped expression. Tracks
-   AtomRef reads. Left bare on any write to `.value` — assignment LHS
+   AtomRef reads. (The *same* read rewrite also runs over the whole
+   component body in a separate pass — see "Whole-body `.value` reads"
+   below — so reads in statements/extracted thunks track too. Both
+   share `rewriteValueRead` in `transform.ts`.) Left bare on any write
+   to `.value` — assignment LHS
    (`x.value = …`, `x.value += …`) **and** update expressions
    (`x.value++`, `--x.value`). The bare-write fallback exists so the
    emitted JS stays well-formed (`h.read(x)++` would be a SyntaxError
@@ -108,15 +112,58 @@ the compiler emitted `h.peek(...)` for bare test-position identifiers;
 that was removed because the implicit unwrap diverged from the type
 TS would assign at the source site.
 
+## Whole-body `.value` reads
+
+After the JSX pass, a third `traverse(ast, …)` over the **live** AST
+rewrites every *surviving* `obj.value` read — the ones in statements,
+helpers, and **extracted `Await` thunks** — to `h.read(obj)` (via the
+same `rewriteValueRead` helper, so the write-guards are identical). This
+closes the gap where a thunk lifted out of an `Await(...)` call site
+(`const get = () => http.getUser(userId.value)`) silently stopped
+tracking: it now tracks identically to the inline form.
+
+Why this is safe **without** any compile-time "is `obj` an AtomRef?"
+analysis — the key design decision:
+
+- `h.read` is a **faithful, transparent wrapper** for `.value`. For any
+  non-AtomRef it is byte-for-byte `obj.value` (it throws on null exactly
+  as `.value` would — there is no `?.` swallow; see `readImpl` in
+  `@efx/runtime`). For a branded AtomRef it *additionally* records a dep
+  iff a tracker is active. So emitting `h.read` for *every* `.value` read
+  is sound; the runtime `isAtomRef` brand check is the only gate, and
+  it's **exact** — it handles aliased imports, extracted refs,
+  service-returned refs, and dynamic indirection that no syntactic
+  binding analysis could. (This is the Vue model: the tracking lives in
+  the read primitive, not in a compile-time graph. efx routes `.value`
+  through `h.read` only because Effect's `AtomRef.value` getter is inert
+  and can't self-track.)
+- **Ordering matters.** The body pass runs *after* the JSX pass, so JSX
+  `.value` reads are already `h.read(...)` calls (callee property `read`,
+  not `value`) and cannot be double-rewritten. The body pass only ever
+  sees reads the JSX pass left behind.
+- **No `h.track` wrap in this pass.** Eager statement reads
+  (`const x = ref.value`) stay one-time reads — auto-deriving them would
+  be the implicit-infection model Vue retracted (Reactivity Transform)
+  and Svelte/Solid reject. Tracking activates only when the read
+  *executes* under a tracker: an `Await` thunk (run under `trackDeps`) or
+  a JSX `h.track` scope. A statement read outside any tracker is just
+  `.value`.
+
+Opt-out of tracking has no dedicated helper yet: read outside a tracking
+scope, or (future) a small `untrack`-style wrapper. Optional chaining
+(`obj?.value`, an `OptionalMemberExpression`) is never matched, so it is
+left as-is and does not track.
+
 ## Auto-injected imports
 
-If any JSX rewrote to an `h()` call, the transform ensures
-`import { h } from "@efx/runtime"` exists. `Fragment` is added when
-`<>...</>` is used. `list` is added when the `.value.map → list(...)`
-rewrite fires. `ensureRuntimeImports` finds an existing import from
-`@efx/runtime` and appends to it; otherwise it prepends a new
-declaration. Names already imported under their own identifier (no
-alias) are skipped to avoid duplicates.
+If any JSX rewrote to an `h()` call **or** the whole-body pass emitted any
+`h.read(...)`, the transform ensures `import { h } from "@efx/runtime"`
+exists (tracked via `usedH || usedHRead` in `transformEfx`). `Fragment`
+is added when `<>...</>` is used. `list` is added when the
+`.value.map → list(...)` rewrite fires. `ensureRuntimeImports` finds an
+existing import from `@efx/runtime` and appends to it; otherwise it
+prepends a new declaration. Names already imported under their own
+identifier (no alias) are skipped to avoid duplicates.
 
 ## Tag dispatch
 
