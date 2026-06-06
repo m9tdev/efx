@@ -281,9 +281,10 @@ const program = Effect.gen(function* () {
     setupDemo("todos", () => Todos())
     setupDemo("lifecycle", () => Lifecycle())
   })
-  // Start the reactivity flash once the initial mounts settle (incl. the 250ms
-  // blocking fetch), so only interactions and refreshes flash — not page load.
-  yield* Effect.sleep("500 millis")
+  // Start the reactivity flash once the initial mounts settle (incl. the
+  // simulated fetch latency), so only interactions and resets flash — not page
+  // load. Keep this comfortably past the latency in services.ts.
+  yield* Effect.sleep("1600 millis")
   yield* Effect.sync(() => flashOnUpdate(rootEl))
   // Keep App's scope alive so the refresh buttons' listeners persist.
   yield* Effect.never
