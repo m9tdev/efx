@@ -44,10 +44,13 @@ const rectOf = (node: Node): DOMRect | null => {
 const paint = (rect: DOMRect): void => {
   if (rect.width < 1 && rect.height < 1) return // nothing visible to flash
   const pad = 1
+  // Position absolutely in *page* coordinates (viewport rect + scroll offset),
+  // not `fixed` — so the overlay stays glued to the element if the user scrolls
+  // during the animation, rather than drifting with the viewport.
   const o = document.createElement("div")
   o.style.cssText =
-    "position:fixed;pointer-events:none;z-index:9999;border-radius:3px;" +
-    `left:${rect.left - pad}px;top:${rect.top - pad}px;` +
+    "position:absolute;pointer-events:none;z-index:9999;border-radius:3px;" +
+    `left:${rect.left + window.scrollX - pad}px;top:${rect.top + window.scrollY - pad}px;` +
     `width:${rect.width + pad * 2}px;height:${rect.height + pad * 2}px;` +
     `animation:efx-flash-overlay ${DURATION}ms ease-out forwards;`
   document.body.appendChild(o)
