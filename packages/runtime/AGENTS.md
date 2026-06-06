@@ -165,7 +165,18 @@ A thunk that reads no refs runs once. Positional thunk-first (like
 typed — arms in the same object literal as the effect defeat inference
 (`onSuccess`'s value collapses to `unknown`). Arm channels are accepted
 permissively (`any`) and are not folded into the result; that also avoids a
-JSX conditional's `any`-folded channels breaking inference.
+JSX conditional's `any`-folded channels breaking inference. **Arms must be
+synchronous View-producers** — they render via `coerceSync` (`runSyncExit`),
+so an *async* arm effect can never resolve and renders `[effect failed: …]`;
+an arm effect needing an unprovided service also fails only at runtime (its
+`R` isn't folded). Keep arms pure markup.
+
+**Tracking is inline-only.** The `.value`→`h.read` rewrite the tracker relies
+on happens in JSX expression positions, so only `.value` reads written
+*inline in the thunk* track. An extracted thunk —
+`const get = () => http.getUser(userId.value)` then `Await(get, …)` — silently
+does NOT refetch (runs once, no error). Write the thunk inline at the call
+site. (Binding-aware rewriting to lift this is a planned follow-up.)
 
 **Why a thunk, not the bare expression** (`Await(http.getUser(userId.value))`):
 the bare form evaluates the effect eagerly with nothing re-runnable, and the

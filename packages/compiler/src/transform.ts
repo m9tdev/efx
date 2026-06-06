@@ -115,6 +115,11 @@ interface RewriteState {
  * Scope>` to `unknown` and drops its channels from the `h()` fold. Same reason
  * `.value.map(...)` → `list(...)` is left unwrapped. The inner `.value` reads
  * are still rewritten to `h.read` (Await's tracker needs them).
+ *
+ * Matched purely by callee name (the compiler has no types). So
+ * `import { Await as A }` defeats the skip — `A(...)` would be wrongly
+ * `h.track`-wrapped and lose its channels (a loud type error at the call site).
+ * Import `Await` unaliased.
  */
 const isAwaitCall = (expr: t.Expression): boolean =>
   t.isCallExpression(expr) && t.isIdentifier(expr.callee, { name: "Await" })
