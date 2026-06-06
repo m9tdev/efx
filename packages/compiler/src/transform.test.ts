@@ -244,6 +244,22 @@ describe(".value.map(arrow → JSX) → list(...) rewrite", () => {
   })
 })
 
+describe("Await calls are not h.track-wrapped", () => {
+  // The Await boundary self-tracks (it runs its thunk under the same dep
+  // tracker), so wrapping it in h.track is redundant AND erases its channels
+  // (h.track returns `unknown`). The `.value`→h.read rewrite inside is kept.
+  it("leaves a `.value`-reading Await(...) bare, keeping h.read", () => {
+    const out = compile(`const x = <div>{Await(() => client.get(id.value), { onSuccess: (v) => <span>{v}</span> })}</div>`)
+    expect(out).toContain(`h.read(id)`)        // dep rewrite kept (Await needs it)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Await\(/) // not wrapped
+  })
+
+  it("does not introduce h.track when Await is the only `.value` reader", () => {
+    const out = compile(`const x = <div>{Await(() => client.get(id.value), { onSuccess: (v) => <span>{v}</span> })}</div>`)
+    expect(out).not.toContain(`h.track`)
+  })
+})
+
 describe("runtime auto-imports", () => {
   it("adds `import { h } from \"@efx/runtime\"` when JSX is present", () => {
     const out = compile(`const x = <div />`)

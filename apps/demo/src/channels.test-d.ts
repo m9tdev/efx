@@ -46,7 +46,7 @@ assertEquals<CounterType, Effect.Effect<View, never, never>>()
 //     protects.)
 
 type LiveUserType = ReturnType<typeof LiveUser>
-assertEquals<LiveUserType, Effect.Effect<View, never, Http>>()
+assertEquals<LiveUserType, Effect.Effect<View, never, Http | Scope.Scope>>()
 
 // ─── Composition: a tree containing UserPage AND Counter unions channels ─
 
