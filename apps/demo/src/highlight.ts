@@ -95,8 +95,11 @@ export const highlight = (src: string): ReadonlyArray<Token> => {
       continue
     }
 
-    // JSX tag open: `<name` or `</name` in expression position
-    if (c === "<" && isExprPos(prev) && /[A-Za-z/]/.test(src[i + 1] ?? "")) {
+    // JSX tag: `</name` is unambiguously a closing tag (highlight it wherever
+    // it appears, e.g. `failed</p>`); `<name` only *opens* a tag in expression
+    // position, so generics like `collection<Todo>` aren't mistaken for tags.
+    const afterLt = src[i + 1] ?? ""
+    if (c === "<" && (afterLt === "/" || (isExprPos(prev) && /[A-Za-z]/.test(afterLt)))) {
       let j = i + 1
       let open = "<"
       if (src[j] === "/") { open = "</"; j++ }

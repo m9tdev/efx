@@ -197,6 +197,7 @@ const App = (
 
       {Await(() => http.getUser(userId.value), {
         pending:   <span>loading…</span>,
+        onError:   () => <span>not found</span>,
         onSuccess: user => <strong>{user.name}</strong>,
       })}
     </div>
