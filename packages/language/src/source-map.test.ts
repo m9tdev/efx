@@ -28,7 +28,9 @@ const findBySourceOffset = (
 
 describe("convertSourceMap — span lengths", () => {
   it("every mapping carries both source and generated lengths", () => {
-    const src = `const x = <div class="page">hi</div>`
+    const src = `
+      const x = <div class="page">hi</div>
+    `
     const { mappings } = buildMappings(src)
     expect(mappings.length).toBeGreaterThan(0)
     for (const m of mappings) {
@@ -44,7 +46,9 @@ describe("convertSourceMap — span lengths", () => {
     // (function-call paren + arrow paren) has 2 source chars but only 1
     // generated char. Without distinct generatedLengths, Volar over-claims
     // generated territory and inlay-hint positions drift one column left.
-    const src = `const f = () => count.update((n) => n + 1)`
+    const src = `
+      const f = () => count.update((n) => n + 1)
+    `
     const { code, mappings } = buildMappings(src)
     // Sanity: Babel actually does strip the paren
     expect(code).toContain("count.update(n => n + 1)")
@@ -65,9 +69,11 @@ describe("convertSourceMap — span lengths", () => {
     // copies the source loc of the original MemberExpression onto the emitted
     // CallExpression — so the mapping at the start of `x` covers source span
     // for the original read, generated span for the `h.read(...)` call.
-    const src = `import { AtomRef } from "effect/unstable/reactivity"
-const x = AtomRef.make(0)
-const view = <div>{x.value}</div>`
+    const src = `
+      import { AtomRef } from "effect/unstable/reactivity"
+      const x = AtomRef.make(0)
+      const view = <div>{x.value}</div>
+    `
     const { code, mappings } = buildMappings(src)
     expect(code).toContain("h.read(x)")
     // The source `x.value` is at known position; assert SOMETHING maps to the
@@ -92,9 +98,11 @@ const view = <div>{x.value}</div>`
     // call. Source `coll.value.map(` (15 chars) becomes generated `list(coll,`
     // (10 chars) — a region where source length > generated length, mirror of
     // the .value → h.read case where generated is wider.
-    const src = `import { AtomRef } from "effect/unstable/reactivity"
-const coll = AtomRef.collection<number>([])
-const view = <ul>{coll.value.map((item) => <li>{item}</li>)}</ul>`
+    const src = `
+      import { AtomRef } from "effect/unstable/reactivity"
+      const coll = AtomRef.collection<number>([])
+      const view = <ul>{coll.value.map((item) => <li>{item}</li>)}</ul>
+    `
     const { code, mappings } = buildMappings(src)
     expect(code).toContain("list(coll,")
     // At least one mapping must bridge the source `coll.value.map(` region to
@@ -129,9 +137,11 @@ const view = <ul>{coll.value.map((item) => <li>{item}</li>)}</ul>`
     // `<Row>` to `h(Row, ...)`. The Row tag's nameStart in source must keep
     // a mapping that lands inside the generated `h(Row,` so editor
     // go-to-definition on Row inside the list arrow still resolves.
-    const src = `const Row = (props: { item: number }) => null
-const coll = { value: [] as number[] }
-const view = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>`
+    const src = `
+      const Row = (props: { item: number }) => null
+      const coll = { value: [] as number[] }
+      const view = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>
+    `
     const { code, mappings } = buildMappings(src)
     expect(code).toContain("list(coll,")
     expect(code).toContain("h(Row,")
@@ -152,9 +162,11 @@ const view = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>`
     // When something inside a JSX expression got rewritten, the whole expression
     // wraps in `h.track(() => ...)`. The source expression range and the
     // generated wrapped range have different lengths.
-    const src = `import { AtomRef } from "effect/unstable/reactivity"
-const x = AtomRef.make(0)
-const view = <div>{x.value + 1}</div>`
+    const src = `
+      import { AtomRef } from "effect/unstable/reactivity"
+      const x = AtomRef.make(0)
+      const view = <div>{x.value + 1}</div>
+    `
     const { code, mappings } = buildMappings(src)
     expect(code).toContain("h.track(")
     // The wrap region exists; we just verify the mapping array is well-formed
@@ -171,7 +183,9 @@ const view = <div>{x.value + 1}</div>`
   })
 
   it("intrinsic tag span: source `<div>` (5 chars) ≠ generated `h(\"div\",` (8 chars)", () => {
-    const src = `const x = <div>hi</div>`
+    const src = `
+      const x = <div>hi</div>
+    `
     const { code, mappings } = buildMappings(src)
     expect(code).toContain('h("div"')
     // Some mapping in the tag region should reflect the asymmetry. Find a
@@ -192,7 +206,9 @@ const view = <div>{x.value + 1}</div>`
 
 describe("convertSourceMap — structural cases", () => {
   it("spread attribute: source `{...props}` maps into the h() call", () => {
-    const src = `const x = <div {...props}>hi</div>`
+    const src = `
+      const x = <div {...props}>hi</div>
+    `
     const { code, mappings } = buildMappings(src)
     expect(code).toMatch(/h\("div",\s*\{\s*\.\.\.props\s*\}/)
     const spreadSrc = src.indexOf("{...props}")
@@ -206,11 +222,13 @@ describe("convertSourceMap — structural cases", () => {
   })
 
   it("multi-line JSX: mappings span line boundaries cleanly", () => {
-    const src = `const view = (
-  <div>
-    <span>hi</span>
-  </div>
-)`
+    const src = `
+      const view = (
+        <div>
+          <span>hi</span>
+        </div>
+      )
+    `
     const { code, mappings } = buildMappings(src)
     expect(code).toContain('h("div"')
     expect(code).toContain('h("span"')
@@ -229,7 +247,9 @@ describe("convertSourceMap — structural cases", () => {
   })
 
   it("fragment <>...</>: mappings exist for the fragment tags", () => {
-    const src = `const view = <>hello</>`
+    const src = `
+      const view = <>hello</>
+    `
     const { code, mappings } = buildMappings(src)
     expect(code).toContain("Fragment")
     // The opening `<>` is at the start.
@@ -238,8 +258,10 @@ describe("convertSourceMap — structural cases", () => {
   })
 
   it("member-expression tag: <X.Y>...</X.Y> emits h(X.Y, ...)", () => {
-    const src = `import * as M from "./mod"
-const view = <M.X />`
+    const src = `
+      import * as M from "./mod"
+      const view = <M.X />
+    `
     const { code, mappings } = buildMappings(src)
     expect(code).toContain("h(M.X")
     // The `M.X` source identifiers map into the h(M.X, ...) call.
@@ -250,7 +272,9 @@ const view = <M.X />`
   it("auto-injected import line has no overlap with user code mappings", () => {
     // The compiler injects `import { h } from "@efx/runtime"` for files using JSX.
     // That insertion shouldn't claim source territory that belongs to user code.
-    const src = `const view = <div>hi</div>`
+    const src = `
+      const view = <div>hi</div>
+    `
     const { code, mappings } = buildMappings(src)
     expect(code).toContain('import { h }')
     // Find user-code source positions: every char in `src`. Each should be
@@ -264,8 +288,10 @@ const view = <M.X />`
   })
 
   it("no JSX in file: mappings still produced from passthrough source map", () => {
-    const src = `export const x = 42
-export const y = "hello"`
+    const src = `
+      export const x = 42
+      export const y = "hello"
+    `
     const { code, mappings } = buildMappings(src)
     // With no JSX, the compiler doesn't inject anything; code is mostly source.
     expect(code).toContain("export const x = 42")
@@ -278,7 +304,9 @@ export const y = "hello"`
 
 describe("convertSourceMap — CodeInformation profiles", () => {
   it("JSX angle brackets get the structural-only profile (no navigation)", () => {
-    const src = `const x = <div>hi</div>`
+    const src = `
+      const x = <div>hi</div>
+    `
     const { mappings } = buildMappings(src)
     // Find the mapping for `<` (the opening angle bracket).
     const ltSrc = src.indexOf("<div")
@@ -290,8 +318,10 @@ describe("convertSourceMap — CodeInformation profiles", () => {
   })
 
   it("normal source code outside JSX gets the full profile", () => {
-    const src = `const x = 1
-const view = <div>hi</div>`
+    const src = `
+      const x = 1
+      const view = <div>hi</div>
+    `
     const { mappings } = buildMappings(src)
     // The `const` keyword on line 1 is outside any JSX node.
     const constSrc = src.indexOf("const x")
