@@ -7,6 +7,7 @@ Public surface (from `src/index.ts`):
   syntax) + `h.track`/`h.read` (compiler hooks)
 - `mount` — DOM renderer (returns `Effect<void, E, R | AtomRegistry | Scope>`)
 - `list` — keyed reactive list helper (`View.List` IR node)
+- `Await` — async render boundary (auto-tracking; see "`Await`" below)
 - `Fragment` — `<>...</>` compile target
 - `EfxLive` — base Layer providing `AtomRegistry`
 - Types: `View`, `Props`, `FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps`,
@@ -30,11 +31,11 @@ the editor margin. If you rename them, update the regex.
 
 | File | Purpose |
 |---|---|
-| `src/h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery |
-| `src/coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId` from `effect/unstable/reactivity`) |
+| `src/h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`) |
+| `src/coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Await`) |
 | `src/View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
 | `src/mount.ts` | DOM renderer. `buildDom(view, registry, scope) → Node`, `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close |
-| `src/index.ts` | Public exports + `list`, `Fragment`, `EfxLive` |
+| `src/index.ts` | Public exports + `list`, `Await`, `Fragment`, `EfxLive` |
 | `src/coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
 | `src/types/Fold.ts` | `ChildE`/`ChildR`/`FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps` — the channel-fold conditional types |
 | `src/types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics |
@@ -62,10 +63,10 @@ The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
 
 - `h.read(ref)` — reads `.value`, registers `ref` as a tracked dep.
 
-`h.track` itself:
+`h.track` itself (via `trackDeps` in `coerce.ts`, shared with `Await`):
 
-1. Sets module-level `currentTracker` to a fresh dep set.
-2. Runs the thunk; `h.read` adds to the set when it sees an AtomRef.
+1. `trackDeps` sets a module-level collector to a fresh dep set.
+2. Runs the thunk; `h.read`→`recordDep` adds to the set per AtomRef.
 3. **If the set is empty**, returns the thunk's result directly
    (no AtomRef wrap, no reactivity overhead — and the caller's
    static typing is preserved).
@@ -132,9 +133,75 @@ the time `coerceAsync` returns a View, all channels have been
 hoisted into the surrounding Effect.
 
 Good candidates if a need arises: `Portal` (render children to a
-different DOM root), `Suspense` (boundary for in-flight Effects).
-Anti-pattern: convenience wrappers like `Card`/`Heading` — those
-are components, not IR.
+different DOM root). Note an async boundary did **not** need a new
+variant — see `Await` below. Anti-pattern: convenience wrappers like
+`Card`/`Heading` — those are components, not IR.
+
+## `Await` — the async render boundary
+
+`Await` (index.ts) renders an Effect's pending/success/error states as a
+leaf that owns one effectful data source (a Resource, à la Solid — **not**
+React Suspense: no throw-and-catch). One auto-tracking form:
+
+```tsx
+Await(() => effect, { pending?, onSuccess, onError? })
+```
+
+The first arg is a **thunk** that produces the effect. It runs under the
+**same dependency tracker as `h.track`** (`trackDeps`/`recordDep`, shared
+from `coerce.ts`): any reactive ref the thunk reads via `.value`/`h.read`
+becomes a dependency, and the boundary **re-runs the effect when one
+changes**, interrupting the stale run. So a static fetch and a reactive
+refetch are the same call — deps are *discovered, not declared*:
+
+```tsx
+const userId = AtomRef.make("42")    // buttons: userId.set("7")
+const http = yield* Http             // extract services up front
+{Await(() => http.getUser(userId.value), { pending, onSuccess, onError })}
+```
+
+A thunk that reads no refs runs once. Positional thunk-first (like
+`list(coll, render)`) so `A`/`E` are fixed before the arms are contextually
+typed — arms in the same object literal as the effect defeat inference
+(`onSuccess`'s value collapses to `unknown`). Arm channels are accepted
+permissively (`any`) and are not folded into the result; that also avoids a
+JSX conditional's `any`-folded channels breaking inference.
+
+**Why a thunk, not the bare expression** (`Await(http.getUser(userId.value))`):
+the bare form evaluates the effect eagerly with nothing re-runnable, and the
+compiler's `h.track` wrapper can't run `Await`'s fiber (it would store the
+unexecuted `Effect` in a ref → DOM stuck on the stale value). Making `Await`
+itself the tracker — taking the thunk — composes the two reactive layers
+(sync ref-tracking + async fiber) correctly.
+
+It is a **plain helper, not a View IR variant** — it builds an
+`AtomRef<unknown>` holding the current rendered arm and returns a
+`View.Reactive` over it, so the existing Reactive node does all the DOM
+work. The design that makes this fit efx:
+
+- **State** is Effect's `AsyncResult` matched to an arm, stored in a
+  *synchronous* `AtomRef` (so the Reactive node reads it immediately and
+  re-renders on `.set`).
+- **Tracking + execution:** a `schedule()` runs the thunk under `trackDeps`,
+  subscribes to the refs it read (re-scheduling on change), and enqueues the
+  effect onto a `Queue`. A `forkScoped` supervisor loop drains the queue —
+  `forkChild` per run, prior run `Fiber.interrupt`ed — on the **mount fiber**.
+  Fork interrupted on scope close (teardown); ref subscriptions are a scope
+  finalizer.
+- **Channels:** because `forkScoped` forks the thunk's effect, the result
+  folds its `R` — `Await` returns `Effect<View, never, R | Scope>` with **no
+  cast**. Extract services with `yield* Service` before the thunk so they fold
+  into the *component's* `R` (a missing Layer is a compile error at `mount`).
+  `E` is `never` on purpose: the boundary *handles* failure via `onError`
+  (rendered) rather than propagating it. Contrast in-component fetching
+  (UserPage), where `E`+`R` both fold to the root.
+
+Why NOT `Atom`/`Atom.runtime` for this: an `Atom.runtime(layer)` bakes the
+Layer in and discharges `R` (loses the thesis); a per-call runtime built
+from a captured context dies "registry disposed" once the creating program
+returns. Running the user's Effect directly on the mount fiber is what
+keeps `R` folded. `Atom`/`AtomRef` remain the right tool for *synchronous*
+reactive state (Counter, `list`) — just not the spine for effectful data.
 
 ## mount internals — invariants
 
