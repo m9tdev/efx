@@ -251,11 +251,18 @@ async function main() {
   }
 
   console.log("\n7b. Test go-to-definition on <Counter /> JSX usage...")
-  // Line 16: <Counter />
+  // Locate `<Counter` dynamically so this survives demo edits (the guided-tour
+  // layout moves components around). tsserver positions are 1-based.
+  const mainLines = readFileSync(mainEfx, "utf8").split("\n")
+  const jsxLineIdx = mainLines.findIndex((l) => l.includes("<Counter"))
+  if (jsxLineIdx === -1) throw new Error("could not find <Counter in main.efx")
+  const jsxLine = jsxLineIdx + 1
+  const jsxOffset = mainLines[jsxLineIdx].indexOf("<Counter") + 2 // +1 for 1-based, +1 to land on the 'C'
+  console.log(`   <Counter /> at line ${jsxLine}, offset ${jsxOffset}`)
   const defResponse2 = await client.send("definition", {
     file: mainEfx,
-    line: 16,
-    offset: 8,
+    line: jsxLine,
+    offset: jsxOffset,
   })
   console.log("   Definition response:", JSON.stringify(defResponse2.body, null, 2))
   // Also test on the import to compare
