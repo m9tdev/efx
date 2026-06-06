@@ -73,12 +73,10 @@ interface AwaitArms<A, E> {
  * to `h.read`, which records the dep — so in `.efx` you just write
  * `userId.value` inside the thunk.)
  *
- * LIMITATION: only `.value` reads written **inline in the thunk** track. The
- * compiler rewrites `.value`→`h.read` in JSX expression positions only, so an
- * *extracted* thunk — `const get = () => http.getUser(userId.value)` then
- * `Await(get, …)` — silently does NOT refetch (it runs once, no error). Write
- * the thunk inline at the `Await(...)` call site. (Binding-aware rewriting that
- * lifts this restriction is a planned follow-up.)
+ * The thunk may be written inline OR extracted to a binding — the compiler
+ * rewrites `.value`→`h.read` across the whole component body, not just in JSX
+ * expressions, so `const get = () => http.getUser(userId.value)` then
+ * `Await(get, …)` tracks identically to the inline form.
  *
  * Channels: extract services with `yield* Service` *before* the thunk so the
  * effect the thunk builds carries no `R` (it's already discharged into the

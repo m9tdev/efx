@@ -44,15 +44,21 @@ type HasValue = { readonly value: unknown }
 
 function readImpl<T>(obj: AtomRef.ReadonlyRef<T>): T
 function readImpl<T extends HasValue>(obj: T): T["value"]
-function readImpl<T extends HasValue | null | undefined>(obj: T): T extends HasValue ? T["value"] : undefined
 function readImpl(obj: unknown): unknown {
   if (isAtomRef(obj)) {
     recordDep(obj)
     return obj.value
   }
-  // Identical semantics to `.value` access — preserves the typing TS would
-  // have given the original `.value` expression.
-  return (obj as HasValue | null | undefined)?.value
+  // Faithful, transparent passthrough: `h.read(x)` is byte-for-byte `x.value`
+  // for any non-AtomRef — including throwing on `null`/`undefined` exactly as
+  // `.value` would (NO `?.` swallow). This is what lets the compiler rewrite
+  // *every* `.value` read in a component body to `h.read` without any
+  // compile-time "is this an AtomRef?" analysis: the brand check above is the
+  // only gate, and it's exact. A non-AtomRef read records no dependency and
+  // returns its `.value` unchanged; an AtomRef read records a dep iff a tracker
+  // is active. Reading `.value` on a possibly-null base is a type error in the
+  // source `.value` form too, so there is no nullable overload here.
+  return (obj as HasValue).value
 }
 
 /**
@@ -96,8 +102,9 @@ type HFn = <
  * - `h.track(thunk)` — runs `thunk` in a reactive tracking scope; returns
  *   the static value if no refs were read, or a derived `AtomRef` that
  *   re-runs the thunk when deps change.
- * - `h.read(obj)` — like `obj?.value` but, when called inside an
- *   `h.track` scope, registers `obj` as a dependency if it's an AtomRef.
+ * - `h.read(obj)` — a faithful, transparent wrapper for `obj.value` that, when
+ *   called inside an `h.track` (or `Await`) tracking scope, registers `obj` as a
+ *   dependency if it's an AtomRef. On any non-AtomRef it is exactly `obj.value`.
  *
  * Inside any JSX expression `{…}` that contains a `.value` read, the
  * compiler rewrites each `x.value` to `h.read(x)` and wraps the whole

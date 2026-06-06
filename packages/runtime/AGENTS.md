@@ -61,7 +61,13 @@ The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
 **only when** it actually rewrote a `.value` read inside (see
 [compiler AGENTS.md](../compiler/AGENTS.md)). Inside that scope:
 
-- `h.read(ref)` — reads `.value`, registers `ref` as a tracked dep.
+- `h.read(ref)` — a **faithful, transparent wrapper for `.value`**:
+  byte-for-byte `ref.value` for any non-AtomRef (throws on null exactly
+  as `.value` would — no `?.` swallow), and for a branded AtomRef it
+  *additionally* registers `ref` as a tracked dep when a tracker is
+  active. This faithfulness is what lets the compiler emit `h.read` for
+  *every* `.value` read in a component body (not just JSX) without any
+  compile-time atom analysis — the `isAtomRef` brand is the exact gate.
 
 `h.track` itself (via `trackDeps` in `coerce.ts`, shared with `Await`):
 
@@ -171,12 +177,15 @@ so an *async* arm effect can never resolve and renders `[effect failed: …]`;
 an arm effect needing an unprovided service also fails only at runtime (its
 `R` isn't folded). Keep arms pure markup.
 
-**Tracking is inline-only.** The `.value`→`h.read` rewrite the tracker relies
-on happens in JSX expression positions, so only `.value` reads written
-*inline in the thunk* track. An extracted thunk —
-`const get = () => http.getUser(userId.value)` then `Await(get, …)` — silently
-does NOT refetch (runs once, no error). Write the thunk inline at the call
-site. (Binding-aware rewriting to lift this is a planned follow-up.)
+**Inline or extracted — both track.** The compiler rewrites `.value`→`h.read`
+across the whole component body, not just in JSX expressions (see the compiler's
+"Whole-body `.value` reads"), so an extracted thunk —
+`const get = () => http.getUser(userId.value)` then `Await(get, …)` — refetches
+identically to the inline form. The read just has to happen *inside* the thunk
+(so it runs under `Await`'s tracker); a `.value` read into a local *before* the
+thunk (`const id = userId.value; Await(() => http.getUser(id), …)`) captures a
+snapshot and won't refetch — that's the ordinary eager-read semantics, not a
+special case.
 
 **Why a thunk, not the bare expression** (`Await(http.getUser(userId.value))`):
 the bare form evaluates the effect eagerly with nothing re-runnable, and the
@@ -359,14 +368,11 @@ higher-rank polymorphism TS doesn't have.
 
 ### `h.read` overload preserves arbitrary `.value` types
 
-`h.read` is intentionally overloaded three ways:
+`h.read` is intentionally overloaded two ways:
 
 ```ts
 function read<T>(obj: AtomRef.ReadonlyRef<T>): T
 function read<T extends HasValue>(obj: T): T["value"]
-function read<T extends HasValue | null | undefined>(
-  obj: T
-): T extends HasValue ? T["value"] : undefined
 ```
 
 (`HasValue = { readonly value: unknown }`.) The second signature
@@ -375,11 +381,14 @@ is **load-bearing**: it lets compiled code like `h.read(s).bio`
 `s.value.bio`) type-check against `Success`'s payload. Drop it
 and every pattern-match site against `AsyncResult` / `Option` /
 `Result` shapes that reads `.value` inside a JSX expression
-breaks. The third overload extends that to nullable receivers so
-`opt?.value` inside JSX still narrows correctly. The TS-side
-overloads are independent of the runtime behavior (for AtomRefs
-it tracks; for anything else it's identity to `.value`, with
-optional-chaining preserved).
+breaks. There is **no** nullable overload: reading `.value` on a
+possibly-null base is a type error in the source `.value` form
+too, and `h.read` now mirrors that — it is byte-for-byte
+`obj.value` at runtime (it throws on null; there is no `?.`
+swallow). The TS-side overloads are independent of the runtime
+behavior (for AtomRefs it tracks; for anything else it's identity
+to `.value`). Optional chaining (`obj?.value`) is left un-rewritten
+by the compiler, so it never reaches `h.read`.
 
 ## Channel-fold quick check
 

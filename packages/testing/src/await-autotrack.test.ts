@@ -52,6 +52,33 @@ describe("auto-tracking Await", () => {
     await ui.unmount()
   })
 
+  it("refetches even when the thunk is extracted to a separate binding", async () => {
+    // The gap the whole-body `.value`→h.read rewrite closes: a thunk lifted out
+    // of the Await(...) call site. Post-compile it's `const get = () =>
+    // client.get(h.read(userId))`, so the read still happens inside the thunk
+    // Await runs under its tracker — and tracking works identically to inline.
+    const userId = AtomRef.make("42")
+    const ExtractedPage = Effect.fn(function* () {
+      const client = yield* Users
+      const get = () => client.get(read(userId)) // extracted thunk
+      return yield* h("div", { class: "page" },
+        h("button", { class: "grace", onclick: () => userId.set("7") }, "Grace"),
+        yield* Await(get, {
+          pending: h("span", { class: "loading" }, "…"),
+          onSuccess: (n) => h("span", { class: "ok" }, n),
+          onError: () => h("span", { class: "err" }, "not found"),
+        }),
+      )
+    })
+    const ui = await render(ExtractedPage(), UsersLive)
+    expect((await ui.waitFor(".ok")).textContent?.trim()).toBe("Ada")
+    ui.click(".grace")
+    const d = Date.now() + 1000
+    while (ui.query(".ok")?.textContent?.trim() !== "Grace" && Date.now() < d) await ui.tick()
+    expect(ui.query(".ok")?.textContent?.trim()).toBe("Grace")
+    await ui.unmount()
+  })
+
   it("auto-refetch shows the error arm on a bad key", async () => {
     const userId = AtomRef.make("42")
     const ui = await render(Page(userId), UsersLive)
