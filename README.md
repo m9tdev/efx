@@ -9,6 +9,10 @@ Status: proof-of-concept. Not for production. Architecture, invariants, and
 per-package contracts live in [AGENTS.md](./AGENTS.md) and the per-subsystem
 AGENTS.md tree.
 
+**▶ [Live demo](https://m9tdev.github.io/efx/)** — a guided tour through each
+primitive: the source on the left, the inferred `Effect<View, E, R>` type, and
+the running component (with a reset button) on the right.
+
 ## What you get
 
 - **Channels survive the tree.** A `<UserPage userId="42" />` whose internals
@@ -16,15 +20,20 @@ AGENTS.md tree.
   root through every intervening `<div>`, `<Fragment>`, conditional, list,
   and component. The root must provide a `Layer` covering the entire `R`, or
   it fails to compile.
-- **Reactive values directly in JSX expressions.** `{loading ? <Spinner /> : <Content />}`
-  works against `loading: AtomRef<boolean>` with no `.map(…)` wrapping — the
-  compiler rewrites bare identifiers in test positions into tracked reads.
+- **Reactive values in JSX expressions.** `{loading.value ? <Spinner /> : <Content />}`
+  works against `loading: AtomRef<boolean>` — you write `.value` explicitly and
+  the compiler rewrites that read into a tracked one, wrapping the surrounding
+  expression in a tracking scope so it re-renders when `loading` changes.
+- **Effect-native async boundary.** `Await(() => http.getUser(id), { pending, onError, onSuccess })`
+  runs an effect and renders pending → success/error, folding the effect's `R`
+  into the component (a forgotten `Layer` is still a compile error). The thunk
+  auto-tracks any `.value` it reads, so it refetches when they change.
 - **Effect v4 primitives all the way down.** `AtomRef`/`Atom`/`AtomRegistry`
   from `effect/unstable/reactivity` are the reactivity layer; we don't build
   our own. `AsyncResult` is the loading/success/failure shape.
-- **Keyed reactive lists.** `{list(todos, item => <Row item={item} />)}`
-  reconciles by `AtomRef` identity — adding/removing/toggling one item never
-  tears down the others.
+- **Keyed reactive lists.** `{todos.value.map(item => <Row item={item} />)}`
+  is compiled to a keyed list that reconciles by `AtomRef` identity — adding,
+  removing, or toggling one item never tears down the others.
 - **Custom file extension.** `.efx` files are compiled by Babel to plain
   TypeScript before `tsc` ever sees them, so TypeScript's JSX type checker
   is never engaged — that's how channels survive instead of collapsing to
@@ -40,8 +49,10 @@ pnpm dev
 # open http://localhost:5173
 ```
 
-The demo exercises every primitive — counter, async data fetch, async-state
-pattern matching, keyed reactive list.
+The demo is a guided tour that exercises every primitive — reactive counter,
+blocking and `Await`-boundary data fetches, auto-tracking refetch, keyed
+reactive list, and per-component lifecycle — each with a reset button. It's
+also deployed at [m9tdev.github.io/efx](https://m9tdev.github.io/efx/).
 
 On Nix, `nix develop` drops you into a shell with Node, Corepack (for
 `pnpm` via the `packageManager` field), and Chromium (with `EFX_CHROMIUM`
@@ -50,7 +61,7 @@ pre-exported for the probe scripts).
 ## Smallest possible example
 
 ```tsx
-// counter.efx
+// Counter.efx
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 
@@ -70,7 +81,7 @@ export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
 // main.efx
 import { Effect, Layer } from "effect"
 import { EfxLive, mount } from "@efx/runtime"
-import { Counter } from "./Counter"
+import { Counter } from "./Counter.efx"
 
 const program = Effect.gen(function* () {
   yield* mount(<Counter />, document.getElementById("root")!)
@@ -87,21 +98,21 @@ Effect.runFork(program)
 
 ```
 packages/
-  runtime/      View IR, h(), mount(), reactivity bindings
+  runtime/      View IR, h(), mount(), Await(), list(), reactivity bindings
   compiler/     .efx → plain TypeScript (Babel)
   language/     Volar language plugin (shared by ts-plugin + check)
   ts-plugin/    TypeScript Language Service plugin (editor integration)
   check/        Standalone CLI type-checker for .efx projects
   vite-plugin/  Vite integration
 apps/
-  demo/         Counter, UserPage, LiveUser, Todos, Lifecycle
+  demo/         Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle
 ```
 
 ## The primitives
 
 | You import from      | What you get                                                                              |
 |----------------------|-------------------------------------------------------------------------------------------|
-| `@efx/runtime`      | `h`, `mount`, `list`, `Fragment`, `View`, `EfxLive`                                      |
+| `@efx/runtime`      | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `EfxLive`                             |
 | `effect`             | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …  |
 | `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                  |
 
@@ -116,8 +127,8 @@ JSX expression is automatically wrapped in a tracking scope.
 |--------------------|---------------------------------------------------------------|
 | `pnpm dev`         | Vite dev server with HMR on `.efx` files                      |
 | `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `@efx/check` (.efx-aware) |
-| `pnpm build`       | Production build via Vite (`.efx` compiled first)             |
-| `pnpm -w run test` | Compiler test suite (`@efx/compiler`, via `@effect/vitest`)   |
+| `pnpm build`       | Production build via Vite (`@efx/vite-plugin` owns the transform) |
+| `pnpm test`        | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `@efx/check` |
 
 ## Bundle size
 
@@ -125,16 +136,17 @@ JSX expression is automatically wrapped in a tracking scope.
 
 | Asset                 | Raw      | Gzipped  |
 |-----------------------|----------|----------|
-| `dist/index.html`     |  2.20 kB |  0.84 kB |
-| `dist/assets/index-*.js` | 93.34 kB | **31.20 kB** |
+| `dist/index.html`     |  8.09 kB |  2.24 kB |
+| `dist/assets/index-*.js` | 103.99 kB | **35.17 kB** |
 
-The JS bundle contains: `effect@4.0.0-beta.70` runtime (~6 kB gzipped per
+The JS bundle contains: `effect@4.0.0-beta.71` runtime (~6 kB gzipped per
 upstream docs), `effect/unstable/reactivity` (`AtomRef`, `Atom`,
-`AtomRegistry`, `AsyncResult`), the `@efx/runtime` runtime (~500 LOC,
-contributes single-digit kB), plus all five demo components (`Counter`,
-`UserPage`, `LiveUser`, `Todos`, `Lifecycle`) and their mock services.
-Verified interactive after build — Counter increments, LiveUser cycles
-`Initial`/`Success`/`Failure`, Todos add/remove/toggle, Lifecycle's
+`AtomRegistry`, `AsyncResult`), the `@efx/runtime` runtime (~600 LOC,
+contributes single-digit kB), plus all six demo components (`Counter`,
+`UserPage`, `AsyncUserPage`, `LiveUser`, `Todos`, `Lifecycle`), the guided-tour
+shell (a small dependency-free TSX highlighter + reactivity-flash visualizer),
+and their mock services. Verified interactive after build — Counter increments,
+the `Await` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's
 per-row scope fires releases on row removal.
 
 Vite serves `.efx` files directly through `@efx/vite-plugin` at dev time;
@@ -151,6 +163,9 @@ support for `.efx` files.
 
 **What works:** Diagnostics, hover, go-to-definition, find-references,
 inlay hints, and document highlights (including JSX tag pair matching).
+
+On GitHub, `.efx` files render with TSX syntax highlighting (via a
+`linguist-language=TSX` override in `.gitattributes`).
 
 ### Neovim
 
