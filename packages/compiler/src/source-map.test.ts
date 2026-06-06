@@ -20,7 +20,9 @@ const findBySourceOffset = (
 
 describe("transformEfx — mappings shape", () => {
   it("every mapping carries source and generated lengths plus a kind", () => {
-    const result = compile(`const x = <div class="page">hi</div>`)
+    const result = compile(`
+      const x = <div class="page">hi</div>
+    `)
     expect(result.mappings.length).toBeGreaterThan(0)
     for (const m of result.mappings) {
       expect(typeof m.source.offset).toBe("number")
@@ -37,7 +39,9 @@ describe("transformEfx — mappings shape", () => {
     // function-call paren + arrow paren) has source length 2 but generated
     // length 1. Without this, downstream consumers over-claim generated
     // territory and inlay-hint positions drift.
-    const src = `const f = () => count.update((n) => n + 1)`
+    const src = `
+      const f = () => count.update((n) => n + 1)
+    `
     const result = compile(src)
     expect(result.code).toContain("count.update(n => n + 1)")
 
@@ -49,7 +53,9 @@ describe("transformEfx — mappings shape", () => {
   })
 
   it("source positions are not duplicated (dedup by source offset)", () => {
-    const src = `const view = <div><span>x</span></div>`
+    const src = `
+      const view = <div><span>x</span></div>
+    `
     const result = compile(src)
     const seen = new Set<number>()
     for (const m of result.mappings) {
@@ -59,7 +65,9 @@ describe("transformEfx — mappings shape", () => {
   })
 
   it("user source positions are covered by at most one mapping (no overlap)", () => {
-    const src = `const view = <div>hi</div>`
+    const src = `
+      const view = <div>hi</div>
+    `
     const result = compile(src)
     for (let i = 0; i < src.length; i++) {
       const containing = result.mappings.filter(
@@ -70,7 +78,9 @@ describe("transformEfx — mappings shape", () => {
   })
 
   it("mappings are sorted by source offset", () => {
-    const src = `const view = <div><span>x</span></div>`
+    const src = `
+      const view = <div><span>x</span></div>
+    `
     const result = compile(src)
     for (let i = 1; i < result.mappings.length; i++) {
       expect(result.mappings[i]!.source.offset).toBeGreaterThan(result.mappings[i - 1]!.source.offset)
@@ -80,7 +90,9 @@ describe("transformEfx — mappings shape", () => {
 
 describe("transformEfx — mapping kinds", () => {
   it("JSX angle brackets `<` `>` `/` are classified as punctuation", () => {
-    const src = `const x = <div>hi</div>`
+    const src = `
+      const x = <div>hi</div>
+    `
     const result = compile(src)
     const ltSrc = src.indexOf("<div")
     const ltMapping = findBySourceOffset(result.mappings, ltSrc)
@@ -88,7 +100,9 @@ describe("transformEfx — mapping kinds", () => {
   })
 
   it("positions inside an h() call (JSX-derived) are classified as h-call", () => {
-    const src = `const x = <div class="page">hi</div>`
+    const src = `
+      const x = <div class="page">hi</div>
+    `
     const result = compile(src)
     // Find a mapping whose source span sits inside the JSX opening tag.
     // Babel's source map doesn't emit a mapping at every character, so we
@@ -102,8 +116,10 @@ describe("transformEfx — mapping kinds", () => {
   })
 
   it("normal user code outside JSX is classified as user", () => {
-    const src = `const x = 1
-const view = <div>hi</div>`
+    const src = `
+      const x = 1
+      const view = <div>hi</div>
+    `
     const result = compile(src)
     const constSrc = src.indexOf("const x")
     const m = findBySourceOffset(result.mappings, constSrc)
@@ -113,8 +129,10 @@ const view = <div>hi</div>`
   it("operator `>` inside a JSX expression is NOT punctuation", () => {
     // `{a > b}` inside JSX: the `>` is a JS operator, not JSX angle bracket.
     // The classifier checks for the tag-span containment to disambiguate.
-    const src = `const a = 1, b = 2
-const view = <div>{a > b ? "yes" : "no"}</div>`
+    const src = `
+      const a = 1, b = 2
+      const view = <div>{a > b ? "yes" : "no"}</div>
+    `
     const result = compile(src)
     const gtSrc = src.indexOf("a > b") + 2
     const m = findBySourceOffset(result.mappings, gtSrc)
@@ -128,7 +146,9 @@ const view = <div>{a > b ? "yes" : "no"}</div>`
 
 describe("transformEfx — no-source-map cases", () => {
   it("file without JSX produces a single passthrough-ish mapping", () => {
-    const src = `export const x = 42`
+    const src = `
+      export const x = 42
+    `
     const result = compile(src)
     expect(result.mappings.length).toBeGreaterThan(0)
     // All mappings should be classified as user code (no JSX in source).
