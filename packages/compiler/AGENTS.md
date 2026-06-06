@@ -56,12 +56,19 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    AtomRef reads. (The *same* read rewrite also runs over the whole
    component body in a separate pass — see "Whole-body `.value` reads"
    below — so reads in statements/extracted thunks track too. Both
-   share `rewriteValueRead` in `transform.ts`.) Left bare on any write
-   to `.value` — assignment LHS
-   (`x.value = …`, `x.value += …`) **and** update expressions
-   (`x.value++`, `--x.value`). The bare-write fallback exists so the
-   emitted JS stays well-formed (`h.read(x)++` would be a SyntaxError
-   in strict modules). The compiler intentionally does not raise its
+   share `rewriteValueRead` in `transform.ts`.) Left bare on any **write
+   or binding target** — see `isWriteTarget`, which covers the closed set
+   of LVal positions: assignment LHS (`x.value = …`, `x.value += …`),
+   update (`x.value++`, `--x.value`), `delete x.value`, destructuring
+   targets (`[x.value] = …`, `({k: x.value} = …)`, `[...x.value] = …`),
+   and `for (x.value of/in …)`. The bare fallback exists so the emitted
+   JS stays well-formed: `h.read(x)++` / `[h.read(x)] = …` would be
+   invalid, and `for (h.read(x) of …)` would even crash Babel's AST
+   validator (`ForOfStatement.left` rejects a `CallExpression`). Read
+   sub-positions that only *look* write-adjacent are still rewritten — an
+   assignment's RHS, an `AssignmentPattern` default (`[a = x.value]`), a
+   computed pattern key, and the iterable of a `for…of`
+   (`for (a of x.value)`). The compiler intentionally does not raise its
    own diagnostic for `.value++` on an AtomRef: TypeScript already
    surfaces `ts(2540) Cannot assign to 'value' because it is a
    read-only property` at the right column for `=`, `+=`, `++`, and

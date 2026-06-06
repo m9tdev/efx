@@ -154,15 +154,54 @@ const hRead = (): t.MemberExpression =>
   t.memberExpression(t.identifier("h"), t.identifier("read"))
 
 /**
+ * True when an `obj.value` member sits in a write / binding-target position, so
+ * it must be left bare. Rewriting a write target to `h.read(obj)` would emit
+ * invalid JS (`[h.read(obj)] = …` — assignment to a call) or, for
+ * `for (obj.value of …)`, crash Babel's AST validator (`ForOfStatement.left`
+ * rejects a `CallExpression`). Covers every LVal shape:
+ *
+ *   obj.value = …      obj.value++ / --obj.value     delete obj.value
+ *   [obj.value] = …    ({ k: obj.value } = …)        for (obj.value of/in …)
+ *   [obj.value = d] = …    [...obj.value] = …
+ *
+ * The set of LVal positions is closed, so this is exhaustive. It climbs through
+ * destructuring connectors (`RestElement`, `AssignmentPattern.left`,
+ * `ObjectProperty.value`), and reaching an `ArrayPattern`/`ObjectPattern` — node
+ * types that exist *only* in target positions — confirms a write. Read
+ * sub-positions are distinguished: a computed pattern key (`{[obj.value]: x}`),
+ * an `AssignmentPattern` default (`[a = obj.value]`), the `.right` of an
+ * assignment, and the iterable of a `for…of` (`for (x of obj.value)`) all read.
+ * Any ordinary expression parent means it's a read.
+ */
+const isWriteTarget = (path: NodePath<t.MemberExpression>): boolean => {
+  let cur: NodePath = path
+  let parent: NodePath | null = path.parentPath
+  while (parent) {
+    const pn = parent.node
+    const cn = cur.node
+    if (t.isAssignmentExpression(pn)) return pn.left === cn
+    if (t.isUpdateExpression(pn)) return pn.argument === cn
+    if (t.isUnaryExpression(pn) && pn.operator === "delete") return pn.argument === cn
+    if (t.isForOfStatement(pn) || t.isForInStatement(pn)) return pn.left === cn
+    if (t.isArrayPattern(pn) || t.isObjectPattern(pn)) return true
+    // Connectors — climb only via their target sub-position.
+    if (t.isRestElement(pn) && pn.argument === cn) { cur = parent; parent = parent.parentPath; continue }
+    if (t.isAssignmentPattern(pn) && pn.left === cn) { cur = parent; parent = parent.parentPath; continue }
+    if (t.isObjectProperty(pn) && pn.value === cn) { cur = parent; parent = parent.parentPath; continue }
+    return false
+  }
+  return false
+}
+
+/**
  * Rewrite a single `obj.value` member *read* to `h.read(obj)`, returning whether
  * it rewrote. Shared by the JSX-expression rewrite (`rewriteTrackedExpression`)
  * and the whole-body pass (`transformEfx` pass 3) so both apply identical rules:
  *
  *   - Only non-computed `.value` reads. `obj["value"]` and other properties pass.
- *   - Writes are left bare: assignment LHS (`= / += / …`) and `++`/`--`. Emitting
- *     `h.read(obj)++` would be a SyntaxError, and for an AtomRef the bare form
- *     surfaces TypeScript's own `ts(2540) Cannot assign to 'value' … read-only`
- *     at the right column — no custom diagnostic needed.
+ *   - Writes/binding targets are left bare (see `isWriteTarget`). For an AtomRef
+ *     the bare write also surfaces TypeScript's own `ts(2540) Cannot assign to
+ *     'value' … read-only` at the right column — no custom diagnostic needed.
  *   - Optional chaining (`obj?.value`) is a different node type
  *     (`OptionalMemberExpression`), so it is never matched here — left as-is.
  *
@@ -170,17 +209,17 @@ const hRead = (): t.MemberExpression =>
  * faithful passthrough that records a dependency only for branded AtomRefs under
  * an active tracker (see `readImpl` in `@efx/runtime`). So this rewrite needs no
  * compile-time "is this an AtomRef?" analysis — it routes every `.value` read
- * through the one exact gate.
+ * through the one exact gate. `copyLoc` keeps the emitted call mapped to the
+ * original `.value` span (matters for statement reads, which no `jsxRange`
+ * covers).
  */
 const rewriteValueRead = (path: NodePath<t.MemberExpression>): boolean => {
   const n = path.node
   if (n.computed) return false
   if (!t.isIdentifier(n.property)) return false
   if (n.property.name !== "value") return false
-  const parent = path.parent
-  if (t.isAssignmentExpression(parent) && parent.left === n) return false
-  if (t.isUpdateExpression(parent) && parent.argument === n) return false
-  path.replaceWith(t.callExpression(hRead(), [n.object as t.Expression]))
+  if (isWriteTarget(path)) return false
+  path.replaceWith(copyLoc(t.callExpression(hRead(), [n.object as t.Expression]), n))
   return true
 }
 

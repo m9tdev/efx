@@ -305,6 +305,55 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
     expect(update).not.toMatch(/h\.read\(count\)\+\+/)
   })
 
+  it("leaves destructuring-assignment targets bare (array + object patterns)", () => {
+    const arr = compile(`const f = () => { [obj.value] = arr }`)
+    expect(arr).toContain(`[obj.value] = arr`)
+    expect(arr).not.toContain(`h.read(obj)`)
+
+    const objPat = compile(`const f = () => { ({ x: obj.value } = o) }`)
+    expect(objPat).toContain(`x: obj.value`)
+    expect(objPat).not.toContain(`h.read(obj)`)
+
+    const dflt = compile(`const f = () => { [obj.value = 1] = arr }`)
+    expect(dflt).toContain(`obj.value = 1`)
+    expect(dflt).not.toContain(`h.read(obj)`)
+
+    const rest = compile(`const f = () => { [...obj.value] = arr }`)
+    expect(rest).toContain(`...obj.value`)
+    expect(rest).not.toContain(`h.read(obj)`)
+  })
+
+  it("leaves a `for (obj.value of …)` target bare (and does not crash)", () => {
+    // The unguarded form crashed Babel: ForOfStatement.left rejects a
+    // CallExpression. Must stay bare.
+    const of = compile(`const f = () => { for (el.value of xs) {} }`)
+    expect(of).toContain(`for (el.value of xs)`)
+    expect(of).not.toContain(`h.read(el)`)
+
+    const inn = compile(`const f = () => { for (el.value in xs) {} }`)
+    expect(inn).toContain(`for (el.value in xs)`)
+    expect(inn).not.toContain(`h.read(el)`)
+  })
+
+  it("still rewrites a `.value` READ on the for-of iterable (right side)", () => {
+    const out = compile(`const f = () => { for (const x of coll.value) {} }`)
+    expect(out).toContain(`for (const x of h.read(coll))`)
+  })
+
+  it("leaves `delete obj.value` bare", () => {
+    const out = compile(`const f = () => delete obj.value`)
+    expect(out).toContain(`delete obj.value`)
+    expect(out).not.toContain(`h.read(obj)`)
+  })
+
+  it("rewrites reads that only LOOK write-adjacent (RHS, default value, unary)", () => {
+    // x = obj.value (RHS), [a = obj.value] (pattern default), !obj.value (unary)
+    // are all reads and must be rewritten.
+    expect(compile(`const f = () => { x = obj.value }`)).toContain(`h.read(obj)`)
+    expect(compile(`const f = () => { [a = obj.value] = arr }`)).toContain(`h.read(obj)`)
+    expect(compile(`const f = () => !obj.value`)).toContain(`!h.read(obj)`)
+  })
+
   it("leaves optional-chained `obj?.value` alone (different node type)", () => {
     const out = compile(`const v = maybe?.value`)
     expect(out).toContain(`maybe?.value`)
