@@ -121,9 +121,9 @@ const App = (
   const count = AtomRef.make(0)
 
   return yield* (
-    <div class="counter">
+    <div>
       <button onclick={() => count.update(n => n + 1)}>+</button>
-      <span class="count">clicks: {count}</span>
+      <span>clicks: {count}</span>
     </div>
   )
 })`,
@@ -147,9 +147,8 @@ const App = (
   const user = yield* http.getUser(props.userId) // may fail → HttpError in E
 
   return yield* (
-    <article class={\`user-page \${theme.mode}\`}>
+    <article class={theme.mode}>
       <h1>{user.name}</h1>
-      {user.bio && <p class="bio">{user.bio}</p>}
     </article>
   )
 })`,
@@ -170,15 +169,11 @@ const App = (
 }) {
   const http = yield* Http   // folds into R; Scope comes from Await
 
-  return yield* (
-    <article>
-      {Await(() => http.getUser(props.userId), {
-        pending:   <p class="loading">loading…</p>,
-        onError:   cause => <p class="error">{Cause.pretty(cause)}</p>,
-        onSuccess: user  => <h1>{user.name}</h1>,
-      })}
-    </article>
-  )
+  return yield* Await(() => http.getUser(props.userId), {
+    pending:   <p>loading…</p>,
+    onError:   () => <p>failed</p>,
+    onSuccess: user => <h1>{user.name}</h1>,
+  })
 })`,
         file: "AsyncUserPage.efx",
       })}
@@ -197,19 +192,17 @@ const App = (
   const http = yield* Http
 
   return yield* (
-    <div class="live-user">
+    <div>
       <button onclick={() => userId.set("7")}>Grace</button>
-      <button onclick={() => userId.set("999")}>Bad id</button>
 
       {Await(() => http.getUser(userId.value), {
         pending:   <span>loading…</span>,
-        onError:   () => <span>not found</span>,
         onSuccess: user => <strong>{user.name}</strong>,
       })}
-      {/* the thunk reads userId.value → refetch when it changes */}
     </div>
   )
-})`,
+})
+// the thunk reads userId.value → refetch when it changes`,
         file: "LiveUser.efx",
       })}
       {demoSlot("live")}
