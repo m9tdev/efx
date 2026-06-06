@@ -1,28 +1,30 @@
-import { Cause, Effect, Fiber, Layer } from "effect"
-import { EfxLive, mount } from "@efx/runtime"
+import { Cause, Effect, Exit, Fiber, Layer, Scope } from "effect"
+import { AtomRegistry } from "effect/unstable/reactivity"
+import { EfxLive, mount, type View } from "@efx/runtime"
 import { Counter } from "./Counter.efx"
 import { AsyncUserPage } from "./AsyncUserPage.efx"
 import { flashOnUpdate } from "./flash.ts"
 import { highlight } from "./highlight.ts"
 import { Lifecycle } from "./Lifecycle.efx"
 import { LiveUser } from "./LiveUser.efx"
-import { HttpLive, ThemeLive } from "./services.ts"
+import { Http, HttpLive, Theme, ThemeLive } from "./services.ts"
 import { Todos } from "./Todos.efx"
 import { UserPage } from "./UserPage.efx"
 
 const REPO = "https://github.com/m9tdev/efx"
 const SRC = `${REPO}/blob/main/apps/demo/src`
 
+// Each demo is mounted independently (see `setupDemo` below); the refresh
+// button recreates it from scratch. `refreshers` maps a demo id to its remount
+// fn so the static button in `App` can trigger it.
+const refreshers = new Map<string, () => void>()
+const teardowns = new Map<string, () => void>()
+
 /**
  * The static left column of a guided-tour section: a step number, the concept
  * the primitive teaches, the *inferred* `Effect<View, E, R>` type, a curated
- * source snippet, and a link to the full file.
- *
- * This is a plain function (not an `Effect.fn` component) returning JSX, so it
- * folds to `Effect<View, never, never>` — pure presentation, no services. The
- * live component is rendered *inline* in `App` (not routed through here) so its
- * real `E`/`R` channels still fold into `main`'s type. That's the whole point:
- * forget a `Layer` below and this entrypoint stops compiling.
+ * source snippet, and a link to the full file. Pure presentation — folds to
+ * `Effect<View, never, never>`.
  */
 const copy = (meta: {
   readonly step: string
@@ -47,6 +49,27 @@ const copy = (meta: {
   </div>
 )
 
+/**
+ * The right column: a "live" label, a refresh button that recreates the
+ * component (so its initial state — loading spinners, count 0, the original
+ * list — can be seen again), and the empty container `setupDemo` mounts into.
+ */
+const demoSlot = (id: string) => (
+  <div class="tour-demo">
+    <div class="demo-bar">
+      <span class="demo-label">live</span>
+      <button
+        class="demo-refresh"
+        title="recreate this component from scratch"
+        onclick={() => refreshers.get(id)?.()}
+      >
+        ↻ refresh
+      </button>
+    </div>
+    <div class="demo-mount" data-demo={id}></div>
+  </div>
+)
+
 const App = (
   <div class="app">
     <header class="hero">
@@ -57,7 +80,7 @@ const App = (
         UI framework where the <code>{"<A, E, R>"}</code> channels survive from
         every leaf of the view tree to the root. Forget to provide a service{" "}
         <code>Layer</code> and you get a <em>compile-time error that names the
-        missing service</em> — not a runtime crash.
+          missing service</em> — not a runtime crash.
       </p>
       <div class="how">
         <h3>the trick, in one breath</h3>
@@ -80,7 +103,9 @@ const App = (
           </a>
           . Each section pairs the source on the left with the running component
           on the right. Interact with any demo — the brief highlight marks the
-          exact DOM node that re-rendered; nothing around it does.
+          exact DOM node that re-rendered; nothing around it does. Hit{" "}
+          <strong>↻ refresh</strong> to recreate a component and watch its
+          initial state (loading, count 0) from the top.
         </p>
       </div>
     </header>
@@ -98,10 +123,7 @@ const App = (
 <span class="count">clicks: {count}</span>`,
         file: "Counter.efx",
       })}
-      <div class="tour-demo">
-        <span class="demo-label">live</span>
-        <Counter />
-      </div>
+      {demoSlot("counter")}
     </section>
 
     <section class="tour">
@@ -111,16 +133,15 @@ const App = (
         concept:
           "Fetch inside the component. `yield* Http` adds Http to R; the request can fail, so HttpError rides E. Both surface in the type and must be satisfied at mount — drop HttpLive below and main stops compiling. The subtree blocks until the request resolves.",
         type: "Effect<View, HttpError, Http | Theme>",
-        code: `const http = yield* Http              // → adds Http to R
-const user = yield* http.getUser(id)  // can fail → HttpError in E
+        code: `// adds Http to R
+const http = yield* Http
+// can fail → HttpError in E
+const user = yield* http.getUser(id)
 
 <h1>{user.name}</h1>`,
         file: "UserPage.efx",
       })}
-      <div class="tour-demo">
-        <span class="demo-label">live</span>
-        <UserPage userId="42" />
-      </div>
+      {demoSlot("userpage")}
     </section>
 
     <section class="tour">
@@ -128,19 +149,16 @@ const user = yield* http.getUser(id)  // can fail → HttpError in E
         step: "03",
         title: "Await boundary (non-blocking)",
         concept:
-          "Same fetch, wrapped in Await. A pending placeholder shows immediately; onError handles failure locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. The Scope is Await's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the root app scope, but under a reactive/list slot it's the element's own scope.",
+          "Same fetch, wrapped in Await. A pending placeholder shows immediately; onError handles failure locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. The Scope is Await's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the element's own demo scope, so refresh interrupts an in-flight fetch.",
         type: "Effect<View, never, Http | Scope>",
         code: `Await(() => http.getUser(id), {
   pending:   <p>loading…</p>,
-  onError:   cause => <p>error</p>,         // E → never
+  onError:   cause => <p>error</p>, // E → never
   onSuccess: user  => <UserCard user={user} />,
 })`,
         file: "AsyncUserPage.efx",
       })}
-      <div class="tour-demo">
-        <span class="demo-label">live</span>
-        <AsyncUserPage userId="42" />
-      </div>
+      {demoSlot("async")}
     </section>
 
     <section class="tour">
@@ -157,10 +175,7 @@ Await(() => http.getUser(userId.value), { … })
 // reads .value → tracked dep → refetch on change`,
         file: "LiveUser.efx",
       })}
-      <div class="tour-demo">
-        <span class="demo-label">live</span>
-        <LiveUser />
-      </div>
+      {demoSlot("live")}
     </section>
 
     <section class="tour">
@@ -176,10 +191,7 @@ Await(() => http.getUser(userId.value), { … })
 // → keyed View.List; reconciled by ref identity`,
         file: "Todos.efx",
       })}
-      <div class="tour-demo">
-        <span class="demo-label">live</span>
-        <Todos />
-      </div>
+      {demoSlot("todos")}
     </section>
 
     <section class="tour">
@@ -187,7 +199,7 @@ Await(() => http.getUser(userId.value), { … })
         step: "06",
         title: "Per-component lifecycle",
         concept:
-          "Every row mounts in its own Effect Scope, so a finalizer registered with Effect.acquireRelease fires when that row's DOM is removed — not when the whole app unmounts. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N.",
+          "Every row mounts in its own Effect Scope, so a finalizer registered with Effect.acquireRelease fires when that row's DOM is removed — not when the whole app unmounts. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Refresh closes the demo's scope, firing every remaining row's finalizer at once.)",
         type: "Effect<View, never, never>",
         code: `yield* Effect.acquireRelease(
   Effect.sync(() => log(\`mount:\${id}\`)),
@@ -195,10 +207,7 @@ Await(() => http.getUser(userId.value), { … })
 )`,
         file: "Lifecycle.efx",
       })}
-      <div class="tour-demo">
-        <span class="demo-label">live</span>
-        <Lifecycle />
-      </div>
+      {demoSlot("lifecycle")}
     </section>
 
     <footer class="site-footer">
@@ -213,13 +222,70 @@ Await(() => http.getUser(userId.value), { … })
 const rootEl = document.getElementById("root")
 if (!rootEl) throw new Error("missing #root")
 
+// The full app Layer. Every demo's requirements must be a subset of what this
+// provides — `setupDemo`'s signature enforces it, so forgetting (say) HttpLive
+// is a compile error at the UserPage/AsyncUserPage/LiveUser call sites, not a
+// runtime crash. That's the thesis, now enforced per-mount.
+const APP_LAYER = Layer.mergeAll(EfxLive, HttpLive, ThemeLive)
+
+// Everything the demos may require, after EfxLive/HttpLive/ThemeLive: the
+// reactivity registry, the two services, and a Scope.
+type DemoR = AtomRegistry.AtomRegistry | Http | Theme | Scope.Scope
+
+/**
+ * Mount a component into its demo container under a Closeable scope we own, and
+ * register a `remount` that tears the old one down (firing its finalizers,
+ * cancelling in-flight Await fetches) and builds a fresh one. Because `make()`
+ * is called anew each time, refresh shows the component's initial state again.
+ *
+ * `make`'s `R` is constrained to `DemoR`, so a component needing a service
+ * APP_LAYER doesn't provide won't type-check here.
+ */
+const setupDemo = <E>(id: string, make: () => Effect.Effect<View, E, DemoR>): void => {
+  const container = rootEl.querySelector<HTMLElement>(`[data-demo="${id}"]`)
+  if (!container) throw new Error(`missing demo container: ${id}`)
+
+  let teardown: (() => void) | null = null
+  const remount = (): void => {
+    teardown?.()
+    const scope = Scope.makeUnsafe()
+    Effect.runFork(
+      Scope.provide(
+        mount(make(), container).pipe(
+          Effect.catchCause((cause) =>
+            Effect.sync(() => console.error(`[efx demo: ${id}]`, Cause.pretty(cause))),
+          ),
+          Effect.provide(APP_LAYER),
+        ),
+        scope,
+      ),
+    )
+    teardown = () => {
+      const closing = Scope.closeUnsafe(scope, Exit.void)
+      if (closing) Effect.runFork(closing)
+    }
+  }
+
+  refreshers.set(id, remount)
+  teardowns.set(id, () => teardown?.())
+  remount()
+}
+
 const program = Effect.gen(function* () {
   yield* mount(App, rootEl)
-  // Demo sugar: flash each node as efx re-renders it, so fine-grained
-  // reactivity is visible. Started after mount so the initial render doesn't
-  // flash; later updates (interactions, async resolves) do.
+  yield* Effect.sync(() => {
+    setupDemo("counter", () => Counter())
+    setupDemo("userpage", () => UserPage({ userId: "42" }))
+    setupDemo("async", () => AsyncUserPage({ userId: "42" }))
+    setupDemo("live", () => LiveUser())
+    setupDemo("todos", () => Todos())
+    setupDemo("lifecycle", () => Lifecycle())
+  })
+  // Start the reactivity flash once the initial mounts settle (incl. the 250ms
+  // blocking fetch), so only interactions and refreshes flash — not page load.
+  yield* Effect.sleep("500 millis")
   yield* Effect.sync(() => flashOnUpdate(rootEl))
-  // Keep the scope alive so subscriptions and DOM persist for the page's lifetime.
+  // Keep App's scope alive so the refresh buttons' listeners persist.
   yield* Effect.never
 }).pipe(
   Effect.scoped,
@@ -228,14 +294,16 @@ const program = Effect.gen(function* () {
       console.error("App failed:", Cause.pretty(cause))
     }),
   ),
-  Effect.provide(Layer.mergeAll(EfxLive, HttpLive, ThemeLive)),
+  Effect.provide(APP_LAYER),
 )
 
 const fiber = Effect.runFork(program)
 
 // Test affordance: scripts/probe-lifecycle.mjs calls this to trigger a full
-// unmount via fiber interruption. Closing the program scope cascades through
-// every per-row / per-Reactive sub-scope and fires their finalizers.
+// teardown. Closing each demo's scope cascades through every per-row /
+// per-Reactive sub-scope and fires their finalizers; interrupting the App
+// fiber tears down the static shell.
 ;(globalThis as { __teardown?: () => void }).__teardown = () => {
+  for (const close of teardowns.values()) close()
   Effect.runFork(Fiber.interrupt(fiber))
 }

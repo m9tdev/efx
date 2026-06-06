@@ -127,16 +127,26 @@
 
       /* ─── Live demo panel ──────────────────────────────────── */
       .tour-demo {
-        position: relative;
         background: var(--panel); border: 1px solid var(--border);
-        border-radius: 10px; padding: 1.5rem 1.25rem 1.25rem;
+        border-radius: 10px; padding: 0.7rem 1.25rem 1.25rem;
+      }
+      .demo-bar {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 0.85rem; padding-bottom: 0.6rem;
+        border-bottom: 1px solid var(--border);
       }
       .demo-label {
-        position: absolute; top: 0.6rem; right: 0.75rem;
         font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.1em;
         color: var(--accent-dim); border: 1px solid var(--accent-dim);
         border-radius: 999px; padding: 0.05rem 0.5rem;
       }
+      .demo-refresh {
+        background: transparent; color: var(--muted); border: 1px solid var(--border);
+        border-radius: 5px; padding: 0.12rem 0.55rem; font-size: 0.72rem;
+        cursor: pointer; font-family: inherit;
+      }
+      .demo-refresh:hover { background: #1c2128; color: var(--accent); border-color: var(--accent-dim); }
+      .demo-refresh:active { transform: translateY(1px); }
 
       .site-footer {
         margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
