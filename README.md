@@ -5,6 +5,12 @@ propagate from every leaf of the view tree to the root. Forgetting to provide
 a service `Layer` becomes a **compile-time error that names the missing
 service**.
 
+> **Why "verrex"?** Every component is an `Effect<View, E, R>`, and the whole
+> point is keeping those three channels alive from leaf to root — so the name
+> spells them: **V**iew · **E**rror · **R**equirements. (`A` is pinned to `View`
+> here, so it's V/E/R, not A/E/R.) It reads like *vertex* — the nodes of the
+> view tree the channels thread through.
+
 Status: proof-of-concept. Not for production. Architecture, invariants, and
 per-package contracts live in [AGENTS.md](./AGENTS.md) and the per-subsystem
 AGENTS.md tree.
