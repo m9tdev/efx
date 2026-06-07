@@ -74,7 +74,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-      - run: pnpm --filter verrex-demo exec vite build --base=/efx/
+      - run: pnpm --filter verrex-demo exec vite build --base=/verrex/
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: apps/demo/dist

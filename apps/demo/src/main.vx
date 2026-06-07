@@ -11,7 +11,7 @@ import { Http, HttpLive, Theme, ThemeLive } from "./services.ts"
 import { Todos } from "./Todos.vx"
 import { UserPage } from "./UserPage.vx"
 
-const REPO = "https://github.com/m9tdev/efx"
+const REPO = "https://github.com/m9tdev/verrex"
 const SRC = `${REPO}/blob/main/apps/demo/src`
 
 // Each demo is mounted independently (see `setupDemo` below); the refresh

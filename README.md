@@ -9,7 +9,7 @@ Status: proof-of-concept. Not for production. Architecture, invariants, and
 per-package contracts live in [AGENTS.md](./AGENTS.md) and the per-subsystem
 AGENTS.md tree.
 
-**▶ [Live demo](https://m9tdev.github.io/efx/)** — a guided tour through each
+**▶ [Live demo](https://m9tdev.github.io/verrex/)** — a guided tour through each
 primitive: the source on the left, the inferred `Effect<View, E, R>` type, and
 the running component (with a reset button) on the right.
 
@@ -52,7 +52,7 @@ pnpm dev
 The demo is a guided tour that exercises every primitive — reactive counter,
 blocking and `Await`-boundary data fetches, auto-tracking refetch, keyed
 reactive list, and per-component lifecycle — each with a reset button. It's
-also deployed at [m9tdev.github.io/efx](https://m9tdev.github.io/efx/).
+also deployed at [m9tdev.github.io/verrex](https://m9tdev.github.io/verrex/).
 
 On Nix, `nix develop` drops you into a shell with Node, Corepack (for
 `pnpm` via the `packageManager` field), and Chromium (with `VERREX_CHROMIUM`
