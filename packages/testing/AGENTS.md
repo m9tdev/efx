@@ -63,7 +63,7 @@ the component down before you could drive it.
 - Tests run under `environment: "happy-dom"` (`vitest.config.ts`) so
   `document`/`HTMLElement`/`MouseEvent` exist in-process. `happy-dom` is a
   devDependency.
-- Build components in tests with raw `h()` calls — no `.efx` compiler is
+- Build components in tests with raw `h()` calls — no `.vx` compiler is
   needed; an `AtomRef` passed as a child coerces to a reactive node, so
   reactivity is exercisable without the Babel transform.
 

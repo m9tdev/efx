@@ -1,8 +1,8 @@
-# `@efx/ts-plugin` — Volar-based language plugin for `.efx`
+# `@efx/ts-plugin` — Volar-based language plugin for `.vx`
 
 What this delivers in your editor: type errors, hover, completions,
 inlay hints, go-to-definition, find-references, and JSX tag-pair
-highlights, all on the `.efx` source. No virtual file is visible
+highlights, all on the `.vx` source. No virtual file is visible
 to the user.
 
 Built on **Volar** (`@volar/typescript`, `@volar/language-core`,
@@ -23,7 +23,7 @@ for tsserver to `require()`.
 | `src/jsx-tags.ts` | `findJsxTagPair` — takes a `JsxTagProvider` (the in-process seam) and uses its `jsxRanges` from the shared `EfxVirtualCode` to find tag-pair partners for document highlights. The service-proxy builds the provider by resolving the `EfxVirtualCode` from Volar's context. |
 | `src/classify-references.ts` | `classifyRefs` — decorates each ref with `{ isDef, isImport }` in one pass, with a per-call file-content cache so each source file is read at most once. Plus `refKey` (the `${fileName}:${textSpan.start}` identity), `dedupeRefs` (drop same-key hits, first-seen order), and `sortClassifiedRefs` (def→usages→imports ordering on the precomputed booleans). The two reference handlers compose these instead of inlining the key/sort logic. |
 | `src/hint-text.ts` | `hintText(hint)` — reads an inlay hint's label across the shapes different TS versions use (`hint.text` string, `hint.text` parts, `hint.displayParts`), returning the first non-empty. Plus `SUPPRESS_RE`, the `_tag`/`_props`/`_children` regex. Pure + unit-tested so the filter doesn't need a tsserver. |
-| `src/service-proxy.ts` | `pluginFactory` — instantiates the shared LanguagePlugin via `createEfxLanguagePlugin<string>(identity)`, builds Volar's `createLanguageServicePlugin` (capturing the session `Language` through its `setup(language)` hook), then wraps the resulting `LanguageService` in a Proxy with a few method overrides (filter `@efx/runtime`'s `h.ts` from definition results, JSX tag-pair document highlights, `_tag`/`_props`/`_children` inlay-hint filter, reference dedup + sort). Resolves the per-`.efx` `EfxVirtualCode` from `language.scripts` when it needs `jsxRanges` or `source`. |
+| `src/service-proxy.ts` | `pluginFactory` — instantiates the shared LanguagePlugin via `createEfxLanguagePlugin<string>(identity)`, builds Volar's `createLanguageServicePlugin` (capturing the session `Language` through its `setup(language)` hook), then wraps the resulting `LanguageService` in a Proxy with a few method overrides (filter `@efx/runtime`'s `h.ts` from definition results, JSX tag-pair document highlights, `_tag`/`_props`/`_children` inlay-hint filter, reference dedup + sort). Resolves the per-`.vx` `EfxVirtualCode` from `language.scripts` when it needs `jsxRanges` or `source`. |
 | `src/classify-references.test.ts` | Unit tests for `classifyRefs` (injected fake `readFile`, no disk), plus `refKey`/`dedupeRefs`/`sortClassifiedRefs` — pins the dedup key, first-seen order, and the def→usages→imports ordering (incl. usage-tier stability) without a tsserver. |
 | `src/plugin.test.mjs` | Manual smoke test loading the built bundle (`dist/index.cjs`) and asserting plugin shape. Not run by `pnpm test` (vitest config only picks up `*.test.ts`); invoke directly with `node` after building. |
 | `vitest.config.ts` | Picks up `src/**/*.test.ts`. The package's `test` script runs vitest first, then builds and runs the integration harness. |
@@ -38,17 +38,17 @@ live in [`@efx/language`](../language/AGENTS.md) — shared with
 ## How it fits together
 
 ```
-.efx on disk ──┐
+.vx on disk ──┐
                │  Volar's LanguagePlugin (in @efx/language)
-               │    getLanguageId()    — ".efx" → "efx"
+               │    getLanguageId()    — ".vx" → "efx"
                │    createVirtualCode() — transformEfx → compiled TS
                │    + Volar Mappings (from Babel source map)
                ▼
         EfxVirtualCode (Volar VirtualCode)
                │
                ▼  tsserver type-checks the virtual TS, Volar maps
-               │  results back to source .efx coordinates
-        LanguageService results in .efx coords
+               │  results back to source .vx coordinates
+        LanguageService results in .vx coords
                │
                ▼  our Proxy wrapper
                │    filterRuntimeHit()         — drop hits in runtime/h.ts
@@ -76,7 +76,7 @@ picture; the short version is:
   hooks Volar into tsserver's plugin protocol. We pass a
   `setup(language)` callback to that helper; it fires synchronously
   inside `create(info)`, and we stash the session's `Language` so the
-  proxy can resolve compiled `.efx` files from it.
+  proxy can resolve compiled `.vx` files from it.
 - Everything in this package after that point is the *proxy
   wrapper* below — it doesn't touch the language plugin internals,
   only the LanguageService results it produces.
@@ -93,7 +93,7 @@ package's actual responsibility.
 side-channel cache (matches Vue's `VueVirtualCode` pattern). The
 proxy wrapper below doesn't translate offsets itself: Volar's own
 `SourceMap` indexes `mappings` and maps virtual-code coordinates back
-to `.efx` source before results reach us. We resolve the
+to `.vx` source before results reach us. We resolve the
 `EfxVirtualCode` only for `jsxRanges` (via the `JsxTagProvider` handed
 to `jsx-tags.ts`) and `source` (whitespace-at-cursor suppression in
 `getDocumentHighlights`, cross-line span detection in
@@ -107,7 +107,7 @@ methods. Seven of the eight overrides route through a local
 `wrapMethod(name, transform)` helper — it calls the underlying
 LanguageService method eagerly and hands the result plus the
 original args to `transform`. `getDocumentHighlights` is the
-exception: its `.efx` path early-returns (whitespace skip,
+exception: its `.vx` path early-returns (whitespace skip,
 JSX-pair match) before the underlying call would fire, which the
 eager-call shape of `wrapMethod` can't express, so it stays
 hand-rolled.
@@ -119,12 +119,12 @@ hand-rolled.
   itself — go-to-def on `<div>` should NOT land you in `h.ts`).
   The predicate is intentionally loose so a workspace-relative
   path, an absolute path, or a vendored copy all match. Volar
-  has already mapped results back to `.efx` source coordinates
-  via its own `SourceMap`, and TS's resolver finds `.efx` files
+  has already mapped results back to `.vx` source coordinates
+  via its own `SourceMap`, and TS's resolver finds `.vx` files
   directly via `extraFileExtensions` — no path rewriting, no
   offset re-mapping, no header-offset subtraction needed.
 
-- **`getDocumentHighlights`** — `.efx`-only custom path. If the
+- **`getDocumentHighlights`** — `.vx`-only custom path. If the
   cursor is on a JSX tag (anywhere on the brackets or name, but
   not on attributes), `findJsxTagPair` walks the
   `EfxVirtualCode.jsxRanges` resolved from Volar's context and
@@ -134,7 +134,7 @@ hand-rolled.
   (`<>...</>`) return no pair. Falls back to Volar's default
   outside JSX tags.
 
-- **`provideInlayHints`** — `.efx`-only filter. Volar gives us all
+- **`provideInlayHints`** — `.vx`-only filter. Volar gives us all
   hints including the h() parameter labels (`_tag`, `_props`,
   `_children`). We drop any hint whose label matches `SUPPRESS_RE`.
   Label extraction (`hintText`) and the regex live in `hint-text.ts`
@@ -143,7 +143,7 @@ hand-rolled.
   (newer TS) — first-non-empty so an empty `displayParts` can't clobber
   a found label.
 
-- **`getCompletionsAtPosition`** — `.efx`-only span clamp. When the
+- **`getCompletionsAtPosition`** — `.vx`-only span clamp. When the
   user types `count.` mid-edit and triggers completions, Babel's
   `errorRecovery: true` (in `@efx/compiler`) parses
   `count.\n\nreturn yield*` as `count.return` (the next keyword
@@ -179,9 +179,9 @@ hand-rolled.
 
 ## Cross-file resolution
 
-Find-references and go-to-definition cross `.efx` files natively
-because user code writes `import { X } from "./Foo.efx"` (the
-root invariant) — TS's resolver picks up `.efx` via the
+Find-references and go-to-definition cross `.vx` files natively
+because user code writes `import { X } from "./Foo.vx"` (the
+root invariant) — TS's resolver picks up `.vx` via the
 `extraFileExtensions` registered by [`@efx/language`](../language/AGENTS.md),
 the file lands in the program as virtual code, and TS's reference
 index sees usages across files. No sibling `.ts` shim is involved.
@@ -210,7 +210,7 @@ index sees usages across files. No sibling `.ts` shim is involved.
   consumer re-runs the compiler.
 
 - **Volar script-key shape** — we resolve the `EfxVirtualCode` via
-  `language.scripts.get(fileName)`, keyed by the `.efx` file-path
+  `language.scripts.get(fileName)`, keyed by the `.vx` file-path
   string tsserver hands us — the same string `createEfxLanguagePlugin`
   is configured with (`asFileName` is identity here). If that key
   convention changes in `@efx/language`, the lookup here breaks with

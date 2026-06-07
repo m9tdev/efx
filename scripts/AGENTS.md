@@ -16,7 +16,7 @@ re-renders when you click +".
 | `probe-async-userpage.mjs` | Once-form `Await`: the boundary renders a pending placeholder then swaps in the success arm (`.async-user-page .user-body`). Non-blocking counterpart to `probe.mjs`'s in-component UserPage check. |
 | `probe-todos.mjs` | Keyed reactive list: add/remove/toggle a row leaves sibling DOM nodes untouched (tagged-node identity check). |
 | `probe-lifecycle.mjs` | Per-component lifecycle scope, three phases: (1) initial mount-event count, (2) removing a row fires its matching unmount via `Scope.closeUnsafe`, (3) full teardown via `__teardown` cascades through every row scope so every outstanding mount has a matching unmount. |
-| `probe-hmr.mjs` | Vite HMR on a `.efx` edit propagates without a full reload. |
+| `probe-hmr.mjs` | Vite HMR on a `.vx` edit propagates without a full reload. |
 | `probe-prod.mjs` | Production bundle (built via `pnpm build`) is interactive end-to-end on port 8765. |
 
 These are the operational definition of "the framework works in a
@@ -49,7 +49,7 @@ prints `PASS` / `FAIL`, `probe-hmr.mjs` prints `HMR PASS` / `HMR FAIL`
 and `process.exit(0|1)`. The spec decides.
 
 Specs that mutate repo files (e.g. `probe-hmr.mjs` editing
-`Counter.efx`) wrap `runProbe` in their own `try/finally` for cleanup.
+`Counter.vx`) wrap `runProbe` in their own `try/finally` for cleanup.
 The harness's `finally` only closes the browser.
 
 ## Compiler smoke test
@@ -69,7 +69,7 @@ The harness's `finally` only closes the browser.
   `playwright-core`; swap to `playwright` (full) if you prefer a bundled
   browser instead.
 - Probes that read repo files (e.g. `probe-hmr.mjs` mutating
-  `Counter.efx`) resolve paths relative to the script via
+  `Counter.vx`) resolve paths relative to the script via
   `import.meta.url`, so they work from any clone or worktree.
 - Don't promote these to `pnpm test` without first wrapping them in a
   process supervisor that starts/stops the dev server. The probes

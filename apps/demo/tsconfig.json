@@ -3,8 +3,8 @@
   "compilerOptions": {
     "plugins": [{ "name": "@efx/ts-plugin" }]
   },
-  // `.efx` sources go through `@efx/ts-plugin` (editor) or
+  // `.vx` sources go through `@efx/ts-plugin` (editor) or
   // `@efx/check` (CLI); `.ts` files like `channels.test-d.ts` go
   // through the standard tsc path. Both must be included.
-  "include": ["src/**/*.ts", "src/**/*.efx"]
+  "include": ["src/**/*.ts", "src/**/*.vx"]
 }

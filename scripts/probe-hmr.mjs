@@ -1,4 +1,4 @@
-// HMR probe: open the demo, edit Counter.efx in place, confirm the change
+// HMR probe: open the demo, edit Counter.vx in place, confirm the change
 // appears in the browser without manual reload.
 import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
@@ -7,7 +7,7 @@ import { runProbe } from "./probe-harness.mjs"
 
 const COUNTER_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  "../apps/demo/src/Counter.efx",
+  "../apps/demo/src/Counter.vx",
 )
 
 const original = readFileSync(COUNTER_PATH, "utf8")
@@ -22,7 +22,7 @@ try {
       const initialText = await page.locator(".counter .count").innerText()
       console.log("initial text:", JSON.stringify(initialText))
 
-      // Mutate the .efx file: change "clicks" to "CLICKED"
+      // Mutate the .vx file: change "clicks" to "CLICKED"
       writeFileSync(COUNTER_PATH, original.replace("clicks:", "CLICKED:"), "utf8")
 
       // Wait for Vite HMR to propagate

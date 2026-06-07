@@ -1,15 +1,15 @@
 import { Cause, Effect, Exit, Fiber, Layer, Scope } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
 import { EfxLive, mount, type View } from "@efx/runtime"
-import { Counter } from "./Counter.efx"
-import { AsyncUserPage } from "./AsyncUserPage.efx"
+import { Counter } from "./Counter.vx"
+import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { flashOnUpdate } from "./flash.ts"
 import { highlight } from "./highlight.ts"
-import { Lifecycle } from "./Lifecycle.efx"
-import { LiveUser } from "./LiveUser.efx"
+import { Lifecycle } from "./Lifecycle.vx"
+import { LiveUser } from "./LiveUser.vx"
 import { Http, HttpLive, Theme, ThemeLive } from "./services.ts"
-import { Todos } from "./Todos.efx"
-import { UserPage } from "./UserPage.efx"
+import { Todos } from "./Todos.vx"
+import { UserPage } from "./UserPage.vx"
 
 const REPO = "https://github.com/m9tdev/efx"
 const SRC = `${REPO}/blob/main/apps/demo/src`
@@ -89,7 +89,7 @@ const App = (
           component to <code>JSX.Element</code> — fatal for a framework whose
           point is that <code>E</code>/<code>R</code> survive composition. So
           efx never lets <code>tsc</code> see JSX: source files use a{" "}
-          <code>.efx</code> extension, and <code>@efx/compiler</code> rewrites
+          <code>.vx</code> extension, and <code>@efx/compiler</code> rewrites
           every <code>{"<tag/>"}</code> into an <code>h(tag, props, …children)</code>{" "}
           call <em>before</em> tsc parses the file. <code>h()</code>'s
           conditional-type signature then unions every child's <code>E</code>{" "}
@@ -127,7 +127,7 @@ const App = (
     </div>
   )
 })`,
-        file: "Counter.efx",
+        file: "Counter.vx",
       })}
       {demoSlot("counter")}
     </section>
@@ -152,7 +152,7 @@ const App = (
     </article>
   )
 })`,
-        file: "UserPage.efx",
+        file: "UserPage.vx",
       })}
       {demoSlot("userpage")}
     </section>
@@ -175,7 +175,7 @@ const App = (
     onSuccess: user => <h1>{user.name}</h1>,
   })
 })`,
-        file: "AsyncUserPage.efx",
+        file: "AsyncUserPage.vx",
       })}
       {demoSlot("async")}
     </section>
@@ -204,7 +204,7 @@ const App = (
   )
 })
 // the thunk reads userId.value → refetch when it changes`,
-        file: "LiveUser.efx",
+        file: "LiveUser.vx",
       })}
       {demoSlot("live")}
     </section>
@@ -230,7 +230,7 @@ const App = (
   )
 })
 // → keyed View.List; mount reconciles rows by ref identity`,
-        file: "Todos.efx",
+        file: "Todos.vx",
       })}
       {demoSlot("todos")}
     </section>
@@ -256,7 +256,7 @@ const App = (
 // in a parent component — the map compiles to list(), which gives
 // each Row its own Scope, so the parent's own R stays never:
 <ul>{items.value.map(item => <Row item={item} />)}</ul>`,
-        file: "Lifecycle.efx",
+        file: "Lifecycle.vx",
       })}
       {demoSlot("lifecycle")}
     </section>

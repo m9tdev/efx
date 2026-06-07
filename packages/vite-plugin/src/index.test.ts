@@ -17,7 +17,7 @@ describe("efx() transform", () => {
   it("rewrites JSX to h() calls and emits plain JavaScript", async () => {
     const out = await runTransform(`
       const v = <div class="x">{1}</div>
-    `, "/abs/Test.efx")
+    `, "/abs/Test.vx")
     expect(out).not.toBeNull()
     expect(out!.code).toContain('h("div"')
     expect(out!.code).not.toContain("<div") // JSX is gone
@@ -30,20 +30,20 @@ describe("efx() transform", () => {
       const n: number = 1
       const v = <div>{n}</div>
     `,
-      "/abs/Typed.efx",
+      "/abs/Typed.vx",
     )
     expect(out!.code).not.toContain(": number")
   })
 
-  it("returns a source map whose sources point at the original .efx", async () => {
+  it("returns a source map whose sources point at the original .vx", async () => {
     const out = await runTransform(`
       const v = <div>{1}</div>
-    `, "/abs/Counter.efx")
+    `, "/abs/Counter.vx")
     expect(out!.map).toBeTruthy()
-    expect(JSON.stringify(out!.map!.sources)).toContain("Counter.efx")
+    expect(JSON.stringify(out!.map!.sources)).toContain("Counter.vx")
   })
 
-  it("ignores non-.efx ids", async () => {
+  it("ignores non-.vx ids", async () => {
     const out = await runTransform(`
       const x = 1
     `, "/abs/plain.ts")
@@ -55,7 +55,7 @@ describe("efx() transform", () => {
     await expect(
       runTransform(`
         const v = <div>{
-      `, "/abs/Broken.efx"),
+      `, "/abs/Broken.vx"),
     ).rejects.toBeTruthy()
   })
 })

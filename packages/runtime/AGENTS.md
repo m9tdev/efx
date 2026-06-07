@@ -291,7 +291,7 @@ releases; on full teardown, the parent-fork cascade closes any
 remaining rows automatically — leak-safe by construction. The
 `Effect.runFork(closeExit)` shape is intentional: row releases can
 be async, and fire-and-forget matches the surrounding DOM
-synchronicity. Lifecycle.efx exercises this mechanism, and
+synchronicity. Lifecycle.vx exercises this mechanism, and
 `scripts/probe-lifecycle.mjs` exercises both row-removal and the
 full-teardown cascade.
 

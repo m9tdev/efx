@@ -3,7 +3,7 @@
  *
  * Why hand-rolled instead of Shiki/Prism: efx builds DOM from a View tree and
  * has no `innerHTML` seam, so a highlighter that emits HTML strings doesn't
- * fit. Emitting tokens lets `main.efx` render each as a `<span>` View node —
+ * fit. Emitting tokens lets `main.vx` render each as a `<span>` View node —
  * highlighting becomes just another efx child array, no new dependency, no
  * bundle weight. The snippets are short and curated, so a pragmatic lexer
  * (not a full TS grammar) is plenty.

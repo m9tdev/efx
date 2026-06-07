@@ -1,6 +1,6 @@
-# `@efx/language` — Volar language plugin for `.efx`
+# `@efx/language` — Volar language plugin for `.vx`
 
-The single source of truth describing `.efx` files to Volar:
+The single source of truth describing `.vx` files to Volar:
 how to identify them, how to produce the virtual TypeScript that
 tsc/Volar see, and how to translate offsets between source and
 generated code.
@@ -17,9 +17,9 @@ certainly want to depend on this package rather than copy it.
 
 | File | Purpose |
 |---|---|
-| `src/language-plugin.ts` | `createEfxLanguagePlugin<T>(asFileName)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns each per-`.efx` `EfxVirtualCode` to Volar, which owns and indexes it. Returns `LanguagePlugin<T, EfxVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
+| `src/language-plugin.ts` | `createEfxLanguagePlugin<T>(asFileName)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns each per-`.vx` `EfxVirtualCode` to Volar, which owns and indexes it. Returns `LanguagePlugin<T, EfxVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
 | `src/source-map.ts` | `convertSourceMap` — thin translator from `@efx/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
-| `src/virtual-code.ts` | `EfxVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.efx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`. |
+| `src/virtual-code.ts` | `EfxVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.vx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`. |
 | `src/source-map.test.ts` | Vitest suite pinning `convertSourceMap`'s span-length passthrough and the user/h-call/punctuation profile assignments. |
 | `src/index.ts` | Re-exports. |
 
@@ -27,8 +27,8 @@ certainly want to depend on this package rather than copy it.
 
 Different Volar hosts identify scripts differently:
 
-- tsserver passes string filenames (`"/path/to/Counter.efx"`).
-- `@volar/kit` passes `URI` objects (`URI.file("/path/to/Counter.efx")`).
+- tsserver passes string filenames (`"/path/to/Counter.vx"`).
+- `@volar/kit` passes `URI` objects (`URI.file("/path/to/Counter.vx")`).
 
 `createEfxLanguagePlugin<T>(asFileName: (id: T) => string)`
 lets each consumer collapse its native id type to a file-path string at
@@ -37,7 +37,7 @@ Internally the plugin always works in path strings:
 
 - `transformEfx` is called with file path (it's used as the source
   map filename).
-- `getLanguageId` decides language by `.efx` suffix on the path.
+- `getLanguageId` decides language by `.vx` suffix on the path.
 
 This means consumers can write:
 
@@ -61,9 +61,9 @@ Two things matter here, both copied from the Vue/Astro pattern:
 
 - **`isMixedContent: true`** tells tsc this is a host-described file
   format. `parseJsonSourceFileConfigFileContent`'s glob expander
-  only picks up `.efx` files in the `include` glob when this flag is
-  on. With `isMixedContent: false`, tsc silently ignores `.efx`
-  paths during file enumeration — kit checker shows 0 `.efx` files
+  only picks up `.vx` files in the `include` glob when this flag is
+  on. With `isMixedContent: false`, tsc silently ignores `.vx`
+  paths during file enumeration — kit checker shows 0 `.vx` files
   in the project.
 
 - **`scriptKind: Deferred` (7)** signals that the actual script
@@ -86,9 +86,9 @@ tsc that's easy to get wrong silently.
 
 ### `extraFileExtensions` does not bend the module resolver
 
-Registering `.efx` here makes tsc willing to *consume* a file
-named `Foo.efx`. It does NOT make `import "./Foo"` resolve to
-`Foo.efx` — that's why user code carries the explicit `.efx`
+Registering `.vx` here makes tsc willing to *consume* a file
+named `Foo.vx`. It does NOT make `import "./Foo"` resolve to
+`Foo.vx` — that's why user code carries the explicit `.vx`
 extension (see root [AGENTS.md](../../AGENTS.md)). If you ever
 make extensionless imports resolve, it'll be a change to this
 package's plugin shape, not to the convention.
@@ -133,7 +133,7 @@ produces them.
 
 ## Volar owns the `EfxVirtualCode` instance
 
-`createVirtualCode` returns each per-`.efx` `EfxVirtualCode` to
+`createVirtualCode` returns each per-`.vx` `EfxVirtualCode` to
 Volar. Volar holds it and indexes it on the source script —
 reachable at `language.scripts.get(scriptId).generated.root`. There
 is **no side-channel cache** in this package; Volar's own context is
@@ -200,7 +200,7 @@ without arranging for a build step.
 ## Anti-patterns
 
 - Don't change `isMixedContent` back to `false` without also
-  ensuring kit-style consumers still enumerate `.efx` files. They
+  ensuring kit-style consumers still enumerate `.vx` files. They
   won't; you'll get a silent 0-files-checked instead of an error.
 - Don't add a fourth `CodeInformation` profile without studying
   how Vue's docs describe the interactions between
@@ -209,7 +209,7 @@ without arranging for a build step.
   instance, removing `navigation: true` on the h-call profile
   would break go-to-definition through JSX expressions.
 - Don't reintroduce a side-channel cache (a `Map`, a registry, a
-  module-level singleton) for compiled `.efx` files. Volar already
+  module-level singleton) for compiled `.vx` files. Volar already
   owns each `EfxVirtualCode` and indexes it on the source script —
   resolve it through `language.scripts.get(id).generated.root`
   (`instanceof EfxVirtualCode` to narrow) instead of building a

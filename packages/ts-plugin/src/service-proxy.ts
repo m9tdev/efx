@@ -13,7 +13,7 @@ const efxLanguagePlugin = createEfxLanguagePlugin<string>((scriptId) => scriptId
 // hook, which fires synchronously inside `volarModule.create(info)`. We stash
 // it here and immediately read it back into a per-`create` const below, before
 // any language-service method can run — so concurrent projects don't clobber
-// each other. The `Language` is the single source of truth for compiled `.efx`
+// each other. The `Language` is the single source of truth for compiled `.vx`
 // files: we look the `EfxVirtualCode` back up through it instead of keeping a
 // side-channel cache.
 let pendingLanguage: Language<string> | undefined
@@ -33,8 +33,8 @@ const volarPluginFactory = createLanguageServicePlugin((_ts, _info) => ({
  *   - filter out `_tag`/`_props`/`_children` inlay hints
  *   - dedupe references across symbols and sort definition → usages → imports
  *
- * Cross-file go-to-def and find-references work natively now that `.efx`
- * imports use the explicit `.efx` extension (the Vue/Astro convention).
+ * Cross-file go-to-def and find-references work natively now that `.vx`
+ * imports use the explicit `.vx` extension (the Vue/Astro convention).
  * TS's module resolver handles those via `extraFileExtensions`; the
  * earlier sibling-`.ts` redirect is gone.
  */
@@ -51,7 +51,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
       const language = pendingLanguage
       pendingLanguage = undefined
 
-      // Resolve the compiled `.efx` representation from Volar's own context —
+      // Resolve the compiled `.vx` representation from Volar's own context —
       // the same instance Volar indexed in `createVirtualCode`. The
       // `instanceof` narrows away `.ts`/other virtual codes and the
       // not-yet-compiled case. No side-channel cache to fall out of sync.
@@ -66,7 +66,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
 
       // Filter out h.ts definitions (runtime internals) - these appear due to h() calls.
       // Cross-file path/offset rewriting isn't needed anymore: Volar maps virtual-code
-      // results back to source `.efx` coordinates natively.
+      // results back to source `.vx` coordinates natively.
       const filterRuntimeHit = <T extends { fileName: string }>(def: T): T | null => {
         if (def.fileName.includes("/runtime/") && def.fileName.endsWith("/h.ts")) {
           return null
@@ -116,12 +116,12 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
             })
           }
 
-          // getDocumentHighlights stays inline: its `.efx` paths early-return
+          // getDocumentHighlights stays inline: its `.vx` paths early-return
           // before touching the underlying call (whitespace skip, JSX-pair
           // match), which wrapMethod's eager-call shape can't express.
           if (prop === "getDocumentHighlights") {
             return (fileName: string, position: number, filesToSearch: string[]) => {
-              if (!fileName.endsWith(".efx")) {
+              if (!fileName.endsWith(".vx")) {
                 return (value as ts.LanguageService["getDocumentHighlights"]).call(
                   target, fileName, position, filesToSearch
                 )
@@ -155,7 +155,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
 
           if (prop === "getCompletionsAtPosition") {
             return wrapMethod("getCompletionsAtPosition", (result, fileName, position) => {
-              if (!fileName.endsWith(".efx") || !result) return result
+              if (!fileName.endsWith(".vx") || !result) return result
               const source = getEfxVirtualCode(fileName)?.source
               if (!source) return result
               // Babel's errorRecovery turns mid-edit `count.\n...return` into a
@@ -194,7 +194,7 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
 
           if (prop === "provideInlayHints") {
             return wrapMethod("provideInlayHints", (hints, fileName) => {
-              if (!fileName.endsWith(".efx")) return hints
+              if (!fileName.endsWith(".vx")) return hints
               // Drop the h() parameter labels (_tag/_props/_children). Text
               // extraction + the suppression regex live in hint-text.ts so
               // they're unit-testable without a tsserver.

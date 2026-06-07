@@ -2,27 +2,27 @@ import { readFile } from "node:fs/promises"
 import { type Plugin, transformWithOxc } from "vite"
 import { transformEfx } from "@efx/compiler"
 
-const EFX_RE = /\.efx(?:\?[^.]*)?$/
-const EFX_PATH_RE = /\.efx$/
-// Match URL path that ends in .efx (with or without an existing query).
-const EFX_URL_RE = /\.efx(\?.*)?$/
+const EFX_RE = /\.vx(?:\?[^.]*)?$/
+const EFX_PATH_RE = /\.vx$/
+// Match URL path that ends in .vx (with or without an existing query).
+const EFX_URL_RE = /\.vx(\?.*)?$/
 const HAS_IMPORT_RE = /[?&]import(=|&|$)/
 
 /**
- * Vite plugin that handles `.efx` files.
+ * Vite plugin that handles `.vx` files.
  *
- * Pipeline per `.efx` request (the plugin owns the whole transform):
+ * Pipeline per `.vx` request (the plugin owns the whole transform):
  *   1. `@efx/compiler`'s `transformEfx` rewrites JSX → `h()` calls. Output is
- *      plain TypeScript (no JSX nodes left), with a source map back to `.efx`.
+ *      plain TypeScript (no JSX nodes left), with a source map back to `.vx`.
  *   2. Vite's `transformWithOxc` strips the TypeScript types → JavaScript,
  *      chaining the Babel map (passed as `inMap`) so the final map still
- *      points at the original `.efx` source.
+ *      points at the original `.vx` source.
  *
  * We return `moduleType: 'js'` so Rolldown treats the result as plain
- * JavaScript instead of trying to infer a language from the unknown `.efx`
+ * JavaScript instead of trying to infer a language from the unknown `.vx`
  * extension (Vite 8's Rolldown/Oxc pipeline errors with "Failed to detect the
  * lang" otherwise). Owning both steps keeps the plugin bundler-agnostic — it
- * no longer leans on Vite's built-in transformer to finish `.efx` files, which
+ * no longer leans on Vite's built-in transformer to finish `.vx` files, which
  * is what broke across the esbuild → oxc swap.
  *
  * TypeScript's JSX type checker never sees the JSX — it sees only the emitted
@@ -32,9 +32,9 @@ export function efx(): Plugin {
   return {
     name: "vite-plugin-efx",
     enforce: "pre",
-    // Server middleware: every request for a `.efx` URL gets `?import`
+    // Server middleware: every request for a `.vx` URL gets `?import`
     // appended (if not already present) before any of Vite's built-in
-    // middleware runs. This forces `.efx` through the module pipeline
+    // middleware runs. This forces `.vx` through the module pipeline
     // — where our `load`/`transform` hooks fire and Vite sets
     // Content-Type: text/javascript — instead of through the static-
     // asset middleware (which serves an empty Content-Type that real
@@ -73,8 +73,8 @@ export function efx(): Plugin {
         errorRecovery: false,
       })
       // 2. TypeScript → JavaScript. `lang: "ts"` tells Oxc the input is TS
-      //    (it can't infer that from the `.efx` id); `inMap` chains the Babel
-      //    map so the final map still resolves to the original `.efx`.
+      //    (it can't infer that from the `.vx` id); `inMap` chains the Babel
+      //    map so the final map still resolves to the original `.vx`.
       const stripped = await transformWithOxc(
         tsCode,
         id,

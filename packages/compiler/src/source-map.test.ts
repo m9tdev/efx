@@ -11,7 +11,7 @@ import type { CompilerMapping } from "./source-map.ts"
  * contract any Volar-agnostic consumer would depend on.
  */
 
-const compile = (src: string) => transformEfx(src, "test.efx")
+const compile = (src: string) => transformEfx(src, "test.vx")
 
 const findBySourceOffset = (
   mappings: ReadonlyArray<CompilerMapping>,

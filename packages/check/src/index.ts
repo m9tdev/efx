@@ -25,7 +25,7 @@ export interface CheckOptions {
 }
 
 export interface CheckResult {
-  /** Number of root files inspected (including non-`.efx` TS files). */
+  /** Number of root files inspected (including non-`.vx` TS files). */
   filesChecked: number
   /** Total error-severity diagnostics across all files. */
   errors: number

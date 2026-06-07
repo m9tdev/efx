@@ -4,7 +4,7 @@ import { AtomRef } from "effect/unstable/reactivity"
 import { h } from "@efx/runtime"
 import { render } from "./index.ts"
 
-// Components are built with raw `h()` calls (no `.efx` compiler needed in the
+// Components are built with raw `h()` calls (no `.vx` compiler needed in the
 // unit test) — an AtomRef passed as a child coerces to a reactive node.
 
 describe("render() harness", () => {

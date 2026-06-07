@@ -34,7 +34,7 @@ the running component (with a reset button) on the right.
 - **Keyed reactive lists.** `{todos.value.map(item => <Row item={item} />)}`
   is compiled to a keyed list that reconciles by `AtomRef` identity — adding,
   removing, or toggling one item never tears down the others.
-- **Custom file extension.** `.efx` files are compiled by Babel to plain
+- **Custom file extension.** `.vx` files are compiled by Babel to plain
   TypeScript before `tsc` ever sees them, so TypeScript's JSX type checker
   is never engaged — that's how channels survive instead of collapsing to
   `JSX.Element`.
@@ -61,7 +61,7 @@ pre-exported for the probe scripts).
 ## Smallest possible example
 
 ```tsx
-// Counter.efx
+// Counter.vx
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 
@@ -78,10 +78,10 @@ export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
 ```
 
 ```ts
-// main.efx
+// main.vx
 import { Effect, Layer } from "effect"
 import { EfxLive, mount } from "@efx/runtime"
-import { Counter } from "./Counter.efx"
+import { Counter } from "./Counter.vx"
 
 const program = Effect.gen(function* () {
   yield* mount(<Counter />, document.getElementById("root")!)
@@ -99,10 +99,10 @@ Effect.runFork(program)
 ```
 packages/
   runtime/      View IR, h(), mount(), Await(), list(), reactivity bindings
-  compiler/     .efx → plain TypeScript (Babel)
+  compiler/     .vx → plain TypeScript (Babel)
   language/     Volar language plugin (shared by ts-plugin + check)
   ts-plugin/    TypeScript Language Service plugin (editor integration)
-  check/        Standalone CLI type-checker for .efx projects
+  check/        Standalone CLI type-checker for .vx projects
   vite-plugin/  Vite integration
 apps/
   demo/         Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle
@@ -125,8 +125,8 @@ JSX expression is automatically wrapped in a tracking scope.
 
 | Command            | What it does                                                  |
 |--------------------|---------------------------------------------------------------|
-| `pnpm dev`         | Vite dev server with HMR on `.efx` files                      |
-| `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `@efx/check` (.efx-aware) |
+| `pnpm dev`         | Vite dev server with HMR on `.vx` files                      |
+| `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `@efx/check` (.vx-aware) |
 | `pnpm build`       | Production build via Vite (`@efx/vite-plugin` owns the transform) |
 | `pnpm test`        | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `@efx/check` |
 
@@ -149,8 +149,8 @@ and their mock services. Verified interactive after build — Counter increments
 the `Await` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's
 per-row scope fires releases on row removal.
 
-Vite serves `.efx` files directly through `@efx/vite-plugin` at dev time;
-type-checking goes through `@efx/check`, which feeds `.efx` to tsc as virtual
+Vite serves `.vx` files directly through `@efx/vite-plugin` at dev time;
+type-checking goes through `@efx/check`, which feeds `.vx` to tsc as virtual
 TypeScript via the shared Volar language plugin. No sibling `.ts` files are
 emitted to disk.
 
@@ -159,19 +159,19 @@ emitted to disk.
 A TypeScript Language Service Plugin (`@efx/ts-plugin`) ships with the
 workspace and is wired into `apps/demo/tsconfig.json`'s `plugins` array.
 The plugin uses Volar's language plugin framework to provide full IDE
-support for `.efx` files.
+support for `.vx` files.
 
 **What works:** Diagnostics, hover, go-to-definition, find-references,
 inlay hints, and document highlights (including JSX tag pair matching).
 
-On GitHub, `.efx` files render with TSX syntax highlighting (via a
+On GitHub, `.vx` files render with TSX syntax highlighting (via a
 `linguist-language=TSX` override in `.gitattributes`).
 
 ### Neovim
 
 ```vim
-" Treat .efx as TSX so your LSP attaches and treesitter highlights it
-autocmd BufRead,BufNewFile *.efx setfiletype typescriptreact
+" Treat .vx as TSX so your LSP attaches and treesitter highlights it
+autocmd BufRead,BufNewFile *.vx setfiletype typescriptreact
 ```
 
 That plus `tsserver` already configured for `typescriptreact` is enough.
@@ -183,7 +183,7 @@ repo root or `pnpm --filter @efx/ts-plugin build` directly.
 
 `@efx/ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
 "TypeScript: Select TypeScript Version → Use Workspace Version" to make
-sure VS Code's TS extension picks up the plugin. `.efx` files get treated
+sure VS Code's TS extension picks up the plugin. `.vx` files get treated
 as TypeScript once the plugin loads.
 
 ## See also

@@ -7,11 +7,11 @@
 import type { Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
 import { h, type View } from "@efx/runtime"
-import { AsyncUserPage } from "./AsyncUserPage.efx"
-import { Counter } from "./Counter.efx"
-import { LiveUser } from "./LiveUser.efx"
+import { AsyncUserPage } from "./AsyncUserPage.vx"
+import { Counter } from "./Counter.vx"
+import { LiveUser } from "./LiveUser.vx"
 import { HttpError, Http, Theme } from "./services.ts"
-import { UserPage } from "./UserPage.efx"
+import { UserPage } from "./UserPage.vx"
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
 declare function assertEquals<A, B extends Equals<A, B> extends true ? unknown : never>(): void

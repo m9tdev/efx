@@ -70,7 +70,7 @@ interface AwaitArms<A, E> {
  * ```
  *
  * A thunk that reads no refs simply runs once. (The compiler rewrites `.value`
- * to `h.read`, which records the dep — so in `.efx` you just write
+ * to `h.read`, which records the dep — so in `.vx` you just write
  * `userId.value` inside the thunk.)
  *
  * The thunk may be written inline OR extracted to a binding — the compiler

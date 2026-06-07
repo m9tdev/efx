@@ -4,7 +4,7 @@ import { Http } from "./services.ts"
 
 /**
  * The `Await` boundary, once form — the non-blocking counterpart to
- * `UserPage.efx`.
+ * `UserPage.vx`.
  *
  * `UserPage` fetches in-component (`yield* http.getUser`), so the whole subtree
  * blocks until the request resolves and a failure folds `E = HttpError` to the

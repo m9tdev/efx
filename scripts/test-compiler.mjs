@@ -21,7 +21,7 @@ export const Demo = (name: string) => Effect.gen(function*() {
 })
 `
 
-const { code, map } = transformEfx(src, "demo.efx")
+const { code, map } = transformEfx(src, "demo.vx")
 console.log("=== output ===")
 console.log(code)
 console.log("=== map keys ===")

@@ -4,7 +4,7 @@ import { transformEfx } from "./transform.ts"
 /** Convenience: just the emitted code, with whitespace normalized so tests
  *  don't break on formatting tweaks from @babel/generator. */
 const compile = (src: string): string =>
-  transformEfx(src, "test.efx").code.replace(/\s+/g, " ").trim()
+  transformEfx(src, "test.vx").code.replace(/\s+/g, " ").trim()
 
 describe("JSX → h() rewrites", () => {
   it("intrinsic element with text child", () => {
@@ -543,7 +543,7 @@ describe("runtime auto-imports", () => {
 })
 
 describe("jsxRanges output", () => {
-  const ranges = (src: string) => transformEfx(src, "test.efx").jsxRanges
+  const ranges = (src: string) => transformEfx(src, "test.vx").jsxRanges
 
   const firstElement = (src: string) => {
     const rs = ranges(src)
@@ -669,7 +669,7 @@ describe("parse-error tolerance (mid-edit source)", () => {
   // case works.
   it("does not throw on `obj.` followed by a keyword", () => {
     const src = `function* f() { const x = { a: 1 }; x.\n\nreturn yield* g() }`
-    expect(() => transformEfx(src, "test.efx")).not.toThrow()
+    expect(() => transformEfx(src, "test.vx")).not.toThrow()
   })
 
   it("emits a recognizable member access for `obj.` recovery", () => {
@@ -687,12 +687,12 @@ describe("parse-error tolerance (mid-edit source)", () => {
   // instead of the compiler silently recovering and shipping a broken module.
   it("throws on genuinely broken source when errorRecovery is false", () => {
     const src = `function* f() { const x = { a: 1 }; x.\n\nreturn yield* g() }`
-    expect(() => transformEfx(src, "test.efx", { errorRecovery: false })).toThrow()
+    expect(() => transformEfx(src, "test.vx", { errorRecovery: false })).toThrow()
   })
 
   it("still recovers by default (editor path) for the same source", () => {
     const src = `function* f() { const x = { a: 1 }; x.\n\nreturn yield* g() }`
-    expect(() => transformEfx(src, "test.efx")).not.toThrow()
+    expect(() => transformEfx(src, "test.vx")).not.toThrow()
   })
 })
 
@@ -728,7 +728,7 @@ describe("JSX text whitespace (cleanJSXElementLiteralChild parity)", () => {
 
   it("keeps an explicit {\" \"} spacer between text and an element", () => {
     const src = `const x = <p>use a{" "}
-      <code>.efx</code> file</p>`
+      <code>.vx</code> file</p>`
     expect(compile(src)).toContain(`"use a"`)
     expect(compile(src)).toContain(`" "`)
   })

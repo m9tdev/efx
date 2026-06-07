@@ -11,8 +11,8 @@ export default defineConfig({
     allowedHosts: true,
   },
   resolve: {
-    // Prefer .efx over .ts so dev mode resolves source files through our plugin.
-    extensions: [".efx", ".ts", ".tsx", ".mjs", ".js", ".mts", ".cts"],
+    // Prefer .vx over .ts so dev mode resolves source files through our plugin.
+    extensions: [".vx", ".ts", ".tsx", ".mjs", ".js", ".mts", ".cts"],
   },
   build: {
     rollupOptions: {

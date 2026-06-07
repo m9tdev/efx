@@ -17,14 +17,14 @@ fatal.
 
 So this project deliberately **never lets `tsc` see JSX**:
 
-1. Source files use a custom `.efx` extension.
+1. Source files use a custom `.vx` extension.
 2. `@efx/compiler` (Babel-based) rewrites every JSX node into an
    `h(tag, props, ...children)` call **before** tsc sees the file.
 3. `h()`'s generic signature in `@efx/runtime` uses conditional
    types (`FoldE`/`FoldR`) to union every child's `E` and `R` into
    the result `Effect<View, E, R>`.
 
-Everything else — the `.efx` extension, the Babel choice, the
+Everything else — the `.vx` extension, the Babel choice, the
 custom Vite dev server hook, the TS Language Service plugin —
 exists to support this constraint.
 
@@ -53,7 +53,7 @@ We do **not** use:
 - TypeScript's JSX type-checker. It's never engaged because the
   compiler removes the syntax before tsc parses the file.
 
-Post-compile, `Counter.efx` is `h("div", { class: "counter" }, ...)`
+Post-compile, `Counter.vx` is `h("div", { class: "counter" }, ...)`
 calls in a `.ts` file. Plain function calls in plain TypeScript.
 That's the only thing tsc, Vite, your IDE's type-checker, or any
 downstream tool ever sees.
@@ -72,7 +72,7 @@ compiler eats and converts into `h()` calls." Not the React thing.
   transform. Three rewrites: JSX → `h()`, `.value` → `h.read()`,
   `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`. Smart-skip wrap.
 - **[`packages/language/`](./packages/language/AGENTS.md)** — the Volar
-  `LanguagePlugin` describing `.efx` files (file id, virtual code,
+  `LanguagePlugin` describing `.vx` files (file id, virtual code,
   source-map conversion, JSX region tagging). Shared by `ts-plugin`
   and `check`; the only package that bridges `@efx/compiler` to
   Volar's contracts.
@@ -84,12 +84,12 @@ compiler eats and converts into `h()` calls." Not the React thing.
   sibling `.ts` files).
 - **[`packages/check/`](./packages/check/AGENTS.md)** — standalone
   CLI/programmatic type-checker built on `@volar/kit` plus the
-  shared language plugin. Replaces `tsc --noEmit` for `.efx`
+  shared language plugin. Replaces `tsc --noEmit` for `.vx`
   projects without needing a tsserver process.
 - **[`packages/vite-plugin/`](./packages/vite-plugin/AGENTS.md)** — Vite
-  dev integration. Owns the full `.efx` compile (Babel JSX→`h()`, then
+  dev integration. Owns the full `.vx` compile (Babel JSX→`h()`, then
   Oxc type-strip via `transformWithOxc`, returning `moduleType: "js"`),
-  rewrites `.efx` URLs with `?import` so strict-MIME browsers accept the
+  rewrites `.vx` URLs with `?import` so strict-MIME browsers accept the
   response.
 - **[`packages/testing/`](./packages/testing/AGENTS.md)** — in-process
   component test harness. `render(app, layer?)` mounts a component into a
@@ -124,13 +124,13 @@ compiler eats and converts into `h()` calls." Not the React thing.
   `Collection`). If you find yourself building a new wrapper
   alongside Effect, you're probably on the wrong side of this
   line.
-- **`.efx` files never reach `tsc` directly.** A plugin always
+- **`.vx` files never reach `tsc` directly.** A plugin always
   intercepts: `@efx/language` (consumed by the TS plugin and by
   `@efx/check`) hands tsc a JSX-free virtual TS buffer, and
   `@efx/vite-plugin` does the same for Vite. Source files keep
   their angle brackets; only the compiled buffer is JSX-free.
-- **Imports of `.efx` files use the explicit `.efx` extension.**
-  `import { X } from "./Foo.efx"` — not `"./Foo"`. TS's resolver
+- **Imports of `.vx` files use the explicit `.vx` extension.**
+  `import { X } from "./Foo.vx"` — not `"./Foo"`. TS's resolver
   only tries `extraFileExtensions` against import paths that
   already carry the matching suffix. Same convention as Vue
   (`.vue` in imports) and Astro (`.astro`).
@@ -162,7 +162,7 @@ compiler eats and converts into `h()` calls." Not the React thing.
 - Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.70`).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.
-- Babel as the `.efx` parser (parser + traverse + generate
+- Babel as the `.vx` parser (parser + traverse + generate
   directly, no `@babel/preset-*`).
 - Volar (`@volar/typescript`, `@volar/language-core`,
   `@volar/source-map`) under the TS plugin for editor integration.
@@ -179,7 +179,7 @@ compiler eats and converts into `h()` calls." Not the React thing.
 ```
 pnpm -r test         # compiler tests + ts-plugin integration tests
 pnpm -r typecheck    # fans out: every package runs `tsc --noEmit`,
-                     # apps/demo runs `@efx/check` (the .efx-aware checker)
+                     # apps/demo runs `@efx/check` (the .vx-aware checker)
 pnpm --filter @efx/demo dev   # browser-test interactive features
 ```
 
@@ -212,7 +212,7 @@ The root `CLAUDE.md` is a symlink to `AGENTS.md` — no need to maintain both.
 
 - Don't try to make `.tsx` work as a parallel file extension.
   Channels die through tsc's JSX type-checker — that's the whole
-  reason `.efx` exists.
+  reason `.vx` exists.
 - Don't add a JSX runtime shim (`jsx-runtime`, automatic JSX,
   etc.). Components are `h()` calls; the compiler is the only
   thing that produces them.

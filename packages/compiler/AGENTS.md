@@ -1,6 +1,6 @@
-# `@efx/compiler` — `.efx` → plain TypeScript
+# `@efx/compiler` — `.vx` → plain TypeScript
 
-Single Babel transform. Takes `.efx` source (TypeScript with
+Single Babel transform. Takes `.vx` source (TypeScript with
 angle-bracket `<div>...</div>` syntax — JSX-shape only, no JSX
 semantics; see root [AGENTS.md](../../AGENTS.md)) and emits plain
 TypeScript with every `<...>` expression rewritten as an
@@ -247,7 +247,7 @@ This exists so consumers (today: `@efx/ts-plugin/src/jsx-tags.ts`)
 don't have to re-discover JSX structure by regex-scanning the
 source. The Babel AST already knows these positions; we report
 them. Anti-pattern: anywhere in the workspace running a JSX-shaped
-regex against `.efx` content — consume `jsxRanges` instead.
+regex against `.vx` content — consume `jsxRanges` instead.
 
 `jsxRanges` is ALSO used internally by `computeMappings` to
 classify each source position as `"user"` / `"h-call"` /

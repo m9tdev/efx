@@ -38,7 +38,7 @@ export interface TransformResult {
   readonly mappings: ReadonlyArray<CompilerMapping>
 }
 
-/** Source-side span. All offsets are 0-based byte indices into the original `.efx` source. */
+/** Source-side span. All offsets are 0-based byte indices into the original `.vx` source. */
 export interface TagPosition {
   readonly start: number
   readonly end: number
@@ -534,7 +534,7 @@ const transformJsxNode = (
 }
 
 /**
- * Compile `.efx` source (TypeScript + JSX-shape syntax) into plain
+ * Compile `.vx` source (TypeScript + JSX-shape syntax) into plain
  * TypeScript with every JSX node rewritten as an `h()` call.
  *
  * The output is what `tsc` and Vite see — neither ever encounters JSX.

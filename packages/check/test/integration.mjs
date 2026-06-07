@@ -3,8 +3,8 @@
  * Smoke test for @efx/check.
  *
  *   1. runCheck against a known-good fixture → 0 errors.
- *   2. Add a deliberately-broken .efx → runCheck reports the type error,
- *      with source position pointing at the .efx file.
+ *   2. Add a deliberately-broken .vx → runCheck reports the type error,
+ *      with source position pointing at the .vx file.
  *   3. Remove the broken file → back to 0 errors.
  *
  * No tsserver subprocess; the check tool is invoked in-process.
@@ -16,7 +16,7 @@ import { runCheck } from "../src/index.ts"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const fixtureDir = join(__dirname, "fixture")
-const brokenPath = join(fixtureDir, "Broken.efx")
+const brokenPath = join(fixtureDir, "Broken.vx")
 
 let failures = 0
 const expect = (condition, message) => {
@@ -59,7 +59,7 @@ console.log("1. Known-good fixture should have 0 errors...")
   if (result.errors !== 0) console.error("output was:\n" + output)
 }
 
-console.log("\n2. Inject Broken.efx with a type error → expect >=1 error pointing at Broken.efx...")
+console.log("\n2. Inject Broken.vx with a type error → expect >=1 error pointing at Broken.vx...")
 writeFileSync(
   brokenPath,
   `const x: number = "wrong type"\nexport { x }\n`,
@@ -67,14 +67,14 @@ writeFileSync(
 {
   const { result, output } = await captureStdout(() => runCheck({ cwd: fixtureDir }))
   expect(result.errors >= 1, `expected >=1 errors, got ${result.errors}`)
-  expect(output.includes("Broken.efx"), "diagnostic output should mention Broken.efx")
+  expect(output.includes("Broken.vx"), "diagnostic output should mention Broken.vx")
   expect(output.includes("2322"), "diagnostic output should include TS2322 (not assignable)")
   if (failures > 0 || process.env.EFX_CHECK_TEST_DEBUG) {
     console.log("[captured output]\n" + output)
   }
 }
 
-console.log("\n3. Remove Broken.efx → expect 0 errors again...")
+console.log("\n3. Remove Broken.vx → expect 0 errors again...")
 unlinkSync(brokenPath)
 {
   const { result, output } = await captureStdout(() => runCheck({ cwd: fixtureDir }))

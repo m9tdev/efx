@@ -4,9 +4,9 @@ import type { JsxRange } from "@efx/compiler"
 import type * as ts from "typescript"
 
 /**
- * The compiled representation of a `.efx` file.
+ * The compiled representation of a `.vx` file.
  *
- * One instance per `.efx`, owned by Volar (returned from `createVirtualCode`
+ * One instance per `.vx`, owned by Volar (returned from `createVirtualCode`
  * and indexed at `language.scripts.get(id).generated.root`). Downstream
  * consumers (`@efx/ts-plugin`) read it back from Volar's own context and
  * `instanceof`-narrow to this class — there is no second index. The Volar

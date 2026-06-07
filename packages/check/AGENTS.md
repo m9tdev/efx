@@ -1,6 +1,6 @@
-# `@efx/check` — standalone type-checker for `.efx` projects
+# `@efx/check` — standalone type-checker for `.vx` projects
 
-Replaces `tsc --noEmit` for projects with `.efx` files. Wraps
+Replaces `tsc --noEmit` for projects with `.vx` files. Wraps
 `@volar/kit`'s `createTypeScriptChecker` plus the shared
 `@efx/language` plugin, runs in-process, prints tsc-style
 diagnostics, exits non-zero on errors.
@@ -14,8 +14,8 @@ Used in `apps/demo`'s `typecheck` script. Modeled on Astro's
 |---|---|
 | `src/index.ts` | Programmatic API: `runCheck(options) → CheckResult`. Wires the language plugin + `volar-service-typescript` into a kit `TypeScriptChecker`, iterates root files, prints diagnostics. |
 | `src/cli.ts` | CLI entry. Minimal argv parser (`--tsconfig`, `--root`, `--help`), calls `runCheck`, prints summary, exits 0/1. |
-| `test/integration.mjs` | Smoke test: known-good fixture → 0 errors; inject broken `.efx` → expect TS2322 with `.efx` source position; cleanup → 0 errors again. |
-| `test/fixture/` | Minimal `.efx` project (tsconfig + `Good.efx`) used by the smoke test. Self-contained, no cross-file imports — keep it that way. |
+| `test/integration.mjs` | Smoke test: known-good fixture → 0 errors; inject broken `.vx` → expect TS2322 with `.vx` source position; cleanup → 0 errors again. |
+| `test/fixture/` | Minimal `.vx` project (tsconfig + `Good.vx`) used by the smoke test. Self-contained, no cross-file imports — keep it that way. |
 
 ## Invocation
 
@@ -57,8 +57,8 @@ LSP protocol.
 ## Behavior contract
 
 - **Files included**: whatever the resolved tsconfig's `include`
-  glob produces, expanded with `extraFileExtensions` (`.efx`
-  recognized). For demo: 6 `.efx` + 2 hand-written `.ts`
+  glob produces, expanded with `extraFileExtensions` (`.vx`
+  recognized). For demo: 6 `.vx` + 2 hand-written `.ts`
   (`services.ts`, `channels.test-d.ts`) = 8 files.
 - **Diagnostics printed**: errors only by default (matching the
   bare `tsc --noEmit` flow we replaced). Warnings and hints are
@@ -75,7 +75,7 @@ LSP protocol.
   exercises the fixture, mutates it, then re-runs — see independent
   virtual-code state, not leftovers from the previous invocation.
   This package holds no virtual-code cache of its own: it only
-  *writes* (compiles) `.efx` files through the LanguagePlugin and
+  *writes* (compiles) `.vx` files through the LanguagePlugin and
   never reads them back, so there is nothing here to share or leak.
 
 ## Coupling
@@ -107,11 +107,11 @@ LSP protocol.
   ports cleanly.
 - Don't reintroduce on-disk sibling `.ts` files. The whole point
   of `@efx/check` replacing the old `efx-compile + tsc --noEmit`
-  flow is that no auxiliary on-disk shim is needed — `.efx`
+  flow is that no auxiliary on-disk shim is needed — `.vx`
   enters the program directly through the language plugin's
   virtual code. If you find yourself emitting `.ts` siblings,
   step back; the resolver works via `extraFileExtensions`
-  against explicit `.efx` imports.
+  against explicit `.vx` imports.
 
 ## Tests
 
@@ -129,7 +129,7 @@ cleanly with only the workspace `node_modules` resolution path.
 
 ## Related context
 
-- Root [`AGENTS.md`](../../AGENTS.md) — why `.efx` files never
+- Root [`AGENTS.md`](../../AGENTS.md) — why `.vx` files never
   reach `tsc` directly.
 - [`@efx/language`](../language/AGENTS.md) — the LanguagePlugin
   this package consumes.

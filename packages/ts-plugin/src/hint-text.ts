@@ -1,7 +1,7 @@
 /**
  * Matches the labels TypeScript emits for `h()`'s parameters — `_tag`,
  * `_props`, `_children` (and the un-prefixed `tag:`/`props:`/`children:`
- * forms). The TS plugin filters these inlay hints out of `.efx` files; see
+ * forms). The TS plugin filters these inlay hints out of `.vx` files; see
  * `service-proxy.ts`. Coupled by name to `@efx/runtime`'s `h` parameter
  * names — documented in both packages' AGENTS.md.
  */

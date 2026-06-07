@@ -21,7 +21,7 @@ export interface TypeScriptConfig {
 }
 
 /**
- * Build a Volar LanguagePlugin describing `.efx` files for a given Volar host.
+ * Build a Volar LanguagePlugin describing `.vx` files for a given Volar host.
  *
  * The factory takes `asFileName` because different Volar hosts identify scripts
  * differently: tsserver passes string paths, `@volar/kit` (used by efx-check)
@@ -41,7 +41,7 @@ export function createEfxLanguagePlugin<T>(
 ): LanguagePlugin<T, EfxVirtualCode> & { typescript: TypeScriptConfig } {
   return {
     getLanguageId(scriptId) {
-      if (asFileName(scriptId).endsWith(".efx")) {
+      if (asFileName(scriptId).endsWith(".vx")) {
         return "efx"
       }
       return undefined
@@ -62,9 +62,9 @@ export function createEfxLanguagePlugin<T>(
     typescript: {
       extraFileExtensions: [
         {
-          extension: "efx",
+          extension: "vx",
           // `isMixedContent: true` + `Deferred` script kind = the Vue/Astro pattern:
-          // tells tsc that .efx is a host-described file format whose actual script
+          // tells tsc that .vx is a host-described file format whose actual script
           // content is supplied by the LanguagePlugin via `getServiceScript`.
           // The `parseJsonSourceFileConfigFileContent` glob expander only matches
           // include-paths against custom extensions when this pair is set this way.
