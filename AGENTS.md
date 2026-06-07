@@ -74,28 +74,28 @@ subpath export per surface (the subdirs self-reference via `verrex/*`). The
 editor plugin is the one separate package, because tsserver resolves Language
 Service plugins only by bare package name.
 
-- **[`src/runtime/`](./packages/verrex/src/runtime/)** — export `verrex`. `h`,
+- **[`src/runtime/`](./packages/verrex/src/runtime/AGENTS.md)** — export `verrex`. `h`,
   `mount`, `Await`, `list`, the View IR (mount switches on it), reactivity
   wiring, channel-fold types. The thing components import from.
-- **[`src/compiler/`](./packages/verrex/src/compiler/)** — export
+- **[`src/compiler/`](./packages/verrex/src/compiler/AGENTS.md)** — export
   `verrex/compiler`. The Babel transform: JSX → `h()`, `.value` → `h.read()`,
   `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`. Smart-skip wrap.
-- **[`src/language/`](./packages/verrex/src/language/)** — export
+- **[`src/language/`](./packages/verrex/src/language/AGENTS.md)** — export
   `verrex/language`. The Volar `LanguagePlugin` describing `.vx` files (file id,
   virtual code, source-map conversion, JSX region tagging). Bridges
   `verrex/compiler` to Volar's contracts; consumed by the ts-plugin and check.
-- **[`src/check/`](./packages/verrex/src/check/)** — export `verrex/check`, bin
+- **[`src/check/`](./packages/verrex/src/check/AGENTS.md)** — export `verrex/check`, bin
   `verrex-check`. Standalone CLI/programmatic type-checker on `@volar/kit` +
   the language plugin. Replaces `tsc --noEmit` for `.vx`.
-- **[`src/vite-plugin/`](./packages/verrex/src/vite-plugin/)** — export
+- **[`src/vite-plugin/`](./packages/verrex/src/vite-plugin/AGENTS.md)** — export
   `verrex/vite`. Owns the full `.vx` compile (Babel JSX→`h()`, then Oxc
   type-strip via `transformWithOxc`, `moduleType: "js"`); rewrites `.vx` URLs
   with `?import` so strict-MIME browsers accept the response.
-- **[`src/testing/`](./packages/verrex/src/testing/)** — export
+- **[`src/testing/`](./packages/verrex/src/testing/AGENTS.md)** — export
   `verrex/testing`. In-process component test harness; `render(app, layer?)`
   mounts into a happy-dom DOM and drives it. The `layer` requirement is
   type-enforced so a missing service is a compile error.
-- **[`packages/ts-plugin/`](./packages/ts-plugin/)** (publishes as
+- **[`packages/ts-plugin/`](./packages/ts-plugin/AGENTS.md)** (publishes as
   `@verrex/ts-plugin`) — the Volar-based TS Language Service plugin (editor
   integration): JSX tag-pair
   highlights, inlay-hint filtering, reference dedup/sort, native cross-file
