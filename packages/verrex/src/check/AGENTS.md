@@ -12,10 +12,10 @@ Used in `apps/demo`'s `typecheck` script. Modeled on Astro's
 
 | File | Purpose |
 |---|---|
-| `src/index.ts` | Programmatic API: `runCheck(options) → CheckResult`. Wires the language plugin + `volar-service-typescript` into a kit `TypeScriptChecker`, iterates root files, prints diagnostics. |
-| `src/cli.ts` | CLI entry. Minimal argv parser (`--tsconfig`, `--root`, `--help`), calls `runCheck`, prints summary, exits 0/1. |
-| `test/integration.mjs` | Smoke test: known-good fixture → 0 errors; inject broken `.vx` → expect TS2322 with `.vx` source position; cleanup → 0 errors again. |
-| `test/fixture/` | Minimal `.vx` project (tsconfig + `Good.vx`) used by the smoke test. Self-contained, no cross-file imports — keep it that way. |
+| `index.ts` | Programmatic API: `runCheck(options) → CheckResult`. Wires the language plugin + `volar-service-typescript` into a kit `TypeScriptChecker`, iterates root files, prints diagnostics. |
+| `cli.ts` | CLI entry. Minimal argv parser (`--tsconfig`, `--root`, `--help`), calls `runCheck`, prints summary, exits 0/1. |
+| `../../test/check/integration.mjs` | Smoke test: known-good fixture → 0 errors; inject broken `.vx` → expect TS2322 with `.vx` source position; cleanup → 0 errors again. |
+| `../../test/check/fixture/` | Minimal `.vx` project (tsconfig + `Good.vx`) used by the smoke test. Self-contained, no cross-file imports — keep it that way. |
 
 ## Invocation
 
@@ -116,10 +116,10 @@ LSP protocol.
 ## Tests
 
 ```
-pnpm --filter verrex/check test
+pnpm --filter verrex test
 ```
 
-Runs `test/integration.mjs` with `--experimental-strip-types`.
+Runs `test/check/integration.mjs` with `--experimental-strip-types`.
 The test is fast (~1 second) — no tsserver subprocess, just an
 in-process `runCheck` call against the fixture directory.
 
