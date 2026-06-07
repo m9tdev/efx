@@ -69,7 +69,7 @@ writeFileSync(
   expect(result.errors >= 1, `expected >=1 errors, got ${result.errors}`)
   expect(output.includes("Broken.vx"), "diagnostic output should mention Broken.vx")
   expect(output.includes("2322"), "diagnostic output should include TS2322 (not assignable)")
-  if (failures > 0 || process.env.EFX_CHECK_TEST_DEBUG) {
+  if (failures > 0 || process.env.VERREX_CHECK_TEST_DEBUG) {
     console.log("[captured output]\n" + output)
   }
 }

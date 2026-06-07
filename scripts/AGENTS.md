@@ -40,7 +40,7 @@ Every probe is split in two:
   `run(page, ctx)` callback. Defaults: `url` is
   `http://localhost:5173/`, `viewport` is `900×1100`, `pageerror`
   logs to stderr. Override any per-spec (e.g. `probe-prod.mjs` sets
-  `url` from `EFX_URL`; `probe.mjs` redirects both `onConsole` and
+  `url` from `VERREX_URL`; `probe.mjs` redirects both `onConsole` and
   `onPageError` into a buffer for `/tmp/verrex-verify/console.log`).
 
 The harness does **not** force an exit-code or terminator convention.
@@ -63,8 +63,8 @@ The harness's `finally` only closes the browser.
 - Probes write screenshots to `/tmp/verrex-verify/` — convenient for
   visual diffing across runs; not committed.
 - Probes use `playwright-core` (devDep at the workspace root), which
-  does not bundle a browser. Set `EFX_CHROMIUM` to your Chromium binary
-  before running, e.g. `EFX_CHROMIUM=/usr/bin/chromium node scripts/probe.mjs`.
+  does not bundle a browser. Set `VERREX_CHROMIUM` to your Chromium binary
+  before running, e.g. `VERREX_CHROMIUM=/usr/bin/chromium node scripts/probe.mjs`.
   Leaving it unset will produce a "browser not found" error from
   `playwright-core`; swap to `playwright` (full) if you prefer a bundled
   browser instead.

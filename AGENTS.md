@@ -166,7 +166,7 @@ Service plugins only by bare package name.
   whatever) plus the Vite plugin.
 - Nix devshell (`flake.nix`) provides Node, Corepack (which resolves
   pnpm via the `packageManager` field), and Chromium with
-  `EFX_CHROMIUM` pre-exported for the probe scripts.
+  `VERREX_CHROMIUM` pre-exported for the probe scripts.
 
 ## How to verify a change end-to-end
 

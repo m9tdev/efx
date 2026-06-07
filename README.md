@@ -55,7 +55,7 @@ reactive list, and per-component lifecycle — each with a reset button. It's
 also deployed at [m9tdev.github.io/efx](https://m9tdev.github.io/efx/).
 
 On Nix, `nix develop` drops you into a shell with Node, Corepack (for
-`pnpm` via the `packageManager` field), and Chromium (with `EFX_CHROMIUM`
+`pnpm` via the `packageManager` field), and Chromium (with `VERREX_CHROMIUM`
 pre-exported for the probe scripts).
 
 ## Smallest possible example

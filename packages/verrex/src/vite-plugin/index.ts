@@ -2,10 +2,10 @@ import { readFile } from "node:fs/promises"
 import { type Plugin, transformWithOxc } from "vite"
 import { transformVerrex } from "verrex/compiler"
 
-const EFX_RE = /\.vx(?:\?[^.]*)?$/
-const EFX_PATH_RE = /\.vx$/
+const VERREX_RE = /\.vx(?:\?[^.]*)?$/
+const VERREX_PATH_RE = /\.vx$/
 // Match URL path that ends in .vx (with or without an existing query).
-const EFX_URL_RE = /\.vx(\?.*)?$/
+const VERREX_URL_RE = /\.vx(\?.*)?$/
 const HAS_IMPORT_RE = /[?&]import(=|&|$)/
 
 /**
@@ -46,7 +46,7 @@ export function verrex(): Plugin {
       server.middlewares.use((req, _res, next) => {
         if (
           req.url &&
-          EFX_URL_RE.test(req.url) &&
+          VERREX_URL_RE.test(req.url) &&
           !HAS_IMPORT_RE.test(req.url)
         ) {
           req.url = req.url.includes("?")
@@ -59,11 +59,11 @@ export function verrex(): Plugin {
     // Explicit `load` hook for completeness — handles the `?import` form.
     async load(id) {
       const path = id.split("?")[0]
-      if (!path || !EFX_PATH_RE.test(path)) return null
+      if (!path || !VERREX_PATH_RE.test(path)) return null
       return await readFile(path, "utf-8")
     },
     async transform(code, id) {
-      if (!EFX_RE.test(id)) return null
+      if (!VERREX_RE.test(id)) return null
       // 1. JSX → h() (still TypeScript). `errorRecovery: false` so a genuine
       //    syntax error throws here — Vite surfaces it as an error overlay in
       //    dev and fails the build in CI, rather than the compiler silently
