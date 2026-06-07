@@ -111,7 +111,7 @@ packages/
     src/check/          export `verrex/check`, bin `verrex-check`
     src/vite-plugin/    export `verrex/vite`  — Vite integration
     src/testing/        export `verrex/testing`
-  verrex-ts-plugin/   publishes as `@verrex/ts-plugin` — TS Language Service plugin (editor)
+  ts-plugin/   publishes as `@verrex/ts-plugin` — TS Language Service plugin (editor)
 apps/
   demo/               Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle
 ```
@@ -184,7 +184,7 @@ autocmd BufRead,BufNewFile *.vx setfiletype typescriptreact
 
 That plus `tsserver` already configured for `typescriptreact` is enough.
 First time opening the workspace you may want to ensure
-`packages/verrex-ts-plugin/dist/index.cjs` exists — run `pnpm install` from the
+`packages/ts-plugin/dist/index.cjs` exists — run `pnpm install` from the
 repo root or `pnpm --filter @verrex/ts-plugin build` directly.
 
 ### VS Code

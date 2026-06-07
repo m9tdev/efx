@@ -95,7 +95,7 @@ Service plugins only by bare package name.
   `verrex/testing`. In-process component test harness; `render(app, layer?)`
   mounts into a happy-dom DOM and drives it. The `layer` requirement is
   type-enforced so a missing service is a compile error.
-- **[`packages/verrex-ts-plugin/`](./packages/verrex-ts-plugin/)** (publishes as
+- **[`packages/ts-plugin/`](./packages/ts-plugin/)** (publishes as
   `@verrex/ts-plugin`) — the Volar-based TS Language Service plugin (editor
   integration): JSX tag-pair
   highlights, inlay-hint filtering, reference dedup/sort, native cross-file

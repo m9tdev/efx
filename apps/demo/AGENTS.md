@@ -30,7 +30,7 @@ nothing in this demo's build pipeline emits sibling `.ts` files:
 directly, `vite build` runs
 [`verrex/vite`](../../packages/verrex/src/vite-plugin/)
 directly, and the editor's
-[TS plugin](../../packages/verrex-ts-plugin/) maps virtual-code
+[TS plugin](../../packages/ts-plugin/) maps virtual-code
 results back to source `.vx` positions natively. (An earlier
 demo build script ran an `verrex-compile` CLI that emitted sibling
 `.ts` files for tsc to pick up — `verrex/compiler` itself was, and
