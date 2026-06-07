@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // tsserver loads plugins via `require()`, so emit/bundle is CJS
+    // (the build is esbuild → dist/index.cjs; this only drives typecheck).
+    // `module: Preserve` permits the `export =` in index.ts while keeping
+    // the base's `moduleResolution: Bundler` — whose lenient CJS/ESM interop
+    // type-checks verrex/compiler's `@babel/*` default imports correctly.
+    // It replaces the deprecated `Node10` resolver that TypeScript 6.0
+    // rejects (TS5107) and 7.0 removes; NodeNext's stricter interop would
+    // break those babel imports.
+    "module": "Preserve"
+  },
+  "include": ["src/**/*.ts"]
+}

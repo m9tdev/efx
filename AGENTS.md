@@ -1,4 +1,4 @@
-# efx — Effect-native UI framework
+# verrex — Effect-native UI framework
 
 **Purpose:** a TypeScript UI framework where Effect's `<A, E, R>`
 channels propagate from every leaf of the view tree to the root.
@@ -18,9 +18,9 @@ fatal.
 So this project deliberately **never lets `tsc` see JSX**:
 
 1. Source files use a custom `.vx` extension.
-2. `@efx/compiler` (Babel-based) rewrites every JSX node into an
+2. `verrex/compiler` (Babel-based) rewrites every JSX node into an
    `h(tag, props, ...children)` call **before** tsc sees the file.
-3. `h()`'s generic signature in `@efx/runtime` uses conditional
+3. `h()`'s generic signature in `verrex` uses conditional
    types (`FoldE`/`FoldR`) to union every child's `E` and `R` into
    the result `Effect<View, E, R>`.
 
@@ -74,7 +74,7 @@ compiler eats and converts into `h()` calls." Not the React thing.
 - **[`packages/language/`](./packages/language/AGENTS.md)** — the Volar
   `LanguagePlugin` describing `.vx` files (file id, virtual code,
   source-map conversion, JSX region tagging). Shared by `ts-plugin`
-  and `check`; the only package that bridges `@efx/compiler` to
+  and `check`; the only package that bridges `verrex/compiler` to
   Volar's contracts.
 - **[`packages/ts-plugin/`](./packages/ts-plugin/AGENTS.md)** — Volar-
   based TypeScript Language Service plugin. Wraps the shared
@@ -112,7 +112,7 @@ compiler eats and converts into `h()` calls." Not the React thing.
   own signal/atom primitive. If you reach for one, stop and use
   the Effect one.
 - **API surface stays minimal.** Don't expose helpers that wrap
-  what Effect already provides (no `efxMap`, `efxIf`, etc.).
+  what Effect already provides (no `verrexMap`, `verrexIf`, etc.).
   Users compose with native Effect combinators. Concretely, what
   we **build** is small: the View IR, `h()` + the fold types,
   `mount`, the Babel transform, the Volar language plugin, the
@@ -125,9 +125,9 @@ compiler eats and converts into `h()` calls." Not the React thing.
   alongside Effect, you're probably on the wrong side of this
   line.
 - **`.vx` files never reach `tsc` directly.** A plugin always
-  intercepts: `@efx/language` (consumed by the TS plugin and by
-  `@efx/check`) hands tsc a JSX-free virtual TS buffer, and
-  `@efx/vite-plugin` does the same for Vite. Source files keep
+  intercepts: `verrex/language` (consumed by the TS plugin and by
+  `verrex/check`) hands tsc a JSX-free virtual TS buffer, and
+  `verrex/vite` does the same for Vite. Source files keep
   their angle brackets; only the compiled buffer is JSX-free.
 - **Imports of `.vx` files use the explicit `.vx` extension.**
   `import { X } from "./Foo.vx"` — not `"./Foo"`. TS's resolver
@@ -149,7 +149,7 @@ compiler eats and converts into `h()` calls." Not the React thing.
     `effect/unstable/reactivity` (AtomRef, Atom, Collection).
     Search here first for reactivity patterns.
   - `volar/`, `vue-language-tools/` — Volar Language Service plugin
-    architecture, reference for `@efx/ts-plugin`.
+    architecture, reference for `verrex-ts-plugin`.
   - `vite-plugin-svelte/` — mature Vite integration patterns.
   - `solid/` — fine-grained reactivity patterns.
   
@@ -158,7 +158,7 @@ compiler eats and converts into `h()` calls." Not the React thing.
 
 ## Tooling at a glance
 
-- pnpm workspace, 7 packages (4 publishable + `@efx/testing` + demo + workspace root).
+- pnpm workspace, 7 packages (4 publishable + `verrex/testing` + demo + workspace root).
 - Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.70`).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.
@@ -179,8 +179,8 @@ compiler eats and converts into `h()` calls." Not the React thing.
 ```
 pnpm -r test         # compiler tests + ts-plugin integration tests
 pnpm -r typecheck    # fans out: every package runs `tsc --noEmit`,
-                     # apps/demo runs `@efx/check` (the .vx-aware checker)
-pnpm --filter @efx/demo dev   # browser-test interactive features
+                     # apps/demo runs `verrex/check` (the .vx-aware checker)
+pnpm --filter verrex-demo dev   # browser-test interactive features
 ```
 
 UI changes especially require the dev server pass — type checks

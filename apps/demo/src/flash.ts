@@ -1,5 +1,5 @@
 /**
- * Visualize fine-grained reactivity: when efx re-renders a node, briefly flash
+ * Visualize fine-grained reactivity: when verrex re-renders a node, briefly flash
  * exactly that node — matching what Chrome DevTools' Elements panel highlights
  * on a DOM change.
  *
@@ -11,7 +11,7 @@
  * its box and paint a transient overlay rectangle over it.
  *
  * This is pure demo sugar, framework-agnostic: a `MutationObserver` on the app
- * root catches the same DOM ops efx performs (a `Reactive` node swap is a
+ * root catches the same DOM ops verrex performs (a `Reactive` node swap is a
  * childList change; a reactive `class` binding is an attribute change; a list
  * insert/remove adds/removes an element). Overlays are appended to `<body>`,
  * outside the observed root, so they never feed back into the observer.
@@ -52,7 +52,7 @@ const paint = (rect: DOMRect): void => {
     "position:absolute;pointer-events:none;z-index:9999;border-radius:3px;" +
     `left:${rect.left + window.scrollX - pad}px;top:${rect.top + window.scrollY - pad}px;` +
     `width:${rect.width + pad * 2}px;height:${rect.height + pad * 2}px;` +
-    `animation:efx-flash-overlay ${DURATION}ms ease-out forwards;`
+    `animation:verrex-flash-overlay ${DURATION}ms ease-out forwards;`
   document.body.appendChild(o)
   o.addEventListener("animationend", () => o.remove(), { once: true })
 }

@@ -1,6 +1,6 @@
 import { Cause, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { Await } from "@efx/runtime"
+import { Await } from "verrex"
 import { Http } from "./services.ts"
 
 /**

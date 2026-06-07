@@ -11,7 +11,7 @@ re-renders when you click +".
 
 | Script | What it verifies |
 |---|---|
-| `probe.mjs` | Counter increments; UserPage's async fetch resolves; screenshots saved to `/tmp/efx-verify/`. |
+| `probe.mjs` | Counter increments; UserPage's async fetch resolves; screenshots saved to `/tmp/verrex-verify/`. |
 | `probe-liveuser.mjs` | Keyed `Await`: clicking the LiveUser buttons changes the trigger `AtomRef`, refetching through Initial → Success → Failure → recovery. |
 | `probe-async-userpage.mjs` | Once-form `Await`: the boundary renders a pending placeholder then swaps in the success arm (`.async-user-page .user-body`). Non-blocking counterpart to `probe.mjs`'s in-component UserPage check. |
 | `probe-todos.mjs` | Keyed reactive list: add/remove/toggle a row leaves sibling DOM nodes untouched (tagged-node identity check). |
@@ -41,7 +41,7 @@ Every probe is split in two:
   `http://localhost:5173/`, `viewport` is `900×1100`, `pageerror`
   logs to stderr. Override any per-spec (e.g. `probe-prod.mjs` sets
   `url` from `EFX_URL`; `probe.mjs` redirects both `onConsole` and
-  `onPageError` into a buffer for `/tmp/efx-verify/console.log`).
+  `onPageError` into a buffer for `/tmp/verrex-verify/console.log`).
 
 The harness does **not** force an exit-code or terminator convention.
 Some specs end with `console.log("DONE")`, `probe-lifecycle.mjs`
@@ -56,11 +56,11 @@ The harness's `finally` only closes the browser.
 
 | Script | What it does |
 |---|---|
-| `test-compiler.mjs` | Runs `transformEfx` against an inline source string and prints the compiled output. Useful for "what does the compiler do with X" exploration without writing a vitest case. Not a substitute for `packages/compiler/src/transform.test.ts`. |
+| `test-compiler.mjs` | Runs `transformVerrex` against an inline source string and prints the compiled output. Useful for "what does the compiler do with X" exploration without writing a vitest case. Not a substitute for `packages/compiler/src/transform.test.ts`. |
 
 ## Conventions
 
-- Probes write screenshots to `/tmp/efx-verify/` — convenient for
+- Probes write screenshots to `/tmp/verrex-verify/` — convenient for
   visual diffing across runs; not committed.
 - Probes use `playwright-core` (devDep at the workspace root), which
   does not bundle a browser. Set `EFX_CHROMIUM` to your Chromium binary
@@ -82,4 +82,4 @@ The harness's `finally` only closes the browser.
   HMR, per-row Scope teardown, async state cycles, production-bundle
   smoke. Reactivity *logic* belongs in `packages/runtime`'s test
   suite.
-- Don't `git add` `/tmp/efx-verify/` screenshots. They're throwaway.
+- Don't `git add` `/tmp/verrex-verify/` screenshots. They're throwaway.

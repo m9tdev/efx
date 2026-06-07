@@ -1,4 +1,4 @@
-# efx
+# verrex
 
 An experimental TypeScript UI framework where Effect's `<A, E, R>` channels
 propagate from every leaf of the view tree to the root. Forgetting to provide
@@ -42,8 +42,8 @@ the running component (with a reset button) on the right.
 ## Quick start
 
 ```bash
-git clone … efx
-cd efx
+git clone … verrex
+cd verrex
 pnpm install
 pnpm dev
 # open http://localhost:5173
@@ -80,7 +80,7 @@ export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
 ```ts
 // main.vx
 import { Effect, Layer } from "effect"
-import { EfxLive, mount } from "@efx/runtime"
+import { VerrexLive, mount } from "verrex"
 import { Counter } from "./Counter.vx"
 
 const program = Effect.gen(function* () {
@@ -88,7 +88,7 @@ const program = Effect.gen(function* () {
   yield* Effect.never
 }).pipe(
   Effect.scoped,
-  Effect.provide(EfxLive),
+  Effect.provide(VerrexLive),
 )
 
 Effect.runFork(program)
@@ -112,7 +112,7 @@ apps/
 
 | You import from      | What you get                                                                              |
 |----------------------|-------------------------------------------------------------------------------------------|
-| `@efx/runtime`      | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `EfxLive`                             |
+| `verrex`      | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `VerrexLive`                             |
 | `effect`             | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …  |
 | `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                  |
 
@@ -126,9 +126,9 @@ JSX expression is automatically wrapped in a tracking scope.
 | Command            | What it does                                                  |
 |--------------------|---------------------------------------------------------------|
 | `pnpm dev`         | Vite dev server with HMR on `.vx` files                      |
-| `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `@efx/check` (.vx-aware) |
-| `pnpm build`       | Production build via Vite (`@efx/vite-plugin` owns the transform) |
-| `pnpm test`        | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `@efx/check` |
+| `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `verrex/check` (.vx-aware) |
+| `pnpm build`       | Production build via Vite (`verrex/vite` owns the transform) |
+| `pnpm test`        | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `verrex/check` |
 
 ## Bundle size
 
@@ -141,7 +141,7 @@ JSX expression is automatically wrapped in a tracking scope.
 
 The JS bundle contains: `effect@4.0.0-beta.71` runtime (~6 kB gzipped per
 upstream docs), `effect/unstable/reactivity` (`AtomRef`, `Atom`,
-`AtomRegistry`, `AsyncResult`), the `@efx/runtime` runtime (~600 LOC,
+`AtomRegistry`, `AsyncResult`), the `verrex` runtime (~600 LOC,
 contributes single-digit kB), plus all six demo components (`Counter`,
 `UserPage`, `AsyncUserPage`, `LiveUser`, `Todos`, `Lifecycle`), the guided-tour
 shell (a small dependency-free TSX highlighter + reactivity-flash visualizer),
@@ -149,14 +149,14 @@ and their mock services. Verified interactive after build — Counter increments
 the `Await` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's
 per-row scope fires releases on row removal.
 
-Vite serves `.vx` files directly through `@efx/vite-plugin` at dev time;
-type-checking goes through `@efx/check`, which feeds `.vx` to tsc as virtual
+Vite serves `.vx` files directly through `verrex/vite` at dev time;
+type-checking goes through `verrex/check`, which feeds `.vx` to tsc as virtual
 TypeScript via the shared Volar language plugin. No sibling `.ts` files are
 emitted to disk.
 
 ## Editor setup
 
-A TypeScript Language Service Plugin (`@efx/ts-plugin`) ships with the
+A TypeScript Language Service Plugin (`verrex-ts-plugin`) ships with the
 workspace and is wired into `apps/demo/tsconfig.json`'s `plugins` array.
 The plugin uses Volar's language plugin framework to provide full IDE
 support for `.vx` files.
@@ -177,11 +177,11 @@ autocmd BufRead,BufNewFile *.vx setfiletype typescriptreact
 That plus `tsserver` already configured for `typescriptreact` is enough.
 First time opening the workspace you may want to ensure
 `packages/ts-plugin/dist/index.cjs` exists — run `pnpm install` from the
-repo root or `pnpm --filter @efx/ts-plugin build` directly.
+repo root or `pnpm --filter verrex-ts-plugin build` directly.
 
 ### VS Code
 
-`@efx/ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
+`verrex-ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
 "TypeScript: Select TypeScript Version → Use Workspace Version" to make
 sure VS Code's TS extension picks up the plugin. `.vx` files get treated
 as TypeScript once the plugin loads.

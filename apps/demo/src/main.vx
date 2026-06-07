@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Fiber, Layer, Scope } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
-import { EfxLive, mount, type View } from "@efx/runtime"
+import { VerrexLive, mount, type View } from "verrex"
 import { Counter } from "./Counter.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { flashOnUpdate } from "./flash.ts"
@@ -74,7 +74,7 @@ const App = (
   <div class="app">
     <header class="hero">
       <p class="eyebrow">a guided tour</p>
-      <h1>efx</h1>
+      <h1>verrex</h1>
       <p class="tagline">
         an <a href="https://effect.website" target="_blank" rel="noreferrer">Effect</a>-native
         UI framework where the <code>{"<A, E, R>"}</code> channels survive from
@@ -88,8 +88,8 @@ const App = (
           TypeScript erases generics at the JSX boundary, collapsing every
           component to <code>JSX.Element</code> — fatal for a framework whose
           point is that <code>E</code>/<code>R</code> survive composition. So
-          efx never lets <code>tsc</code> see JSX: source files use a{" "}
-          <code>.vx</code> extension, and <code>@efx/compiler</code> rewrites
+          verrex never lets <code>tsc</code> see JSX: source files use a{" "}
+          <code>.vx</code> extension, and <code>verrex/compiler</code> rewrites
           every <code>{"<tag/>"}</code> into an <code>h(tag, props, …children)</code>{" "}
           call <em>before</em> tsc parses the file. <code>h()</code>'s
           conditional-type signature then unions every child's <code>E</code>{" "}
@@ -115,7 +115,7 @@ const App = (
         step: "01",
         title: "Reactive state",
         concept:
-          "Local state is an Effect AtomRef — efx ships no signal of its own. Drop the ref straight into child position and h() emits a reactive node; on update, only that text node re-renders. No services, so R is never.",
+          "Local state is an Effect AtomRef — verrex ships no signal of its own. Drop the ref straight into child position and h() emits a reactive node; on update, only that text node re-renders. No services, so R is never.",
         type: "Effect<View, never, never>",
         code: `export const Counter = Effect.fn("Counter")(function* () {
   const count = AtomRef.make(0)
@@ -263,7 +263,7 @@ const App = (
 
     <footer class="site-footer">
       <p>
-        efx is an experimental proof-of-concept.{" "}
+        verrex is an experimental proof-of-concept.{" "}
         <a href={REPO} target="_blank" rel="noreferrer">source on GitHub ↗</a>
       </p>
     </footer>
@@ -277,9 +277,9 @@ if (!rootEl) throw new Error("missing #root")
 // provides — `setupDemo`'s signature enforces it, so forgetting (say) HttpLive
 // is a compile error at the UserPage/AsyncUserPage/LiveUser call sites, not a
 // runtime crash. That's the thesis, now enforced per-mount.
-const APP_LAYER = Layer.mergeAll(EfxLive, HttpLive, ThemeLive)
+const APP_LAYER = Layer.mergeAll(VerrexLive, HttpLive, ThemeLive)
 
-// Everything the demos may require, after EfxLive/HttpLive/ThemeLive: the
+// Everything the demos may require, after VerrexLive/HttpLive/ThemeLive: the
 // reactivity registry, the two services, and a Scope.
 type DemoR = AtomRegistry.AtomRegistry | Http | Theme | Scope.Scope
 
@@ -304,7 +304,7 @@ const setupDemo = <E>(id: string, make: () => Effect.Effect<View, E, DemoR>): vo
       Scope.provide(
         mount(make(), container).pipe(
           Effect.catchCause((cause) =>
-            Effect.sync(() => console.error(`[efx demo: ${id}]`, Cause.pretty(cause))),
+            Effect.sync(() => console.error(`[verrex demo: ${id}]`, Cause.pretty(cause))),
           ),
           Effect.provide(APP_LAYER),
         ),

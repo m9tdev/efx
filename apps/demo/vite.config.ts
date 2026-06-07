@@ -1,5 +1,5 @@
 import { defineConfig } from "vite"
-import { efx } from "@efx/vite-plugin"
+import { verrex } from "verrex/vite"
 
 export default defineConfig({
   root: ".",
@@ -34,5 +34,5 @@ export default defineConfig({
       },
     },
   },
-  plugins: [efx()],
+  plugins: [verrex()],
 })

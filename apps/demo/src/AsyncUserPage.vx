@@ -1,5 +1,5 @@
 import { Cause, Effect } from "effect"
-import { Await } from "@efx/runtime"
+import { Await } from "verrex"
 import { Http } from "./services.ts"
 
 /**
