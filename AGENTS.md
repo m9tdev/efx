@@ -5,10 +5,11 @@ channels propagate from every leaf of the view tree to the root.
 Forgetting to provide a service `Layer` becomes a *compile-time
 error that names the missing service*.
 
-**The name** carries the channels: a component is `Effect<View, E, R>`
-(`A` is always the `View`), so `verrex` = **V**iew · **E**rror ·
-**R**equirements, plus an **x** for the JSX/TSX it borrows (the `.vx`
-extension).
+**The name** is built from the channels of an `Effect<View, E, R>`:
+**V** (View — the `A`, always the `View` here), **E** (Error), **R**
+(Requirements), plus **X**, because the JSX/TSX syntax it borrows adds an
+X too. `V + E + R + X` spells **verx**, stylized to **verrex** (and the
+`.vx` source extension).
 
 Status: experimental proof-of-concept. Not production-ready.
 
