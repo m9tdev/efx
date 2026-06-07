@@ -1,4 +1,4 @@
-import { transformVerrex } from "../packages/compiler/src/index.ts"
+import { transformVerrex } from "../packages/verrex/src/compiler/index.ts"
 
 const src = `
 import { Effect } from "effect"

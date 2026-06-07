@@ -62,48 +62,42 @@ When this AGENTS layer says "JSX expression," "JSX node," or "JSX
 child," read it as "the angle-bracket source-code shape that the
 compiler eats and converts into `h()` calls." Not the React thing.
 
-## Subsystems (downlinks)
+## Subsystems
 
-- **[`packages/runtime/`](./packages/runtime/AGENTS.md)** — `h`, `mount`,
-  `list`, the View IR (intermediate representation that mount
-  switches on), reactivity wiring, channel-fold types. The thing
-  components import from.
-- **[`packages/compiler/`](./packages/compiler/AGENTS.md)** — the Babel
-  transform. Three rewrites: JSX → `h()`, `.value` → `h.read()`,
+Everything user-facing ships as one package, **`packages/verrex/`**, with a
+subpath export per surface (the subdirs self-reference via `verrex/*`). The
+editor plugin is the one separate package, because tsserver resolves Language
+Service plugins only by bare package name.
+
+- **[`src/runtime/`](./packages/verrex/src/runtime/)** — export `verrex`. `h`,
+  `mount`, `Await`, `list`, the View IR (mount switches on it), reactivity
+  wiring, channel-fold types. The thing components import from.
+- **[`src/compiler/`](./packages/verrex/src/compiler/)** — export
+  `verrex/compiler`. The Babel transform: JSX → `h()`, `.value` → `h.read()`,
   `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`. Smart-skip wrap.
-- **[`packages/language/`](./packages/language/AGENTS.md)** — the Volar
-  `LanguagePlugin` describing `.vx` files (file id, virtual code,
-  source-map conversion, JSX region tagging). Shared by `ts-plugin`
-  and `check`; the only package that bridges `verrex/compiler` to
-  Volar's contracts.
-- **[`packages/ts-plugin/`](./packages/ts-plugin/AGENTS.md)** — Volar-
-  based TypeScript Language Service plugin. Wraps the shared
-  language plugin in a tsserver Proxy that adds JSX tag-pair
-  highlights, inlay-hint filtering, and reference dedup/sort.
-  Cross-file go-to-def and find-references work natively (no
-  sibling `.ts` files).
-- **[`packages/check/`](./packages/check/AGENTS.md)** — standalone
-  CLI/programmatic type-checker built on `@volar/kit` plus the
-  shared language plugin. Replaces `tsc --noEmit` for `.vx`
-  projects without needing a tsserver process.
-- **[`packages/vite-plugin/`](./packages/vite-plugin/AGENTS.md)** — Vite
-  dev integration. Owns the full `.vx` compile (Babel JSX→`h()`, then
-  Oxc type-strip via `transformWithOxc`, returning `moduleType: "js"`),
-  rewrites `.vx` URLs with `?import` so strict-MIME browsers accept the
-  response.
-- **[`packages/testing/`](./packages/testing/AGENTS.md)** — in-process
-  component test harness. `render(app, layer?)` mounts a component into a
-  happy-dom DOM, drives it (click/fire/tick), and tears it down — the
-  deterministic middle layer between `channels.test-d.ts` (compile-time)
-  and the browser probes. The `layer` requirement is type-enforced so a
-  missing service is a compile error (channels not swallowed).
-- **[`apps/demo/`](./apps/demo/AGENTS.md)** — usage patterns by
-  primitive (Counter, UserPage, LiveUser, Todos, Lifecycle).
-  Also home to `channels.test-d.ts`, the compile-time proof.
+- **[`src/language/`](./packages/verrex/src/language/)** — export
+  `verrex/language`. The Volar `LanguagePlugin` describing `.vx` files (file id,
+  virtual code, source-map conversion, JSX region tagging). Bridges
+  `verrex/compiler` to Volar's contracts; consumed by the ts-plugin and check.
+- **[`src/check/`](./packages/verrex/src/check/)** — export `verrex/check`, bin
+  `verrex-check`. Standalone CLI/programmatic type-checker on `@volar/kit` +
+  the language plugin. Replaces `tsc --noEmit` for `.vx`.
+- **[`src/vite-plugin/`](./packages/verrex/src/vite-plugin/)** — export
+  `verrex/vite`. Owns the full `.vx` compile (Babel JSX→`h()`, then Oxc
+  type-strip via `transformWithOxc`, `moduleType: "js"`); rewrites `.vx` URLs
+  with `?import` so strict-MIME browsers accept the response.
+- **[`src/testing/`](./packages/verrex/src/testing/)** — export
+  `verrex/testing`. In-process component test harness; `render(app, layer?)`
+  mounts into a happy-dom DOM and drives it. The `layer` requirement is
+  type-enforced so a missing service is a compile error.
+- **[`packages/verrex-ts-plugin/`](./packages/verrex-ts-plugin/)** — the Volar-
+  based TS Language Service plugin (editor integration): JSX tag-pair
+  highlights, inlay-hint filtering, reference dedup/sort, native cross-file
+  go-to-def. esbuild-bundles `verrex/language` into one CJS file.
+- **[`apps/demo/`](./apps/demo/AGENTS.md)** — usage patterns by primitive; home
+  to `channels.test-d.ts`, the compile-time proof.
 - **[`scripts/`](./scripts/AGENTS.md)** — manual Playwright probes
-  (`probe-*.mjs`) for browser-side behaviors that unit/type tests
-  can't reach: HMR, per-row Scope teardown, async-state cycles,
-  production-bundle smoke.
+  (`probe-*.mjs`) for browser behaviors unit/type tests can't reach.
 
 ## Repository-wide invariants
 
@@ -158,7 +152,7 @@ compiler eats and converts into `h()` calls." Not the React thing.
 
 ## Tooling at a glance
 
-- pnpm workspace, 7 packages (4 publishable + `verrex/testing` + demo + workspace root).
+- pnpm workspace, 2 packages (`verrex` + `verrex-ts-plugin`) + demo + workspace root.
 - Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.70`).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.

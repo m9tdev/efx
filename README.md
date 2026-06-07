@@ -98,14 +98,16 @@ Effect.runFork(program)
 
 ```
 packages/
-  runtime/      View IR, h(), mount(), Await(), list(), reactivity bindings
-  compiler/     .vx → plain TypeScript (Babel)
-  language/     Volar language plugin (shared by ts-plugin + check)
-  ts-plugin/    TypeScript Language Service plugin (editor integration)
-  check/        Standalone CLI type-checker for .vx projects
-  vite-plugin/  Vite integration
+  verrex/             one package, subpath exports:
+    src/runtime/        export `verrex`     — View IR, h(), mount(), Await(), list()
+    src/compiler/       export `verrex/compiler` — .vx → plain TypeScript (Babel)
+    src/language/       export `verrex/language` — Volar language plugin
+    src/check/          export `verrex/check`, bin `verrex-check`
+    src/vite-plugin/    export `verrex/vite`  — Vite integration
+    src/testing/        export `verrex/testing`
+  verrex-ts-plugin/   TypeScript Language Service plugin (editor integration)
 apps/
-  demo/         Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle
+  demo/               Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle
 ```
 
 ## The primitives
@@ -176,7 +178,7 @@ autocmd BufRead,BufNewFile *.vx setfiletype typescriptreact
 
 That plus `tsserver` already configured for `typescriptreact` is enough.
 First time opening the workspace you may want to ensure
-`packages/ts-plugin/dist/index.cjs` exists — run `pnpm install` from the
+`packages/verrex-ts-plugin/dist/index.cjs` exists — run `pnpm install` from the
 repo root or `pnpm --filter verrex-ts-plugin build` directly.
 
 ### VS Code
@@ -190,4 +192,4 @@ as TypeScript once the plugin loads.
 
 - [AGENTS.md](./AGENTS.md) — architecture, per-package contracts, invariants, anti-patterns.
 - [`apps/demo/src/channels.test-d.ts`](./apps/demo/src/channels.test-d.ts) — compile-time proof that channels propagate and typed props catch misuse.
-- [`packages/runtime/src/types/Fold.test-d.ts`](./packages/runtime/src/types/Fold.test-d.ts) — channel-fold conditional-type test matrix.
+- [`packages/verrex/src/runtime/types/Fold.test-d.ts`](./packages/verrex/src/runtime/types/Fold.test-d.ts) — channel-fold conditional-type test matrix.
