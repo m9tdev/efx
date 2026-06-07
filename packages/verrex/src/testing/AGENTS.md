@@ -60,7 +60,9 @@ the component down before you could drive it.
 
 ## Setup
 
-- Tests run under `environment: "happy-dom"` (`vitest.config.ts`) so
+- Each test file opts into happy-dom with a per-file
+  `// @vitest-environment happy-dom` directive (the shared
+  `vitest.config.ts` sets no global environment) so
   `document`/`HTMLElement`/`MouseEvent` exist in-process. `happy-dom` is a
   devDependency.
 - Build components in tests with raw `h()` calls — no `.vx` compiler is

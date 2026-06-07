@@ -17,11 +17,11 @@ certainly want to depend on this package rather than copy it.
 
 | File | Purpose |
 |---|---|
-| `src/language-plugin.ts` | `createVerrexLanguagePlugin<T>(asFileName)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns each per-`.vx` `VerrexVirtualCode` to Volar, which owns and indexes it. Returns `LanguagePlugin<T, VerrexVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
-| `src/source-map.ts` | `convertSourceMap` — thin translator from `verrex/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
-| `src/virtual-code.ts` | `VerrexVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.vx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`. |
-| `src/source-map.test.ts` | Vitest suite pinning `convertSourceMap`'s span-length passthrough and the user/h-call/punctuation profile assignments. |
-| `src/index.ts` | Re-exports. |
+| `language-plugin.ts` | `createVerrexLanguagePlugin<T>(asFileName)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns each per-`.vx` `VerrexVirtualCode` to Volar, which owns and indexes it. Returns `LanguagePlugin<T, VerrexVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
+| `source-map.ts` | `convertSourceMap` — thin translator from `verrex/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
+| `virtual-code.ts` | `VerrexVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.vx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`. |
+| `source-map.test.ts` | Vitest suite pinning `convertSourceMap`'s span-length passthrough and the user/h-call/punctuation profile assignments. |
+| `index.ts` | Re-exports. |
 
 ## Why a factory over a fixed plugin
 
@@ -229,18 +229,18 @@ without arranging for a build step.
 
 In-package vitests:
 
-- `src/source-map.test.ts` — pins the bidirectional source/generated
+- `source-map.test.ts` — pins the bidirectional source/generated
   position-mapping contract through `convertSourceMap`.
 
 Broader behavior is covered by:
 
 - `@verrex/ts-plugin/test/integration.mjs` — exercises the LanguagePlugin
   through a real tsserver subprocess.
-- `verrex/check/test/integration.mjs` — exercises it through
+- `verrex`'s `test/check/integration.mjs` — exercises it through
   `@volar/kit`.
 
 If you need more fine-grained tests, follow the existing pattern
-(`src/*.test.ts` + the shared `vitest.config.ts`).
+(`*.test.ts` + the shared `vitest.config.ts`).
 
 ## Related context
 

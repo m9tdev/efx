@@ -20,7 +20,7 @@ Entry point: `transformVerrex(source, filename) → { code, map, jsxRanges, mapp
 - `mappings` — `CompilerMapping[]`: typed source↔generated spans
   with explicit lengths on both sides and a `kind` tag (`"user"` /
   `"h-call"` / `"punctuation"`). Built by `computeMappings` in
-  `src/source-map.ts`. This is the single source of truth for
+  `source-map.ts`. This is the single source of truth for
   position translation; `verrex/language` translates it directly into
   Volar's `Mapping<CodeInformation>[]` without touching `map` or
   `jsxRanges`. See "Source-map mappings" below.
@@ -258,7 +258,7 @@ that classifier from `jsxRanges`.
 ## Source-map mappings — typed source↔generated spans
 
 `computeMappings(map, source, generated, jsxRanges)` in
-`src/source-map.ts` produces the `mappings` array. The algorithm
+`source-map.ts` produces the `mappings` array. The algorithm
 in five steps:
 
 1. Decode Babel's V3 mappings into `(genOffset, srcOffset, srcChar)`
@@ -287,7 +287,7 @@ in five steps:
 The lengths-on-both-sides design is **load-bearing**: a regression
 where only source lengths were tracked caused inlay-hint positions
 to drift one column to the left (`( : numbern)` instead of
-`(n: number)`). See `src/source-map.test.ts` — that test asserts
+`(n: number)`). See `source-map.test.ts` — that test asserts
 the exact `(source: 2, generated: 1)` shape for the PR #12 case.
 
 `verrex/language` uses `mappings` directly and never re-decodes the

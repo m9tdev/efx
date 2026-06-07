@@ -102,7 +102,7 @@ LSP protocol.
   `chokidar` (like astro-check does) when watch mode is built.
 - Don't add `runCheck` overloads or option types that diverge from
   Astro's `check()` API beyond what's necessary. The astro-parity
-  TODO list in `src/cli.ts` is the design intent — if you add a
+  TODO list in `cli.ts` is the design intent — if you add a
   flag here, mirror the Astro name and semantics so future code
   ports cleanly.
 - Don't reintroduce on-disk sibling `.ts` files. The whole point

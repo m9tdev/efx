@@ -1,7 +1,7 @@
 # `verrex` — the framework runtime
 
 What the user actually imports from when writing components.
-Public surface (from `src/index.ts`):
+Public surface (from `index.ts`):
 
 - `h` — the view factory (the compile target for `<...>` source
   syntax) + `h.track`/`h.read` (compiler hooks)
@@ -16,7 +16,7 @@ Public surface (from `src/index.ts`):
 This is where the **channel propagation contract lives** —
 `h()`'s signature uses `FoldE`/`FoldR` conditional types to union
 every child's `E` and `R` into the result type. See
-[`src/types/Fold.ts`](./types/Fold.ts).
+[`types/Fold.ts`](./types/Fold.ts).
 
 ### `h()` parameter naming — coupled to the TS plugin
 
@@ -31,15 +31,15 @@ the editor margin. If you rename them, update the regex.
 
 | File | Purpose |
 |---|---|
-| `src/h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`) |
-| `src/coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Await`) |
-| `src/View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
-| `src/mount.ts` | DOM renderer. `buildDom(view, registry, scope) → Node`, `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close |
-| `src/index.ts` | Public exports + `list`, `Await`, `Fragment`, `VerrexLive` |
-| `src/coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
-| `src/types/Fold.ts` | `ChildE`/`ChildR`/`FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps` — the channel-fold conditional types |
-| `src/types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics |
-| `src/types/Fold.test-d.ts` | `expectTypeOf` matrix — every channel-fold shape |
+| `h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`) |
+| `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Await`) |
+| `View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
+| `mount.ts` | DOM renderer. `buildDom(view, registry, scope) → Node`, `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close |
+| `index.ts` | Public exports + `list`, `Await`, `Fragment`, `VerrexLive` |
+| `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
+| `types/Fold.ts` | `ChildE`/`ChildR`/`FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps` — the channel-fold conditional types |
+| `types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics |
+| `types/Fold.test-d.ts` | `expectTypeOf` matrix — every channel-fold shape |
 
 ## Reactivity model
 
