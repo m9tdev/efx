@@ -188,6 +188,41 @@ UI changes especially require the dev server pass — type checks
 catch contract regressions but not "the click handler didn't
 re-render."
 
+## Releasing
+
+Two packages publish to npm — **`verrex`** and **`@verrex/ts-plugin`** —
+driven by conventional commits via release-please
+(`release-please-config.json` + `.release-please-manifest.json`,
+`.github/workflows/release.yml`). On every push to `main`, release-please
+opens/updates one combined **Release PR**; merging it tags the releases and
+the publish job pushes to npm.
+
+- **A commit bumps a package by the path of the files it changes, not by the
+  commit scope.** Files under `packages/verrex/**` bump `verrex`; files under
+  `packages/ts-plugin/**` bump `@verrex/ts-plugin`; a commit spanning both
+  bumps both; a commit touching neither (root, `apps/demo/`, `.github/`, docs)
+  releases nothing. The `(scope)` in `feat(compiler):` is changelog-cosmetic
+  only — keep a commit's edits inside one package dir to bump just that one.
+- **Versions are independent** (no linked-versions plugin) — each package
+  bumps off its own commits and carries its own CHANGELOG + tag
+  (`verrex-v…`, `@verrex/ts-plugin-v…`).
+- **Still pre-1.0:** `bump-minor-pre-major` + `bump-patch-for-minor-pre-major`
+  keep `feat`→minor / `fix`→patch *within* 0.x until you cut a 1.0.
+- **Tokenless publish:** OIDC trusted publishing + provenance, no `NPM_TOKEN`.
+  Requires a Trusted Publisher (this repo + `release.yml`) configured per
+  package at npmjs.com. `minimumReleaseAge` still applies to *our* installs —
+  never bypass it.
+- **go-to-definition lands in source.** Each publishable package keeps its
+  dev `exports` pointing at `src/*` (what the workspace and editors resolve,
+  so go-to-def jumps into `.ts`), and a `publishConfig.exports` override
+  repoints every subpath to `dist/*` at publish time. The tarball ships
+  **both** `dist` and `src` plus declaration maps (`declarationMap` +
+  `sourceMap`), so a consumer's go-to-def resolves through `.d.ts.map` into the
+  shipped `.ts`. `verrex` builds via `tsc -p tsconfig.build.json`
+  (`rewriteRelativeImportExtensions` turns `./x.ts` imports into `./x.js`);
+  `@verrex/ts-plugin` is the esbuild bundle (`dist/index.cjs`), so it ships
+  `dist` only.
+
 ## Reference docs (outlinks)
 
 - [`README.md`](./README.md) — public-facing intro + editor setup.
