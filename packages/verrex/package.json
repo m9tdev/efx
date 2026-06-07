@@ -43,10 +43,9 @@
   "bin": {
     "verrex-check": "./src/check/cli.ts"
   },
-  "files": ["dist", "src", "!**/*.test.ts", "!**/*.test-d.ts"],
+  "files": ["dist", "src", "!**/*.test.ts", "!**/*.test-d.ts", "!**/AGENTS.md"],
   "publishConfig": {
     "access": "public",
-    "provenance": true,
     "exports": {
       ".": {
         "types": "./dist/runtime/index.d.ts",
@@ -79,6 +78,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node --experimental-strip-types test/check/integration.mjs"
   },

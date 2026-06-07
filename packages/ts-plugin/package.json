@@ -15,11 +15,11 @@
   "main": "./dist/index.cjs",
   "files": ["dist"],
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "scripts": {
     "build": "node build.mjs",
+    "prepack": "pnpm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && pnpm run build && node test/integration.mjs"
   },

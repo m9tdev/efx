@@ -208,10 +208,17 @@ the publish job pushes to npm.
   (`verrex-v…`, `@verrex/ts-plugin-v…`).
 - **Still pre-1.0:** `bump-minor-pre-major` + `bump-patch-for-minor-pre-major`
   keep `feat`→minor / `fix`→patch *within* 0.x until you cut a 1.0.
-- **Tokenless publish:** OIDC trusted publishing + provenance, no `NPM_TOKEN`.
-  Requires a Trusted Publisher (this repo + `release.yml`) configured per
-  package at npmjs.com. `minimumReleaseAge` still applies to *our* installs —
-  never bypass it.
+- **Tokenless publish:** OIDC trusted publishing, no `NPM_TOKEN`. Provenance is
+  turned on by the `--provenance` flag in `release.yml` (deliberately *not* in
+  `publishConfig`, so a one-time local bootstrap publish doesn't try to attest
+  outside CI and fail). Requires a Trusted Publisher (this repo + `release.yml`)
+  configured per package at npmjs.com. `minimumReleaseAge` still applies to
+  *our* installs — never bypass it.
+- **First publish (bootstrap):** trusted publishing needs the package to exist
+  on npm first, so the very first version of each package is published manually
+  (`pnpm --filter <pkg> publish --access public`) — no provenance on that one.
+  Configure the Trusted Publisher afterward; every release from then on is
+  tokenless CI with provenance.
 - **go-to-definition lands in source.** Each publishable package keeps its
   dev `exports` pointing at `src/*` (what the workspace and editors resolve,
   so go-to-def jumps into `.ts`), and a `publishConfig.exports` override
