@@ -42,7 +42,7 @@ function parseArgs(argv: ReadonlyArray<string>): ParsedArgs {
 }
 
 function printHelp(): void {
-  process.stdout.write(`verrex-check — type-check an verrex project via Volar
+  process.stdout.write(`verrex-check — type-check a verrex project via Volar
 
 Usage:
   verrex-check [--tsconfig <path>] [--root <dir>]

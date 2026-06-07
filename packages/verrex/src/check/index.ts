@@ -34,7 +34,7 @@ export interface CheckResult {
 }
 
 /**
- * Type-check an verrex project. Returns a summary; the printed output goes
+ * Type-check a verrex project. Returns a summary; the printed output goes
  * to stdout in tsc's standard "file:line:col - error TS####: message"
  * format (via Volar kit's printErrors helper).
  */
