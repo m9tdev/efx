@@ -7,9 +7,9 @@ service**.
 
 > **Why "verrex"?** Every component is an `Effect<View, E, R>`, and the whole
 > point is keeping those three channels alive from leaf to root — so the name
-> spells them: **V**iew · **E**rror · **R**equirements. (`A` is pinned to `View`
-> here, so it's V/E/R, not A/E/R.) It reads like *vertex* — the nodes of the
-> view tree the channels thread through.
+> carries them: **V**iew · **E**rror · **R**equirements, capped with an **x**
+> for the JSX/TSX syntax it borrows (and the `.vx` file extension). (`A` is
+> pinned to `View` here, so it's V/E/R, not A/E/R.)
 
 Status: proof-of-concept. Not for production. Architecture, invariants, and
 per-package contracts live in [AGENTS.md](./AGENTS.md) and the per-subsystem
