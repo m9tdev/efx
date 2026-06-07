@@ -1,4 +1,4 @@
-# `verrex-ts-plugin` — Volar-based language plugin for `.vx`
+# `@verrex/ts-plugin` — Volar-based language plugin for `.vx`
 
 What this delivers in your editor: type errors, hover, completions,
 inlay hints, go-to-definition, find-references, and JSX tag-pair
@@ -253,7 +253,7 @@ index sees usages across files. No sibling `.ts` shim is involved.
 ## Test loop
 
 ```
-pnpm --filter verrex-ts-plugin test
+pnpm --filter @verrex/ts-plugin test
 ```
 
 Three phases: vitest runs the `*.test.ts` unit suites

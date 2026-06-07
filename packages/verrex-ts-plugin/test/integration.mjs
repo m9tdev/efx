@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * tsserver test harness for verrex-ts-plugin
+ * tsserver test harness for @verrex/ts-plugin
  *
  * Spawns tsserver, opens the demo project, requests diagnostics for an .vx
  * file, and verifies that:

@@ -111,7 +111,7 @@ packages/
     src/check/          export `verrex/check`, bin `verrex-check`
     src/vite-plugin/    export `verrex/vite`  — Vite integration
     src/testing/        export `verrex/testing`
-  verrex-ts-plugin/   TypeScript Language Service plugin (editor integration)
+  verrex-ts-plugin/   publishes as `@verrex/ts-plugin` — TS Language Service plugin (editor)
 apps/
   demo/               Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle
 ```
@@ -164,7 +164,7 @@ emitted to disk.
 
 ## Editor setup
 
-A TypeScript Language Service Plugin (`verrex-ts-plugin`) ships with the
+A TypeScript Language Service Plugin (`@verrex/ts-plugin`) ships with the
 workspace and is wired into `apps/demo/tsconfig.json`'s `plugins` array.
 The plugin uses Volar's language plugin framework to provide full IDE
 support for `.vx` files.
@@ -185,11 +185,11 @@ autocmd BufRead,BufNewFile *.vx setfiletype typescriptreact
 That plus `tsserver` already configured for `typescriptreact` is enough.
 First time opening the workspace you may want to ensure
 `packages/verrex-ts-plugin/dist/index.cjs` exists — run `pnpm install` from the
-repo root or `pnpm --filter verrex-ts-plugin build` directly.
+repo root or `pnpm --filter @verrex/ts-plugin build` directly.
 
 ### VS Code
 
-`verrex-ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
+`@verrex/ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
 "TypeScript: Select TypeScript Version → Use Workspace Version" to make
 sure VS Code's TS extension picks up the plugin. `.vx` files get treated
 as TypeScript once the plugin loads.

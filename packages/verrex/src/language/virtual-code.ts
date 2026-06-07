@@ -8,7 +8,7 @@ import type * as ts from "typescript"
  *
  * One instance per `.vx`, owned by Volar (returned from `createVirtualCode`
  * and indexed at `language.scripts.get(id).generated.root`). Downstream
- * consumers (`verrex-ts-plugin`) read it back from Volar's own context and
+ * consumers (`@verrex/ts-plugin`) read it back from Volar's own context and
  * `instanceof`-narrow to this class — there is no second index. The Volar
  * contract fields (`id`, `languageId`, `snapshot`, `mappings`,
  * `embeddedCodes`) live alongside the verrex-specific data (`source`,

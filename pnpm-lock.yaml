@@ -30,7 +30,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/verrex
     devDependencies:
-      verrex-ts-plugin:
+      '@verrex/ts-plugin':
         specifier: workspace:*
         version: link:../../packages/verrex-ts-plugin
       vite:

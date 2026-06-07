@@ -73,7 +73,7 @@ export interface JsxFragmentRange {
  * Source-side metadata about a JSX node the compiler rewrote into an `h()` call.
  * Emitted in pre-order: outermost node first, then nested children in source order.
  *
- * Consumed by `verrex-ts-plugin` to identify "inside-h()" positions, JSX punctuation,
+ * Consumed by `@verrex/ts-plugin` to identify "inside-h()" positions, JSX punctuation,
  * and tag-pair partners without re-parsing the source or scanning the compiled
  * output with regex. The producer (Babel AST) has the exact positions; we report
  * them so consumers don't have to recover them.

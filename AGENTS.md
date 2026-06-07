@@ -95,8 +95,9 @@ Service plugins only by bare package name.
   `verrex/testing`. In-process component test harness; `render(app, layer?)`
   mounts into a happy-dom DOM and drives it. The `layer` requirement is
   type-enforced so a missing service is a compile error.
-- **[`packages/verrex-ts-plugin/`](./packages/verrex-ts-plugin/)** — the Volar-
-  based TS Language Service plugin (editor integration): JSX tag-pair
+- **[`packages/verrex-ts-plugin/`](./packages/verrex-ts-plugin/)** (publishes as
+  `@verrex/ts-plugin`) — the Volar-based TS Language Service plugin (editor
+  integration): JSX tag-pair
   highlights, inlay-hint filtering, reference dedup/sort, native cross-file
   go-to-def. esbuild-bundles `verrex/language` into one CJS file.
 - **[`apps/demo/`](./apps/demo/AGENTS.md)** — usage patterns by primitive; home
@@ -148,7 +149,7 @@ Service plugins only by bare package name.
     `effect/unstable/reactivity` (AtomRef, Atom, Collection).
     Search here first for reactivity patterns.
   - `volar/`, `vue-language-tools/` — Volar Language Service plugin
-    architecture, reference for `verrex-ts-plugin`.
+    architecture, reference for `@verrex/ts-plugin`.
   - `vite-plugin-svelte/` — mature Vite integration patterns.
   - `solid/` — fine-grained reactivity patterns.
   
@@ -157,7 +158,7 @@ Service plugins only by bare package name.
 
 ## Tooling at a glance
 
-- pnpm workspace, 2 packages (`verrex` + `verrex-ts-plugin`) + demo + workspace root.
+- pnpm workspace, 2 packages (`verrex` + `@verrex/ts-plugin`) + demo + workspace root.
 - Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.70`).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.

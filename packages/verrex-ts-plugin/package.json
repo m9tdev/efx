@@ -1,5 +1,5 @@
 {
-  "name": "verrex-ts-plugin",
+  "name": "@verrex/ts-plugin",
   "version": "0.0.0",
   "private": true,
   "main": "./dist/index.cjs",
