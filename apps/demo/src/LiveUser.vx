@@ -1,0 +1,46 @@
+import { Cause, Effect } from "effect"
+import { AtomRef } from "effect/unstable/reactivity"
+import { Await } from "verrex"
+import { Http } from "./services.ts"
+
+/**
+ * Live, reactive async data via the `Await` boundary, auto-tracking form.
+ *
+ * The user id is local writable state (`AtomRef`); the buttons set it. The
+ * `Await` thunk reads `userId.value`, so it becomes a tracked dependency and
+ * the fetch re-runs whenever the id changes — interrupting the stale request
+ * and rendering pending/success/error. No explicit trigger to declare.
+ *
+ * Inferred type: `Effect<View, never, Http | Scope>`
+ *   — the service is extracted up front (`const http = yield* Http`), so `Http`
+ *   folds into the component's `R` and is provided at `mount`; the fetch runs on
+ *   the mount fiber, not a baked `Atom.runtime`. Forgetting the `Http` layer is
+ *   a compile error, not a runtime failure.
+ */
+export const LiveUser = Effect.fn("LiveUser")(function* (_props: {} = {}) {
+  const userId = AtomRef.make("42")
+  const http = yield* Http
+
+  return yield* (
+    <div class="live-user">
+      <h3>Async data via Await (live, reactive, channels intact)</h3>
+      <div class="controls">
+        <button onclick={() => userId.set("42")}>Ada (42)</button>
+        <button onclick={() => userId.set("7")}>Grace (7)</button>
+        <button onclick={() => userId.set("999")}>Bad id</button>
+      </div>
+      {Await(() => http.getUser(userId.value), {
+        pending: <span class="loading">  loading…</span>,
+        onError: (cause) => (
+          <span class="error">error: {Cause.pretty(cause)}</span>
+        ),
+        onSuccess: (user) => (
+          <div class="user-card">
+            <strong>{user.name}</strong>
+            {user.bio && <p class="bio">{user.bio}</p>}
+          </div>
+        ),
+      })}
+    </div>
+  )
+})

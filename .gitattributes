@@ -1,9 +1,9 @@
-# GitHub / Linguist: highlight .efx files as TSX.
+# GitHub / Linguist: highlight .vx files as TSX.
 #
-# .efx is TypeScript that borrows JSX's angle-bracket syntax — the compiler
+# .vx is TypeScript that borrows JSX's angle-bracket syntax — the compiler
 # rewrites every <tag/> to an h() call before tsc ever sees the file (see
 # CLAUDE.md). The TSX TextMate grammar is the correct highlighter and matches
 # the editor's `typescriptreact` filetype mapping. This override also makes
-# .efx files count toward the repo's language stats instead of going
+# .vx files count toward the repo's language stats instead of going
 # undetected.
-*.efx linguist-language=TSX
+*.vx linguist-language=TSX

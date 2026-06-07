@@ -1,5 +1,5 @@
 {
-  "name": "@efx/demo",
+  "name": "verrex-demo",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,16 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "node --experimental-strip-types ../../packages/check/src/cli.ts"
+    "typecheck": "node --experimental-strip-types ../../packages/verrex/src/check/cli.ts"
   },
   "dependencies": {
-    "@efx/runtime": "workspace:*",
+    "verrex": "workspace:*",
     "effect": "4.0.0-beta.71"
   },
   "devDependencies": {
-    "@efx/check": "workspace:*",
-    "@efx/ts-plugin": "workspace:*",
-    "@efx/vite-plugin": "workspace:*",
+    "@verrex/ts-plugin": "workspace:*",
     "vite": "^8.0.16"
   }
 }

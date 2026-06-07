@@ -23,49 +23,42 @@ importers:
 
   apps/demo:
     dependencies:
-      '@efx/runtime':
-        specifier: workspace:*
-        version: link:../../packages/runtime
       effect:
         specifier: 4.0.0-beta.71
         version: 4.0.0-beta.71
-    devDependencies:
-      '@efx/check':
+      verrex:
         specifier: workspace:*
-        version: link:../../packages/check
-      '@efx/ts-plugin':
+        version: link:../../packages/verrex
+    devDependencies:
+      '@verrex/ts-plugin':
         specifier: workspace:*
         version: link:../../packages/ts-plugin
-      '@efx/vite-plugin':
-        specifier: workspace:*
-        version: link:../../packages/vite-plugin
       vite:
         specifier: ^8.0.16
         version: 8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(yaml@2.9.0)
 
-  packages/check:
-    dependencies:
-      '@efx/language':
-        specifier: workspace:*
-        version: link:../language
-      '@volar/kit':
-        specifier: ^2.4.28
-        version: 2.4.28(typescript@6.0.3)
-      '@volar/language-service':
+  packages/ts-plugin:
+    devDependencies:
+      '@effect/vitest':
+        specifier: 4.0.0-beta.71
+        version: 4.0.0-beta.71(effect@4.0.0-beta.71)(vitest@4.1.8(@types/node@25.9.1)(happy-dom@20.9.0)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(yaml@2.9.0)))
+      '@volar/language-core':
         specifier: ^2.4.28
         version: 2.4.28
-      volar-service-typescript:
-        specifier: ^0.0.71
-        version: 0.0.71(@volar/language-service@2.4.28)
-      vscode-uri:
-        specifier: ^3.1.0
-        version: 3.1.0
-    devDependencies:
+      '@volar/typescript':
+        specifier: ^2.4.28
+        version: 2.4.28
+      esbuild:
+        specifier: ^0.28.0
+        version: 0.28.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      verrex:
+        specifier: workspace:*
+        version: link:../verrex
 
-  packages/compiler:
+  packages/verrex:
     dependencies:
       '@babel/generator':
         specifier: ^7.29.7
@@ -82,6 +75,27 @@ importers:
       '@jridgewell/sourcemap-codec':
         specifier: ^1.5.5
         version: 1.5.5
+      '@volar/kit':
+        specifier: ^2.4.28
+        version: 2.4.28(typescript@6.0.3)
+      '@volar/language-core':
+        specifier: ^2.4.28
+        version: 2.4.28
+      '@volar/language-service':
+        specifier: ^2.4.28
+        version: 2.4.28
+      '@volar/source-map':
+        specifier: ^2.4.28
+        version: 2.4.28
+      effect:
+        specifier: 4.0.0-beta.71
+        version: 4.0.0-beta.71
+      volar-service-typescript:
+        specifier: ^0.0.71
+        version: 0.0.71(@volar/language-service@2.4.28)
+      vscode-uri:
+        specifier: ^3.1.0
+        version: 3.1.0
     devDependencies:
       '@effect/vitest':
         specifier: 4.0.0-beta.71
@@ -92,80 +106,12 @@ importers:
       '@types/babel__traverse':
         specifier: ^7
         version: 7.28.0
-
-  packages/language:
-    dependencies:
-      '@efx/compiler':
-        specifier: workspace:*
-        version: link:../compiler
-      '@volar/language-core':
-        specifier: ^2.4.28
-        version: 2.4.28
-      '@volar/source-map':
-        specifier: ^2.4.28
-        version: 2.4.28
-    devDependencies:
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^4.1.8
-        version: 4.1.8(@types/node@25.9.1)(happy-dom@20.9.0)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(yaml@2.9.0))
-
-  packages/runtime:
-    dependencies:
-      effect:
-        specifier: 4.0.0-beta.71
-        version: 4.0.0-beta.71
-    devDependencies:
-      '@effect/vitest':
-        specifier: 4.0.0-beta.71
-        version: 4.0.0-beta.71(effect@4.0.0-beta.71)(vitest@4.1.8(@types/node@25.9.1)(happy-dom@20.9.0)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(yaml@2.9.0)))
-
-  packages/testing:
-    dependencies:
-      '@efx/runtime':
-        specifier: workspace:*
-        version: link:../runtime
-      effect:
-        specifier: 4.0.0-beta.71
-        version: 4.0.0-beta.71
-    devDependencies:
       happy-dom:
         specifier: ^20.9.0
         version: 20.9.0
-      vitest:
-        specifier: ^4.1.8
-        version: 4.1.8(@types/node@25.9.1)(happy-dom@20.9.0)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(yaml@2.9.0))
-
-  packages/ts-plugin:
-    dependencies:
-      '@efx/language':
-        specifier: workspace:*
-        version: link:../language
-      '@volar/language-core':
-        specifier: ^2.4.28
-        version: 2.4.28
-      '@volar/typescript':
-        specifier: ^2.4.28
-        version: 2.4.28
-    devDependencies:
-      '@effect/vitest':
-        specifier: 4.0.0-beta.71
-        version: 4.0.0-beta.71(effect@4.0.0-beta.71)(vitest@4.1.8(@types/node@25.9.1)(happy-dom@20.9.0)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(yaml@2.9.0)))
-      esbuild:
-        specifier: ^0.28.0
-        version: 0.28.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-
-  packages/vite-plugin:
-    dependencies:
-      '@efx/compiler':
-        specifier: workspace:*
-        version: link:../compiler
-    devDependencies:
       vite:
         specifier: ^8.0.16
         version: 8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(yaml@2.9.0)

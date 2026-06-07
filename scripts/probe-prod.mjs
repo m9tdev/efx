@@ -2,7 +2,7 @@
 import { runProbe } from "./probe-harness.mjs"
 
 await runProbe({
-  url: process.env.EFX_URL ?? "http://localhost:8765/",
+  url: process.env.VERREX_URL ?? "http://localhost:8765/",
   viewport: { width: 900, height: 1400 },
   run: async (page) => {
     await page.waitForSelector(".todos ul")

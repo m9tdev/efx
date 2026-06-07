@@ -11,12 +11,12 @@ re-renders when you click +".
 
 | Script | What it verifies |
 |---|---|
-| `probe.mjs` | Counter increments; UserPage's async fetch resolves; screenshots saved to `/tmp/efx-verify/`. |
+| `probe.mjs` | Counter increments; UserPage's async fetch resolves; screenshots saved to `/tmp/verrex-verify/`. |
 | `probe-liveuser.mjs` | Keyed `Await`: clicking the LiveUser buttons changes the trigger `AtomRef`, refetching through Initial → Success → Failure → recovery. |
 | `probe-async-userpage.mjs` | Once-form `Await`: the boundary renders a pending placeholder then swaps in the success arm (`.async-user-page .user-body`). Non-blocking counterpart to `probe.mjs`'s in-component UserPage check. |
 | `probe-todos.mjs` | Keyed reactive list: add/remove/toggle a row leaves sibling DOM nodes untouched (tagged-node identity check). |
 | `probe-lifecycle.mjs` | Per-component lifecycle scope, three phases: (1) initial mount-event count, (2) removing a row fires its matching unmount via `Scope.closeUnsafe`, (3) full teardown via `__teardown` cascades through every row scope so every outstanding mount has a matching unmount. |
-| `probe-hmr.mjs` | Vite HMR on a `.efx` edit propagates without a full reload. |
+| `probe-hmr.mjs` | Vite HMR on a `.vx` edit propagates without a full reload. |
 | `probe-prod.mjs` | Production bundle (built via `pnpm build`) is interactive end-to-end on port 8765. |
 
 These are the operational definition of "the framework works in a
@@ -40,8 +40,8 @@ Every probe is split in two:
   `run(page, ctx)` callback. Defaults: `url` is
   `http://localhost:5173/`, `viewport` is `900×1100`, `pageerror`
   logs to stderr. Override any per-spec (e.g. `probe-prod.mjs` sets
-  `url` from `EFX_URL`; `probe.mjs` redirects both `onConsole` and
-  `onPageError` into a buffer for `/tmp/efx-verify/console.log`).
+  `url` from `VERREX_URL`; `probe.mjs` redirects both `onConsole` and
+  `onPageError` into a buffer for `/tmp/verrex-verify/console.log`).
 
 The harness does **not** force an exit-code or terminator convention.
 Some specs end with `console.log("DONE")`, `probe-lifecycle.mjs`
@@ -49,27 +49,27 @@ prints `PASS` / `FAIL`, `probe-hmr.mjs` prints `HMR PASS` / `HMR FAIL`
 and `process.exit(0|1)`. The spec decides.
 
 Specs that mutate repo files (e.g. `probe-hmr.mjs` editing
-`Counter.efx`) wrap `runProbe` in their own `try/finally` for cleanup.
+`Counter.vx`) wrap `runProbe` in their own `try/finally` for cleanup.
 The harness's `finally` only closes the browser.
 
 ## Compiler smoke test
 
 | Script | What it does |
 |---|---|
-| `test-compiler.mjs` | Runs `transformEfx` against an inline source string and prints the compiled output. Useful for "what does the compiler do with X" exploration without writing a vitest case. Not a substitute for `packages/compiler/src/transform.test.ts`. |
+| `test-compiler.mjs` | Runs `transformVerrex` against an inline source string and prints the compiled output. Useful for "what does the compiler do with X" exploration without writing a vitest case. Not a substitute for `packages/verrex/src/compiler/transform.test.ts`. |
 
 ## Conventions
 
-- Probes write screenshots to `/tmp/efx-verify/` — convenient for
+- Probes write screenshots to `/tmp/verrex-verify/` — convenient for
   visual diffing across runs; not committed.
 - Probes use `playwright-core` (devDep at the workspace root), which
-  does not bundle a browser. Set `EFX_CHROMIUM` to your Chromium binary
-  before running, e.g. `EFX_CHROMIUM=/usr/bin/chromium node scripts/probe.mjs`.
+  does not bundle a browser. Set `VERREX_CHROMIUM` to your Chromium binary
+  before running, e.g. `VERREX_CHROMIUM=/usr/bin/chromium node scripts/probe.mjs`.
   Leaving it unset will produce a "browser not found" error from
   `playwright-core`; swap to `playwright` (full) if you prefer a bundled
   browser instead.
 - Probes that read repo files (e.g. `probe-hmr.mjs` mutating
-  `Counter.efx`) resolve paths relative to the script via
+  `Counter.vx`) resolve paths relative to the script via
   `import.meta.url`, so they work from any clone or worktree.
 - Don't promote these to `pnpm test` without first wrapping them in a
   process supervisor that starts/stops the dev server. The probes
@@ -80,6 +80,6 @@ The harness's `finally` only closes the browser.
 - Don't add probes that overlap with what a vitest unit/type test can
   cover. Probes are for the things that have to render in real DOM —
   HMR, per-row Scope teardown, async state cycles, production-bundle
-  smoke. Reactivity *logic* belongs in `packages/runtime`'s test
+  smoke. Reactivity *logic* belongs in `packages/verrex/src/runtime`'s test
   suite.
-- Don't `git add` `/tmp/efx-verify/` screenshots. They're throwaway.
+- Don't `git add` `/tmp/verrex-verify/` screenshots. They're throwaway.

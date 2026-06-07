@@ -1,10 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "plugins": [{ "name": "@efx/ts-plugin" }]
+    "plugins": [{ "name": "@verrex/ts-plugin" }]
   },
-  // `.efx` sources go through `@efx/ts-plugin` (editor) or
-  // `@efx/check` (CLI); `.ts` files like `channels.test-d.ts` go
+  // `.vx` sources go through `@verrex/ts-plugin` (editor) or
+  // `verrex/check` (CLI); `.ts` files like `channels.test-d.ts` go
   // through the standard tsc path. Both must be included.
-  "include": ["src/**/*.ts", "src/**/*.efx"]
+  "include": ["src/**/*.ts", "src/**/*.vx"]
 }

@@ -1,0 +1,361 @@
+import { Cause, Effect, Exit, Fiber, Layer, Scope } from "effect"
+import { AtomRegistry } from "effect/unstable/reactivity"
+import { VerrexLive, mount, type View } from "verrex"
+import { Counter } from "./Counter.vx"
+import { AsyncUserPage } from "./AsyncUserPage.vx"
+import { flashOnUpdate } from "./flash.ts"
+import { highlight } from "./highlight.ts"
+import { Lifecycle } from "./Lifecycle.vx"
+import { LiveUser } from "./LiveUser.vx"
+import { Http, HttpLive, Theme, ThemeLive } from "./services.ts"
+import { Todos } from "./Todos.vx"
+import { UserPage } from "./UserPage.vx"
+
+const REPO = "https://github.com/m9tdev/verrex"
+const SRC = `${REPO}/blob/main/apps/demo/src`
+
+// Each demo is mounted independently (see `setupDemo` below); the refresh
+// button recreates it from scratch. `refreshers` maps a demo id to its remount
+// fn so the static button in `App` can trigger it.
+const refreshers = new Map<string, () => void>()
+const teardowns = new Map<string, () => void>()
+
+/**
+ * The static left column of a guided-tour section: a step number, the concept
+ * the primitive teaches, the *inferred* `Effect<View, E, R>` type, a curated
+ * source snippet, and a link to the full file. Pure presentation — folds to
+ * `Effect<View, never, never>`.
+ */
+const copy = (meta: {
+  readonly step: string
+  readonly title: string
+  readonly concept: string
+  readonly type: string
+  readonly code: string
+  readonly file: string
+}) => (
+  <div class="tour-copy">
+    <div class="tour-head">
+      <span class="step">{meta.step}</span>
+      <h2>{meta.title}</h2>
+    </div>
+    <p class="concept">{meta.concept}</p>
+    <p class="sig-label">inferred type</p>
+    <pre class="sig"><code>{meta.type}</code></pre>
+    <pre class="code"><code>{highlight(meta.code).map((t) => <span class={`tok-${t.kind}`}>{t.text}</span>)}</code></pre>
+    <a class="src" href={`${SRC}/${meta.file}`} target="_blank" rel="noreferrer">
+      view full source ↗
+    </a>
+  </div>
+)
+
+/**
+ * The right column: a "live" label, a refresh button that recreates the
+ * component (so its initial state — loading spinners, count 0, the original
+ * list — can be seen again), and the empty container `setupDemo` mounts into.
+ */
+const demoSlot = (id: string) => (
+  <div class="tour-demo">
+    <div class="demo-bar">
+      <span class="demo-label">live</span>
+      <button
+        class="demo-refresh"
+        title="recreate this component from scratch"
+        onclick={() => refreshers.get(id)?.()}
+      >
+        ↻ reset
+      </button>
+    </div>
+    <div class="demo-mount" data-demo={id}></div>
+  </div>
+)
+
+const App = (
+  <div class="app">
+    <header class="hero">
+      <p class="eyebrow">a guided tour</p>
+      <h1>verrex</h1>
+      <p class="tagline">
+        an <a href="https://effect.website" target="_blank" rel="noreferrer">Effect</a>-native
+        UI framework where the <code>{"<A, E, R>"}</code> channels survive from
+        every leaf of the view tree to the root. Forget to provide a service{" "}
+        <code>Layer</code> and you get a <em>compile-time error that names the
+          missing service</em> — not a runtime crash.
+      </p>
+      <div class="how">
+        <h3>the trick, in one breath</h3>
+        <p>
+          TypeScript erases generics at the JSX boundary, collapsing every
+          component to <code>JSX.Element</code> — fatal for a framework whose
+          point is that <code>E</code>/<code>R</code> survive composition. So
+          verrex never lets <code>tsc</code> see JSX: source files use a{" "}
+          <code>.vx</code> extension, and <code>verrex/compiler</code> rewrites
+          every <code>{"<tag/>"}</code> into an <code>h(tag, props, …children)</code>{" "}
+          call <em>before</em> tsc parses the file. <code>h()</code>'s
+          conditional-type signature then unions every child's <code>E</code>{" "}
+          and <code>R</code> into the result. tsc only ever type-checks plain
+          function calls — so the channels can't be erased.
+        </p>
+        <p class="how-note">
+          Every <code>inferred type</code> below is real, checked by{" "}
+          <a href={`${REPO}/blob/main/apps/demo/src/channels.test-d.ts`} target="_blank" rel="noreferrer">
+            channels.test-d.ts
+          </a>
+          . Each section pairs the source on the left with the running component
+          on the right. Interact with any demo — the brief highlight marks the
+          exact DOM node that re-rendered; nothing around it does. Hit{" "}
+          <strong>↻ reset</strong> to recreate a component and watch its
+          initial state (loading, count 0) from the top.
+        </p>
+      </div>
+    </header>
+
+    <section class="tour">
+      {copy({
+        step: "01",
+        title: "Reactive state",
+        concept:
+          "Local state is an Effect AtomRef — verrex ships no signal of its own. Drop the ref straight into child position and h() emits a reactive node; on update, only that text node re-renders. No services, so R is never.",
+        type: "Effect<View, never, never>",
+        code: `export const Counter = Effect.fn("Counter")(function* () {
+  const count = AtomRef.make(0)
+
+  return yield* (
+    <div>
+      <button onclick={() => count.update(n => n + 1)}>+</button>
+      <span>clicks: {count}</span>
+    </div>
+  )
+})`,
+        file: "Counter.vx",
+      })}
+      {demoSlot("counter")}
+    </section>
+
+    <section class="tour">
+      {copy({
+        step: "02",
+        title: "Effectful data (channels fold to root)",
+        concept:
+          "Fetch inside the component. `yield* Http` adds Http to R; the request can fail, so HttpError rides E. Both surface in the type and must be satisfied at mount — drop HttpLive below and main stops compiling. The subtree blocks until the request resolves.",
+        type: "Effect<View, HttpError, Http | Theme>",
+        code: `export const UserPage = Effect.fn("UserPage")(function* (props: {
+  userId: string
+}) {
+  const http = yield* Http        // adds Http to R
+  const theme = yield* Theme      // adds Theme to R
+  const user = yield* http.getUser(props.userId) // may fail → HttpError in E
+
+  return yield* (
+    <article class={theme.mode}>
+      <h1>{user.name}</h1>
+    </article>
+  )
+})`,
+        file: "UserPage.vx",
+      })}
+      {demoSlot("userpage")}
+    </section>
+
+    <section class="tour">
+      {copy({
+        step: "03",
+        title: "Await boundary (non-blocking)",
+        concept:
+          "Same fetch, wrapped in Await. A pending placeholder shows immediately; onError handles failure locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. The Scope is Await's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the element's own demo scope, so reset interrupts an in-flight fetch.",
+        type: "Effect<View, never, Http | Scope>",
+        code: `export const AsyncUserPage = Effect.fn("AsyncUserPage")(function* (props: {
+  userId: string
+}) {
+  const http = yield* Http   // folds into R; Scope comes from Await
+
+  return yield* Await(() => http.getUser(props.userId), {
+    pending:   <p>loading…</p>,
+    onError:   () => <p>failed</p>,
+    onSuccess: user => <h1>{user.name}</h1>,
+  })
+})`,
+        file: "AsyncUserPage.vx",
+      })}
+      {demoSlot("async")}
+    </section>
+
+    <section class="tour">
+      {copy({
+        step: "04",
+        title: "Await, auto-tracking (deps discovered)",
+        concept:
+          "The Await thunk reads userId.value, so the compiler tracks it as a dependency and re-runs the fetch whenever the id changes — interrupting the stale request. Deps are discovered, not declared: there is no `from`, no key array. Click the buttons to refetch.",
+        type: "Effect<View, never, Http | Scope>",
+        code: `export const LiveUser = Effect.fn("LiveUser")(function* () {
+  const userId = AtomRef.make("42")
+  const http = yield* Http
+
+  return yield* (
+    <div>
+      <button onclick={() => userId.set("7")}>Grace</button>
+
+      {Await(() => http.getUser(userId.value), {
+        pending:   <span>loading…</span>,
+        onError:   () => <span>not found</span>,
+        onSuccess: user => <strong>{user.name}</strong>,
+      })}
+    </div>
+  )
+})
+// the thunk reads userId.value → refetch when it changes`,
+        file: "LiveUser.vx",
+      })}
+      {demoSlot("live")}
+    </section>
+
+    <section class="tour">
+      {copy({
+        step: "05",
+        title: "Keyed reactive list",
+        concept:
+          "A collection where each row is its own AtomRef. `coll.value.map(x => <Row/>)` in JSX compiles to a keyed View.List node; mount reconciles by ref identity on add/remove. Each row subscribes to its own ref, so toggling one doesn't re-render the rest.",
+        type: "Effect<View, never, never>",
+        code: `export const Todos = Effect.fn("Todos")(function* () {
+  const todos = AtomRef.collection<Todo>([
+    { text: "build a UI framework", done: true },
+    { text: "write a blog post", done: false },
+  ])
+
+  return yield* (
+    <ul>
+      {todos.value.map(item =>
+        <TodoRow item={item} remove={() => todos.remove(item)} />)}
+    </ul>
+  )
+})
+// → keyed View.List; mount reconciles rows by ref identity`,
+        file: "Todos.vx",
+      })}
+      {demoSlot("todos")}
+    </section>
+
+    <section class="tour">
+      {copy({
+        step: "06",
+        title: "Per-component lifecycle",
+        concept:
+          "Effect.acquireRelease registers a finalizer against the current Scope, so it rides Row's R — that's the inferred type shown. Each row mounts in its own Scope, so the release fires when that row's DOM is removed, not when the whole app unmounts. list() supplies each row's Scope, so a parent that renders the list stays Scope-free. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Reset closes the demo's scope, firing every remaining row's finalizer at once.)",
+        type: "Effect<View, never, Scope>",
+        code: `const Row = Effect.fn("Row")(function* (props: {
+  item: AtomRef<Item>
+}) {
+  const id = props.item.value.id
+  yield* Effect.acquireRelease(
+    Effect.sync(() => log(\`mount:\${id}\`)),
+    () => Effect.sync(() => log(\`unmount:\${id}\`)),
+  )
+  return yield* <li>row {id}</li>
+})
+
+// in a parent component — the map compiles to list(), which gives
+// each Row its own Scope, so the parent's own R stays never:
+<ul>{items.value.map(item => <Row item={item} />)}</ul>`,
+        file: "Lifecycle.vx",
+      })}
+      {demoSlot("lifecycle")}
+    </section>
+
+    <footer class="site-footer">
+      <p>
+        verrex is an experimental proof-of-concept.{" "}
+        <a href={REPO} target="_blank" rel="noreferrer">source on GitHub ↗</a>
+      </p>
+    </footer>
+  </div>
+)
+
+const rootEl = document.getElementById("root")
+if (!rootEl) throw new Error("missing #root")
+
+// The full app Layer. Every demo's requirements must be a subset of what this
+// provides — `setupDemo`'s signature enforces it, so forgetting (say) HttpLive
+// is a compile error at the UserPage/AsyncUserPage/LiveUser call sites, not a
+// runtime crash. That's the thesis, now enforced per-mount.
+const APP_LAYER = Layer.mergeAll(VerrexLive, HttpLive, ThemeLive)
+
+// Everything the demos may require, after VerrexLive/HttpLive/ThemeLive: the
+// reactivity registry, the two services, and a Scope.
+type DemoR = AtomRegistry.AtomRegistry | Http | Theme | Scope.Scope
+
+/**
+ * Mount a component into its demo container under a Closeable scope we own, and
+ * register a `remount` that tears the old one down (firing its finalizers,
+ * cancelling in-flight Await fetches) and builds a fresh one. Because `make()`
+ * is called anew each time, refresh shows the component's initial state again.
+ *
+ * `make`'s `R` is constrained to `DemoR`, so a component needing a service
+ * APP_LAYER doesn't provide won't type-check here.
+ */
+const setupDemo = <E>(id: string, make: () => Effect.Effect<View, E, DemoR>): void => {
+  const container = rootEl.querySelector<HTMLElement>(`[data-demo="${id}"]`)
+  if (!container) throw new Error(`missing demo container: ${id}`)
+
+  let teardown: (() => void) | null = null
+  const remount = (): void => {
+    teardown?.()
+    const scope = Scope.makeUnsafe()
+    Effect.runFork(
+      Scope.provide(
+        mount(make(), container).pipe(
+          Effect.catchCause((cause) =>
+            Effect.sync(() => console.error(`[verrex demo: ${id}]`, Cause.pretty(cause))),
+          ),
+          Effect.provide(APP_LAYER),
+        ),
+        scope,
+      ),
+    )
+    teardown = () => {
+      const closing = Scope.closeUnsafe(scope, Exit.void)
+      if (closing) Effect.runFork(closing)
+    }
+  }
+
+  refreshers.set(id, remount)
+  teardowns.set(id, () => teardown?.())
+  remount()
+}
+
+const program = Effect.gen(function* () {
+  yield* mount(App, rootEl)
+  yield* Effect.sync(() => {
+    setupDemo("counter", () => Counter())
+    setupDemo("userpage", () => UserPage({ userId: "42" }))
+    setupDemo("async", () => AsyncUserPage({ userId: "42" }))
+    setupDemo("live", () => LiveUser())
+    setupDemo("todos", () => Todos())
+    setupDemo("lifecycle", () => Lifecycle())
+  })
+  // Start the reactivity flash once the initial mounts settle (incl. the
+  // simulated fetch latency), so only interactions and resets flash — not page
+  // load. Keep this comfortably past the latency in services.ts.
+  yield* Effect.sleep("900 millis")
+  yield* Effect.sync(() => flashOnUpdate(rootEl))
+  // Keep App's scope alive so the refresh buttons' listeners persist.
+  yield* Effect.never
+}).pipe(
+  Effect.scoped,
+  Effect.catchCause((cause) =>
+    Effect.sync(() => {
+      console.error("App failed:", Cause.pretty(cause))
+    }),
+  ),
+  Effect.provide(APP_LAYER),
+)
+
+const fiber = Effect.runFork(program)
+
+// Test affordance: scripts/probe-lifecycle.mjs calls this to trigger a full
+// teardown. Closing each demo's scope cascades through every per-row /
+// per-Reactive sub-scope and fires their finalizers; interrupting the App
+// fiber tears down the static shell.
+;(globalThis as { __teardown?: () => void }).__teardown = () => {
+  for (const close of teardowns.values()) close()
+  Effect.runFork(Fiber.interrupt(fiber))
+}

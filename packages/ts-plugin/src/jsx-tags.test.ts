@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { JsxRange } from "@efx/language"
+import type { JsxRange } from "verrex/language"
 import { findJsxTagPair, type JsxTagProvider } from "./jsx-tags.ts"
 
 const mockProvider = (ranges: ReadonlyArray<JsxRange>): JsxTagProvider => ({
@@ -9,12 +9,12 @@ const mockProvider = (ranges: ReadonlyArray<JsxRange>): JsxTagProvider => ({
 describe("findJsxTagPair", () => {
   it("returns null when provider has no ranges for the file", () => {
     const provider: JsxTagProvider = { getJsxRanges: () => undefined }
-    expect(findJsxTagPair(provider, "test.efx", 5)).toBeNull()
+    expect(findJsxTagPair(provider, "test.vx", 5)).toBeNull()
   })
 
   it("returns null for empty ranges", () => {
     const provider = mockProvider([])
-    expect(findJsxTagPair(provider, "test.efx", 5)).toBeNull()
+    expect(findJsxTagPair(provider, "test.vx", 5)).toBeNull()
   })
 
   it("skips fragments (no name to highlight)", () => {
@@ -27,7 +27,7 @@ describe("findJsxTagPair", () => {
         closingTag: { start: 17, end: 20 },
       },
     ])
-    expect(findJsxTagPair(provider, "test.efx", 1)).toBeNull()
+    expect(findJsxTagPair(provider, "test.vx", 1)).toBeNull()
   })
 
   it("returns tag pair when cursor is on opening tag name", () => {
@@ -43,7 +43,7 @@ describe("findJsxTagPair", () => {
         closingTag: { start: 8, end: 14, nameStart: 10, nameEnd: 13 },
       },
     ])
-    const result = findJsxTagPair(provider, "test.efx", 1)
+    const result = findJsxTagPair(provider, "test.vx", 1)
     expect(result).toEqual({
       current: { start: 1, length: 3 },
       partner: { start: 10, length: 3 },
@@ -61,7 +61,7 @@ describe("findJsxTagPair", () => {
         closingTag: { start: 8, end: 14, nameStart: 10, nameEnd: 13 },
       },
     ])
-    const result = findJsxTagPair(provider, "test.efx", 10)
+    const result = findJsxTagPair(provider, "test.vx", 10)
     expect(result).toEqual({
       current: { start: 10, length: 3 },
       partner: { start: 1, length: 3 },
@@ -79,7 +79,7 @@ describe("findJsxTagPair", () => {
         openingTag: { start: 0, end: 7, nameStart: 1, nameEnd: 4 },
       },
     ])
-    expect(findJsxTagPair(provider, "test.efx", 1)).toBeNull()
+    expect(findJsxTagPair(provider, "test.vx", 1)).toBeNull()
   })
 
   it("returns null when cursor is on attributes (not tag name or brackets)", () => {
@@ -97,7 +97,7 @@ describe("findJsxTagPair", () => {
       },
     ])
     // Position 6 is in "class" attribute area
-    expect(findJsxTagPair(provider, "test.efx", 6)).toBeNull()
+    expect(findJsxTagPair(provider, "test.vx", 6)).toBeNull()
   })
 
   it("returns tag pair when cursor is on opening bracket <", () => {
@@ -111,7 +111,7 @@ describe("findJsxTagPair", () => {
         closingTag: { start: 8, end: 14, nameStart: 10, nameEnd: 13 },
       },
     ])
-    const result = findJsxTagPair(provider, "test.efx", 0)
+    const result = findJsxTagPair(provider, "test.vx", 0)
     expect(result).toEqual({
       current: { start: 1, length: 3 },
       partner: { start: 10, length: 3 },

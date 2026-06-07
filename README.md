@@ -1,15 +1,21 @@
-# efx
+# verrex
 
 An experimental TypeScript UI framework where Effect's `<A, E, R>` channels
 propagate from every leaf of the view tree to the root. Forgetting to provide
 a service `Layer` becomes a **compile-time error that names the missing
 service**.
 
+> **Why "verrex"?** The name is built from the channels of an
+> `Effect<View, E, R>` — **V** (View — the `A`, which here is always the
+> `View`), **E** (Error), **R** (Requirements) — plus **X**, because the JSX/TSX
+> syntax it borrows adds an X too. `V + E + R + X` spells **verx**, stylized to
+> **verrex** (and the source extension is `.vx`).
+
 Status: proof-of-concept. Not for production. Architecture, invariants, and
 per-package contracts live in [AGENTS.md](./AGENTS.md) and the per-subsystem
 AGENTS.md tree.
 
-**▶ [Live demo](https://m9tdev.github.io/efx/)** — a guided tour through each
+**▶ [Live demo](https://m9tdev.github.io/verrex/)** — a guided tour through each
 primitive: the source on the left, the inferred `Effect<View, E, R>` type, and
 the running component (with a reset button) on the right.
 
@@ -34,7 +40,7 @@ the running component (with a reset button) on the right.
 - **Keyed reactive lists.** `{todos.value.map(item => <Row item={item} />)}`
   is compiled to a keyed list that reconciles by `AtomRef` identity — adding,
   removing, or toggling one item never tears down the others.
-- **Custom file extension.** `.efx` files are compiled by Babel to plain
+- **Custom file extension.** `.vx` files are compiled by Babel to plain
   TypeScript before `tsc` ever sees them, so TypeScript's JSX type checker
   is never engaged — that's how channels survive instead of collapsing to
   `JSX.Element`.
@@ -42,8 +48,8 @@ the running component (with a reset button) on the right.
 ## Quick start
 
 ```bash
-git clone … efx
-cd efx
+git clone … verrex
+cd verrex
 pnpm install
 pnpm dev
 # open http://localhost:5173
@@ -52,16 +58,16 @@ pnpm dev
 The demo is a guided tour that exercises every primitive — reactive counter,
 blocking and `Await`-boundary data fetches, auto-tracking refetch, keyed
 reactive list, and per-component lifecycle — each with a reset button. It's
-also deployed at [m9tdev.github.io/efx](https://m9tdev.github.io/efx/).
+also deployed at [m9tdev.github.io/verrex](https://m9tdev.github.io/verrex/).
 
 On Nix, `nix develop` drops you into a shell with Node, Corepack (for
-`pnpm` via the `packageManager` field), and Chromium (with `EFX_CHROMIUM`
+`pnpm` via the `packageManager` field), and Chromium (with `VERREX_CHROMIUM`
 pre-exported for the probe scripts).
 
 ## Smallest possible example
 
 ```tsx
-// Counter.efx
+// Counter.vx
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 
@@ -78,17 +84,17 @@ export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
 ```
 
 ```ts
-// main.efx
+// main.vx
 import { Effect, Layer } from "effect"
-import { EfxLive, mount } from "@efx/runtime"
-import { Counter } from "./Counter.efx"
+import { VerrexLive, mount } from "verrex"
+import { Counter } from "./Counter.vx"
 
 const program = Effect.gen(function* () {
   yield* mount(<Counter />, document.getElementById("root")!)
   yield* Effect.never
 }).pipe(
   Effect.scoped,
-  Effect.provide(EfxLive),
+  Effect.provide(VerrexLive),
 )
 
 Effect.runFork(program)
@@ -98,21 +104,23 @@ Effect.runFork(program)
 
 ```
 packages/
-  runtime/      View IR, h(), mount(), Await(), list(), reactivity bindings
-  compiler/     .efx → plain TypeScript (Babel)
-  language/     Volar language plugin (shared by ts-plugin + check)
-  ts-plugin/    TypeScript Language Service plugin (editor integration)
-  check/        Standalone CLI type-checker for .efx projects
-  vite-plugin/  Vite integration
+  verrex/             one package, subpath exports:
+    src/runtime/        export `verrex`     — View IR, h(), mount(), Await(), list()
+    src/compiler/       export `verrex/compiler` — .vx → plain TypeScript (Babel)
+    src/language/       export `verrex/language` — Volar language plugin
+    src/check/          export `verrex/check`, bin `verrex-check`
+    src/vite-plugin/    export `verrex/vite`  — Vite integration
+    src/testing/        export `verrex/testing`
+  ts-plugin/   publishes as `@verrex/ts-plugin` — TS Language Service plugin (editor)
 apps/
-  demo/         Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle
+  demo/               Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle
 ```
 
 ## The primitives
 
 | You import from      | What you get                                                                              |
 |----------------------|-------------------------------------------------------------------------------------------|
-| `@efx/runtime`      | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `EfxLive`                             |
+| `verrex`      | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `VerrexLive`                             |
 | `effect`             | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …  |
 | `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                  |
 
@@ -125,10 +133,10 @@ JSX expression is automatically wrapped in a tracking scope.
 
 | Command            | What it does                                                  |
 |--------------------|---------------------------------------------------------------|
-| `pnpm dev`         | Vite dev server with HMR on `.efx` files                      |
-| `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `@efx/check` (.efx-aware) |
-| `pnpm build`       | Production build via Vite (`@efx/vite-plugin` owns the transform) |
-| `pnpm test`        | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `@efx/check` |
+| `pnpm dev`         | Vite dev server with HMR on `.vx` files                      |
+| `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `verrex/check` (.vx-aware) |
+| `pnpm build`       | Production build via Vite (`verrex/vite` owns the transform) |
+| `pnpm test`        | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `verrex/check` |
 
 ## Bundle size
 
@@ -141,7 +149,7 @@ JSX expression is automatically wrapped in a tracking scope.
 
 The JS bundle contains: `effect@4.0.0-beta.71` runtime (~6 kB gzipped per
 upstream docs), `effect/unstable/reactivity` (`AtomRef`, `Atom`,
-`AtomRegistry`, `AsyncResult`), the `@efx/runtime` runtime (~600 LOC,
+`AtomRegistry`, `AsyncResult`), the `verrex` runtime (~600 LOC,
 contributes single-digit kB), plus all six demo components (`Counter`,
 `UserPage`, `AsyncUserPage`, `LiveUser`, `Todos`, `Lifecycle`), the guided-tour
 shell (a small dependency-free TSX highlighter + reactivity-flash visualizer),
@@ -149,45 +157,45 @@ and their mock services. Verified interactive after build — Counter increments
 the `Await` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's
 per-row scope fires releases on row removal.
 
-Vite serves `.efx` files directly through `@efx/vite-plugin` at dev time;
-type-checking goes through `@efx/check`, which feeds `.efx` to tsc as virtual
+Vite serves `.vx` files directly through `verrex/vite` at dev time;
+type-checking goes through `verrex/check`, which feeds `.vx` to tsc as virtual
 TypeScript via the shared Volar language plugin. No sibling `.ts` files are
 emitted to disk.
 
 ## Editor setup
 
-A TypeScript Language Service Plugin (`@efx/ts-plugin`) ships with the
+A TypeScript Language Service Plugin (`@verrex/ts-plugin`) ships with the
 workspace and is wired into `apps/demo/tsconfig.json`'s `plugins` array.
 The plugin uses Volar's language plugin framework to provide full IDE
-support for `.efx` files.
+support for `.vx` files.
 
 **What works:** Diagnostics, hover, go-to-definition, find-references,
 inlay hints, and document highlights (including JSX tag pair matching).
 
-On GitHub, `.efx` files render with TSX syntax highlighting (via a
+On GitHub, `.vx` files render with TSX syntax highlighting (via a
 `linguist-language=TSX` override in `.gitattributes`).
 
 ### Neovim
 
 ```vim
-" Treat .efx as TSX so your LSP attaches and treesitter highlights it
-autocmd BufRead,BufNewFile *.efx setfiletype typescriptreact
+" Treat .vx as TSX so your LSP attaches and treesitter highlights it
+autocmd BufRead,BufNewFile *.vx setfiletype typescriptreact
 ```
 
 That plus `tsserver` already configured for `typescriptreact` is enough.
 First time opening the workspace you may want to ensure
 `packages/ts-plugin/dist/index.cjs` exists — run `pnpm install` from the
-repo root or `pnpm --filter @efx/ts-plugin build` directly.
+repo root or `pnpm --filter @verrex/ts-plugin build` directly.
 
 ### VS Code
 
-`@efx/ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
+`@verrex/ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
 "TypeScript: Select TypeScript Version → Use Workspace Version" to make
-sure VS Code's TS extension picks up the plugin. `.efx` files get treated
+sure VS Code's TS extension picks up the plugin. `.vx` files get treated
 as TypeScript once the plugin loads.
 
 ## See also
 
 - [AGENTS.md](./AGENTS.md) — architecture, per-package contracts, invariants, anti-patterns.
 - [`apps/demo/src/channels.test-d.ts`](./apps/demo/src/channels.test-d.ts) — compile-time proof that channels propagate and typed props catch misuse.
-- [`packages/runtime/src/types/Fold.test-d.ts`](./packages/runtime/src/types/Fold.test-d.ts) — channel-fold conditional-type test matrix.
+- [`packages/verrex/src/runtime/types/Fold.test-d.ts`](./packages/verrex/src/runtime/types/Fold.test-d.ts) — channel-fold conditional-type test matrix.

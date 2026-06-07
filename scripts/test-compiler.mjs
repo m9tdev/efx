@@ -1,8 +1,8 @@
-import { transformEfx } from "../packages/compiler/src/index.ts"
+import { transformVerrex } from "../packages/verrex/src/compiler/index.ts"
 
 const src = `
 import { Effect } from "effect"
-import { h, Fragment } from "@efx/runtime"
+import { h, Fragment } from "verrex"
 
 export const Demo = (name: string) => Effect.gen(function*() {
   return yield* (
@@ -21,7 +21,7 @@ export const Demo = (name: string) => Effect.gen(function*() {
 })
 `
 
-const { code, map } = transformEfx(src, "demo.efx")
+const { code, map } = transformVerrex(src, "demo.vx")
 console.log("=== output ===")
 console.log(code)
 console.log("=== map keys ===")

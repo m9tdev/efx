@@ -1,5 +1,5 @@
 {
-  "name": "@efx/ts-plugin",
+  "name": "@verrex/ts-plugin",
   "version": "0.0.0",
   "private": true,
   "main": "./dist/index.cjs",
@@ -8,15 +8,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run && pnpm run build && node test/integration.mjs"
   },
-  "dependencies": {
-    "@efx/language": "workspace:*",
-    "@volar/language-core": "^2.4.28",
-    "@volar/typescript": "^2.4.28"
-  },
   "peerDependencies": {
     "typescript": "^6.0.3"
   },
   "devDependencies": {
+    "verrex": "workspace:*",
+    "@volar/language-core": "^2.4.28",
+    "@volar/typescript": "^2.4.28",
     "@effect/vitest": "4.0.0-beta.71",
     "esbuild": "^0.28.0",
     "typescript": "^6.0.3"

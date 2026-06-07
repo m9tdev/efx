@@ -1,4 +1,4 @@
-import type { JsxRange } from "@efx/language"
+import type { JsxRange } from "verrex/language"
 
 export interface NameSpan {
   readonly start: number
@@ -6,16 +6,16 @@ export interface NameSpan {
 }
 
 /**
- * Provides JSX range data for a `.efx` file. Abstracts how ranges are stored
+ * Provides JSX range data for a `.vx` file. Abstracts how ranges are stored
  * (registry, in-memory map, etc.) so `findJsxTagPair` can be tested and reused
  * without coupling to a specific cache implementation.
  */
 export interface JsxTagProvider {
-  getJsxRanges(efxPath: string): ReadonlyArray<JsxRange> | undefined
+  getJsxRanges(verrexPath: string): ReadonlyArray<JsxRange> | undefined
 }
 
 /**
- * Given a cursor position in a `.efx` source, find the JSX tag at that position
+ * Given a cursor position in a `.vx` source, find the JSX tag at that position
  * and its paired partner (opening↔closing). Returns name spans only; consumers
  * highlight just the names, not the brackets.
  *
@@ -29,15 +29,15 @@ export interface JsxTagProvider {
  *
  * Fragments (`<>...</>`) have no names — skipped.
  *
- * Callers should gate on `.efx` files before calling — this function doesn't
+ * Callers should gate on `.vx` files before calling — this function doesn't
  * validate the file extension.
  */
 export function findJsxTagPair(
   provider: JsxTagProvider,
-  efxPath: string,
+  verrexPath: string,
   position: number,
 ): { current: NameSpan; partner: NameSpan } | null {
-  const ranges = provider.getJsxRanges(efxPath)
+  const ranges = provider.getJsxRanges(verrexPath)
   if (!ranges) return null
 
   for (const r of ranges) {

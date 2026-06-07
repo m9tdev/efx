@@ -13,7 +13,7 @@ await runProbe({
     console.log("initial texts:", initialTexts)
     console.log("initial remaining:", (await page.locator(".todos .remaining").innerText()).trim())
 
-    await page.screenshot({ path: "/tmp/efx-verify/08-todos-initial.png" })
+    await page.screenshot({ path: "/tmp/verrex-verify/08-todos-initial.png" })
 
     // Capture the DOM node of the first item BEFORE we touch anything else,
     // so we can confirm later that toggling didn't replace it.
@@ -48,7 +48,7 @@ await runProbe({
     const newFirstText = await list.first().locator(".text").innerText()
     console.log("new first text:", newFirstText)
 
-    await page.screenshot({ path: "/tmp/efx-verify/09-todos-after.png" })
+    await page.screenshot({ path: "/tmp/verrex-verify/09-todos-after.png" })
   },
 })
 

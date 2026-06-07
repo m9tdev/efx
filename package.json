@@ -1,10 +1,10 @@
 {
-  "name": "efx-monorepo",
+  "name": "verrex-monorepo",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @efx/demo dev",
+    "dev": "pnpm --filter verrex-demo dev",
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
     "size": "pnpm -r build 2>&1 | grep -E 'dist/.*\\.(js|html)' | sed 's/^.*demo build: //'",

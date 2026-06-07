@@ -10,7 +10,7 @@
 import { runProbe } from "./probe-harness.mjs"
 
 const { initial, afterAdd, afterRemove, beforeTeardown, afterTeardown } = await runProbe({
-  url: process.env.EFX_URL ?? "http://localhost:5173/",
+  url: process.env.VERREX_URL ?? "http://localhost:5173/",
   viewport: { width: 900, height: 1400 },
   run: async (page) => {
     await page.waitForSelector(".lifecycle")

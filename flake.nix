@@ -18,7 +18,7 @@
           ]
           ++ lib.optionals stdenv.isLinux [chromium];
         shellHook = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
-          export EFX_CHROMIUM="${pkgs.chromium}/bin/chromium"
+          export VERREX_CHROMIUM="${pkgs.chromium}/bin/chromium"
         '';
       };
     });

@@ -1,0 +1,52 @@
+{
+  "name": "verrex",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/runtime/index.ts",
+    "./compiler": "./src/compiler/index.ts",
+    "./language": "./src/language/index.ts",
+    "./vite": "./src/vite-plugin/index.ts",
+    "./testing": "./src/testing/index.ts",
+    "./check": "./src/check/index.ts"
+  },
+  "bin": {
+    "verrex-check": "./src/check/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run && node --experimental-strip-types test/check/integration.mjs"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.71",
+    "@babel/parser": "^7.29.7",
+    "@babel/traverse": "^7.29.7",
+    "@babel/generator": "^7.29.7",
+    "@babel/types": "^7.29.7",
+    "@jridgewell/sourcemap-codec": "^1.5.5",
+    "@volar/language-core": "^2.4.28",
+    "@volar/source-map": "^2.4.28",
+    "@volar/kit": "^2.4.28",
+    "@volar/language-service": "^2.4.28",
+    "volar-service-typescript": "^0.0.71",
+    "vscode-uri": "^3.1.0"
+  },
+  "peerDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  },
+  "peerDependenciesMeta": {
+    "typescript": { "optional": true },
+    "vite": { "optional": true }
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-beta.71",
+    "@types/babel__generator": "^7",
+    "@types/babel__traverse": "^7",
+    "happy-dom": "^20.9.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
+  }
+}

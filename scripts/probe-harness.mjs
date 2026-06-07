@@ -9,7 +9,7 @@ export async function runProbe({
   run,
 }) {
   const browser = await chromium.launch({
-    executablePath: process.env.EFX_CHROMIUM,
+    executablePath: process.env.VERREX_CHROMIUM,
     headless: true,
     args: ["--no-sandbox", "--disable-gpu"],
   })

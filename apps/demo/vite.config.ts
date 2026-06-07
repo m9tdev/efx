@@ -1,5 +1,5 @@
 import { defineConfig } from "vite"
-import { efx } from "@efx/vite-plugin"
+import { verrex } from "verrex/vite"
 
 export default defineConfig({
   root: ".",
@@ -11,8 +11,8 @@ export default defineConfig({
     allowedHosts: true,
   },
   resolve: {
-    // Prefer .efx over .ts so dev mode resolves source files through our plugin.
-    extensions: [".efx", ".ts", ".tsx", ".mjs", ".js", ".mts", ".cts"],
+    // Prefer .vx over .ts so dev mode resolves source files through our plugin.
+    extensions: [".vx", ".ts", ".tsx", ".mjs", ".js", ".mts", ".cts"],
   },
   build: {
     rollupOptions: {
@@ -34,5 +34,5 @@ export default defineConfig({
       },
     },
   },
-  plugins: [efx()],
+  plugins: [verrex()],
 })

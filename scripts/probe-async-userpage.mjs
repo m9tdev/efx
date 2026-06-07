@@ -1,4 +1,4 @@
-// AsyncUserPage probe — the `Await` boundary (once form) on a real `.efx` file.
+// AsyncUserPage probe — the `Await` boundary (once form) on a real `.vx` file.
 // Unlike UserPage (in-component fetch, blocking), AsyncUserPage shows a pending
 // placeholder then swaps in the user body. Asserts the resolved success arm.
 import { runProbe } from "./probe-harness.mjs"
