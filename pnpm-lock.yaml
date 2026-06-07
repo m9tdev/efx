@@ -87,9 +87,6 @@ importers:
       '@volar/source-map':
         specifier: ^2.4.28
         version: 2.4.28
-      effect:
-        specifier: 4.0.0-beta.71
-        version: 4.0.0-beta.71
       volar-service-typescript:
         specifier: ^0.0.71
         version: 0.0.71(@volar/language-service@2.4.28)
@@ -106,6 +103,9 @@ importers:
       '@types/babel__traverse':
         specifier: ^7
         version: 7.28.0
+      effect:
+        specifier: 4.0.0-beta.71
+        version: 4.0.0-beta.71
       happy-dom:
         specifier: ^20.9.0
         version: 20.9.0

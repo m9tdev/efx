@@ -1,8 +1,23 @@
 {
   "name": "@verrex/ts-plugin",
   "version": "0.0.0",
-  "private": true,
+  "description": "Volar-based TypeScript Language Service plugin for .vx files — diagnostics, hover, go-to-definition, find-references, inlay hints, and JSX tag-pair highlights.",
+  "license": "MIT",
+  "author": "Mathieu Post",
+  "homepage": "https://github.com/m9tdev/verrex#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/m9tdev/verrex.git",
+    "directory": "packages/ts-plugin"
+  },
+  "bugs": "https://github.com/m9tdev/verrex/issues",
+  "keywords": ["effect", "verrex", "vx", "typescript", "language-service-plugin", "volar"],
   "main": "./dist/index.cjs",
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",

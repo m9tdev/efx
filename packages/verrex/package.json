@@ -1,25 +1,88 @@
 {
   "name": "verrex",
   "version": "0.0.0",
-  "private": true,
+  "description": "An Effect-native UI framework where Effect's <A, E, R> channels propagate from every leaf of the view tree to the root — a forgotten Layer becomes a compile-time error that names the missing service.",
+  "license": "MIT",
+  "author": "Mathieu Post",
+  "homepage": "https://github.com/m9tdev/verrex#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/m9tdev/verrex.git",
+    "directory": "packages/verrex"
+  },
+  "bugs": "https://github.com/m9tdev/verrex/issues",
+  "keywords": ["effect", "ui", "framework", "jsx", "reactivity", "verrex", "vx"],
   "type": "module",
+  "sideEffects": false,
   "exports": {
-    ".": "./src/runtime/index.ts",
-    "./compiler": "./src/compiler/index.ts",
-    "./language": "./src/language/index.ts",
-    "./vite": "./src/vite-plugin/index.ts",
-    "./testing": "./src/testing/index.ts",
-    "./check": "./src/check/index.ts"
+    ".": {
+      "types": "./src/runtime/index.ts",
+      "default": "./src/runtime/index.ts"
+    },
+    "./compiler": {
+      "types": "./src/compiler/index.ts",
+      "default": "./src/compiler/index.ts"
+    },
+    "./language": {
+      "types": "./src/language/index.ts",
+      "default": "./src/language/index.ts"
+    },
+    "./vite": {
+      "types": "./src/vite-plugin/index.ts",
+      "default": "./src/vite-plugin/index.ts"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
+    },
+    "./check": {
+      "types": "./src/check/index.ts",
+      "default": "./src/check/index.ts"
+    }
   },
   "bin": {
     "verrex-check": "./src/check/cli.ts"
   },
+  "files": ["dist", "src", "!**/*.test.ts", "!**/*.test-d.ts"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      ".": {
+        "types": "./dist/runtime/index.d.ts",
+        "default": "./dist/runtime/index.js"
+      },
+      "./compiler": {
+        "types": "./dist/compiler/index.d.ts",
+        "default": "./dist/compiler/index.js"
+      },
+      "./language": {
+        "types": "./dist/language/index.d.ts",
+        "default": "./dist/language/index.js"
+      },
+      "./vite": {
+        "types": "./dist/vite-plugin/index.d.ts",
+        "default": "./dist/vite-plugin/index.js"
+      },
+      "./testing": {
+        "types": "./dist/testing/index.d.ts",
+        "default": "./dist/testing/index.js"
+      },
+      "./check": {
+        "types": "./dist/check/index.d.ts",
+        "default": "./dist/check/index.js"
+      }
+    },
+    "bin": {
+      "verrex-check": "./dist/check/cli.js"
+    }
+  },
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node --experimental-strip-types test/check/integration.mjs"
   },
   "dependencies": {
-    "effect": "4.0.0-beta.71",
     "@babel/parser": "^7.29.7",
     "@babel/traverse": "^7.29.7",
     "@babel/generator": "^7.29.7",
@@ -33,6 +96,7 @@
     "vscode-uri": "^3.1.0"
   },
   "peerDependencies": {
+    "effect": "4.0.0-beta.71",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   },
@@ -41,6 +105,7 @@
     "vite": { "optional": true }
   },
   "devDependencies": {
+    "effect": "4.0.0-beta.71",
     "@effect/vitest": "4.0.0-beta.71",
     "@types/babel__generator": "^7",
     "@types/babel__traverse": "^7",
