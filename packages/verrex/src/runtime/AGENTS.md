@@ -400,7 +400,7 @@ pnpm --filter verrex typecheck
 pnpm --filter verrex-demo typecheck
 ```
 
-The `channels.test-d.ts` files (`runtime/src/types/Fold.test-d.ts`
+The `channels.test-d.ts` files (`types/Fold.test-d.ts`
 and `apps/demo/src/channels.test-d.ts`) are compile-time proofs
 that the fold works for the JSX shapes we care about. Failing
 `expectTypeOf` calls are real regressions.
