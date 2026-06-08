@@ -64,6 +64,19 @@ On Nix, `nix develop` drops you into a shell with Node, Corepack (for
 `pnpm` via the `packageManager` field), and Chromium (with `VERREX_CHROMIUM`
 pre-exported for the probe scripts).
 
+## Install
+
+```bash
+pnpm add verrex effect            # the framework (effect is a peer dependency)
+pnpm add -D @verrex/ts-plugin     # editor support for .vx files (see below)
+```
+
+`verrex` ships its compiled `dist` alongside the original `src` with declaration
+maps, so go-to-definition jumps straight into the framework's TypeScript source.
+Releases are cut from conventional commits (release-please) and published to npm
+with provenance. It's `0.x` and experimental — expect breaking changes between
+minor versions.
+
 ## Smallest possible example
 
 ```tsx
