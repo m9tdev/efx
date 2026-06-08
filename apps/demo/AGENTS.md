@@ -26,9 +26,9 @@ they can be exercised in a browser side-by-side.
 Cross-file `.vx` imports carry an explicit `.vx` extension (see
 the root [AGENTS.md](../../AGENTS.md) invariant). As a result
 nothing in this demo's build pipeline emits sibling `.ts` files:
-`pnpm typecheck` runs [`@verrex/core/check`](../../packages/verrex/src/check/AGENTS.md)
+`pnpm typecheck` runs [`@verrex/core/check`](../../packages/core/src/check/AGENTS.md)
 directly, `vite build` runs
-[`@verrex/core/vite`](../../packages/verrex/src/vite-plugin/AGENTS.md)
+[`@verrex/core/vite`](../../packages/core/src/vite-plugin/AGENTS.md)
 directly, and the editor's
 [TS plugin](../../packages/ts-plugin/AGENTS.md) maps virtual-code
 results back to source `.vx` positions natively. (An earlier
@@ -89,6 +89,6 @@ devices can hit the demo. Don't drop that without checking.
 
 ## Related context
 
-- Runtime contract: [`packages/verrex/src/runtime/`](../../packages/verrex/src/runtime/AGENTS.md)
-- Compiler rewrites (what `.vx` actually becomes): [`packages/verrex/src/compiler/`](../../packages/verrex/src/compiler/AGENTS.md)
+- Runtime contract: [`packages/core/src/runtime/`](../../packages/core/src/runtime/AGENTS.md)
+- Compiler rewrites (what `.vx` actually becomes): [`packages/core/src/compiler/`](../../packages/core/src/compiler/AGENTS.md)
 - Framework rationale + channel-fold thesis: root [`AGENTS.md`](../../AGENTS.md)

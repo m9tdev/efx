@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "node --experimental-strip-types ../../packages/verrex/src/check/cli.ts"
+    "typecheck": "node --experimental-strip-types ../../packages/core/src/check/cli.ts"
   },
   "dependencies": {
     "@verrex/core": "workspace:*",

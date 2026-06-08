@@ -70,29 +70,29 @@ compiler eats and converts into `h()` calls." Not the React thing.
 
 ## Subsystems
 
-Everything user-facing ships as one package, **`packages/verrex/`**, with a
+Everything user-facing ships as one package, **`packages/core/`**, with a
 subpath export per surface (the subdirs self-reference via `verrex/*`). The
 editor plugin is the one separate package, because tsserver resolves Language
 Service plugins only by bare package name.
 
-- **[`src/runtime/`](./packages/verrex/src/runtime/AGENTS.md)** — export `@verrex/core`. `h`,
+- **[`src/runtime/`](./packages/core/src/runtime/AGENTS.md)** — export `@verrex/core`. `h`,
   `mount`, `Await`, `list`, the View IR (mount switches on it), reactivity
   wiring, channel-fold types. The thing components import from.
-- **[`src/compiler/`](./packages/verrex/src/compiler/AGENTS.md)** — export
+- **[`src/compiler/`](./packages/core/src/compiler/AGENTS.md)** — export
   `@verrex/core/compiler`. The Babel transform: JSX → `h()`, `.value` → `h.read()`,
   `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`. Smart-skip wrap.
-- **[`src/language/`](./packages/verrex/src/language/AGENTS.md)** — export
+- **[`src/language/`](./packages/core/src/language/AGENTS.md)** — export
   `@verrex/core/language`. The Volar `LanguagePlugin` describing `.vx` files (file id,
   virtual code, source-map conversion, JSX region tagging). Bridges
   `@verrex/core/compiler` to Volar's contracts; consumed by the ts-plugin and check.
-- **[`src/check/`](./packages/verrex/src/check/AGENTS.md)** — export `@verrex/core/check`, bin
+- **[`src/check/`](./packages/core/src/check/AGENTS.md)** — export `@verrex/core/check`, bin
   `verrex-check`. Standalone CLI/programmatic type-checker on `@volar/kit` +
   the language plugin. Replaces `tsc --noEmit` for `.vx`.
-- **[`src/vite-plugin/`](./packages/verrex/src/vite-plugin/AGENTS.md)** — export
+- **[`src/vite-plugin/`](./packages/core/src/vite-plugin/AGENTS.md)** — export
   `@verrex/core/vite`. Owns the full `.vx` compile (Babel JSX→`h()`, then Oxc
   type-strip via `transformWithOxc`, `moduleType: "js"`); rewrites `.vx` URLs
   with `?import` so strict-MIME browsers accept the response.
-- **[`src/testing/`](./packages/verrex/src/testing/AGENTS.md)** — export
+- **[`src/testing/`](./packages/core/src/testing/AGENTS.md)** — export
   `@verrex/core/testing`. In-process component test harness; `render(app, layer?)`
   mounts into a happy-dom DOM and drives it. The `layer` requirement is
   type-enforced so a missing service is a compile error.
@@ -198,7 +198,7 @@ opens/updates one combined **Release PR**; merging it tags the releases and
 the publish job pushes to npm.
 
 - **A commit bumps a package by the path of the files it changes, not by the
-  commit scope.** Files under `packages/verrex/**` bump `@verrex/core`; files under
+  commit scope.** Files under `packages/core/**` bump `@verrex/core`; files under
   `packages/ts-plugin/**` bump `@verrex/ts-plugin`; a commit spanning both
   bumps both; a commit touching neither (root, `apps/demo/`, `.github/`, docs)
   releases nothing. The `(scope)` in `feat(compiler):` is changelog-cosmetic

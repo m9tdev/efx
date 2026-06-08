@@ -211,4 +211,4 @@ as TypeScript once the plugin loads.
 
 - [AGENTS.md](./AGENTS.md) — architecture, per-package contracts, invariants, anti-patterns.
 - [`apps/demo/src/channels.test-d.ts`](./apps/demo/src/channels.test-d.ts) — compile-time proof that channels propagate and typed props catch misuse.
-- [`packages/verrex/src/runtime/types/Fold.test-d.ts`](./packages/verrex/src/runtime/types/Fold.test-d.ts) — channel-fold conditional-type test matrix.
+- [`packages/core/src/runtime/types/Fold.test-d.ts`](./packages/core/src/runtime/types/Fold.test-d.ts) — channel-fold conditional-type test matrix.
