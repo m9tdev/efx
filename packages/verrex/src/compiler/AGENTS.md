@@ -1,4 +1,4 @@
-# `verrex/compiler` — `.vx` → plain TypeScript
+# `@verrex/core/compiler` — `.vx` → plain TypeScript
 
 Single Babel transform. Takes `.vx` source (TypeScript with
 angle-bracket `<div>...</div>` syntax — JSX-shape only, no JSX
@@ -11,7 +11,7 @@ tool sees the file.
 Entry point: `transformVerrex(source, filename) → { code, map, jsxRanges, mappings }`.
 
 - `code` — compiled TypeScript output.
-- `map` — Babel V3 source map. Used by `verrex/vite` for HMR /
+- `map` — Babel V3 source map. Used by `@verrex/core/vite` for HMR /
   dev-server source maps.
 - `jsxRanges` — source-side metadata about each `JSXElement` /
   `JSXFragment` (opening/closing tag positions). Used by
@@ -21,7 +21,7 @@ Entry point: `transformVerrex(source, filename) → { code, map, jsxRanges, mapp
   with explicit lengths on both sides and a `kind` tag (`"user"` /
   `"h-call"` / `"punctuation"`). Built by `computeMappings` in
   `source-map.ts`. This is the single source of truth for
-  position translation; `verrex/language` translates it directly into
+  position translation; `@verrex/core/language` translates it directly into
   Volar's `Mapping<CodeInformation>[]` without touching `map` or
   `jsxRanges`. See "Source-map mappings" below.
 
@@ -164,7 +164,7 @@ left as-is and does not track.
 ## Auto-injected imports
 
 If any JSX rewrote to an `h()` call **or** the whole-body pass emitted any
-`h.read(...)`, the transform ensures `import { h } from "verrex"`
+`h.read(...)`, the transform ensures `import { h } from "@verrex/core"`
 exists (tracked via `usedH || usedHRead` in `transformVerrex`). `Fragment`
 is added when `<>...</>` is used. `list` is added when the
 `.value.map → list(...)` rewrite fires. `ensureRuntimeImports` finds an
@@ -290,7 +290,7 @@ to drift one column to the left (`( : numbern)` instead of
 `(n: number)`). See `source-map.test.ts` — that test asserts
 the exact `(source: 2, generated: 1)` shape for the PR #12 case.
 
-`verrex/language` uses `mappings` directly and never re-decodes the
+`@verrex/core/language` uses `mappings` directly and never re-decodes the
 Babel source map. The bidirectional length asymmetry is captured
 once, here, in the compiler.
 
@@ -299,7 +299,7 @@ once, here, in the compiler.
 `transform.test.ts` — 28 cases via `vitest`. Coverage includes:
 each rewrite category, wrap-skip when nothing rewrote, import
 injection / dedup, JSX whitespace, tag dispatch shapes, spread
-attributes, source maps. Run with `pnpm --filter verrex test`.
+attributes, source maps. Run with `pnpm --filter @verrex/core test`.
 
 ## What this package does NOT do
 
@@ -308,7 +308,7 @@ attributes, source maps. Run with `pnpm --filter verrex test`.
   the compiler only emits *calls* to them.
 - No `CodeInformation` profile assignment. The compiler classifies
   each span as `"user"` / `"h-call"` / `"punctuation"` (a
-  Volar-free taxonomy); `verrex/language` translates kind → Volar
+  Volar-free taxonomy); `@verrex/core/language` translates kind → Volar
   `CodeInformation`. Keeps the compiler Volar-agnostic.
 - No file watching, no caching. Pure function of `(source, filename)`.
   Callers cache.

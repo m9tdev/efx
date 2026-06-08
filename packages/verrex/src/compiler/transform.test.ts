@@ -201,7 +201,7 @@ describe(".value.map(arrow → JSX) → list(...) rewrite", () => {
       const x = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>
     `,
     )
-    expect(out).toMatch(/import \{[^}]*\blist\b[^}]*\} from "verrex"/)
+    expect(out).toMatch(/import \{[^}]*\blist\b[^}]*\} from "@verrex\/core"/)
   })
 
   it("supports block-body arrow returning only a JSX node", () => {
@@ -366,7 +366,7 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
       const get = () => ref.value
     `)
     expect(out).toContain(`h.read(ref)`)
-    expect(out).toMatch(/import \{[^}]*\bh\b[^}]*\} from "verrex"/)
+    expect(out).toMatch(/import \{[^}]*\bh\b[^}]*\} from "@verrex\/core"/)
   })
 
   it("leaves a body `.value` *write* bare (assignment + update)", () => {
@@ -477,7 +477,7 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
     `)
     // body read + JSX read both go through h.read
     expect(out.match(/h\.read\(count\)/g)?.length).toBe(2)
-    const importLines = out.split(";").filter((s) => s.includes(`from "verrex"`))
+    const importLines = out.split(";").filter((s) => s.includes(`from "@verrex/core"`))
     expect(importLines.length).toBe(1)
   })
 
@@ -491,38 +491,38 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
 })
 
 describe("runtime auto-imports", () => {
-  it("adds `import { h } from \"verrex\"` when JSX is present", () => {
+  it("adds `import { h } from \"@verrex/core\"` when JSX is present", () => {
     const out = compile(`
       const x = <div />
     `)
-    expect(out).toContain(`import { h } from "verrex"`)
+    expect(out).toContain(`import { h } from "@verrex/core"`)
   })
 
   it("adds `Fragment` too when <>...</> is used", () => {
     const out = compile(`
       const x = <><span /></>
     `)
-    expect(out).toMatch(/import \{[^}]*Fragment[^}]*\} from "verrex"/)
-    expect(out).toMatch(/import \{[^}]*h[^}]*\} from "verrex"/)
+    expect(out).toMatch(/import \{[^}]*Fragment[^}]*\} from "@verrex\/core"/)
+    expect(out).toMatch(/import \{[^}]*h[^}]*\} from "@verrex\/core"/)
   })
 
   it("does NOT inject if `h` is already imported under its own name", () => {
     const src = `
-      import { h } from "verrex"
+      import { h } from "@verrex/core"
       const x = <div />
     `
-    const matches = compile(src).match(/import \{[^}]*\bh\b[^}]*\} from "verrex"/g)
+    const matches = compile(src).match(/import \{[^}]*\bh\b[^}]*\} from "@verrex\/core"/g)
     expect(matches?.length).toBe(1)
   })
 
   it("extends an existing verrex import instead of adding a new one", () => {
     const src = `
-      import { mount } from "verrex"
+      import { mount } from "@verrex/core"
       const x = <div />
     `
     const out = compile(src)
-    expect(out).toMatch(/import \{[^}]*mount[^}]*h[^}]*\} from "verrex"/)
-    const importLines = out.split(";").filter((s) => s.includes(`from "verrex"`))
+    expect(out).toMatch(/import \{[^}]*mount[^}]*h[^}]*\} from "@verrex\/core"/)
+    const importLines = out.split(";").filter((s) => s.includes(`from "@verrex/core"`))
     expect(importLines.length).toBe(1)
   })
 

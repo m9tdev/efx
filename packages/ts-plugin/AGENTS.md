@@ -11,7 +11,7 @@ heavy lifting (file discovery, content transformation, position
 mapping) and wrap the resulting LanguageService with a thin proxy
 for the things Volar doesn't quite do out of the box.
 
-After the `verrex/language` extraction this package contains only the
+After the `@verrex/core/language` extraction this package contains only the
 tsserver-facing pieces; esbuild bundles them into `dist/index.cjs`
 for tsserver to `require()`.
 
@@ -32,8 +32,8 @@ for tsserver to `require()`.
 
 The LanguagePlugin itself (the Volar contract), `convertSourceMap`,
 the `VerrexVirtualCode` class, and the three `CodeInformation` profiles
-live in [`verrex/language`](../verrex/src/language/AGENTS.md) — shared with
-`verrex/check`.
+live in [`@verrex/core/language`](../verrex/src/language/AGENTS.md) — shared with
+`@verrex/core/check`.
 
 ## How it fits together
 
@@ -66,7 +66,7 @@ The plugin itself — `getLanguageId`, `createVirtualCode`,
 `typescript.extraFileExtensions`, `typescript.getServiceScript`,
 source-map conversion, the three `CodeInformation` profiles for
 h-call vs. punctuation vs. normal source — lives in
-[`verrex/language`](../verrex/src/language/AGENTS.md). Read that node for the full
+[`@verrex/core/language`](../verrex/src/language/AGENTS.md). Read that node for the full
 picture; the short version is:
 
 - `service-proxy.ts` calls `createVerrexLanguagePlugin<string>((s) => s)`
@@ -83,7 +83,7 @@ picture; the short version is:
 
 If a bug points at file enumeration, virtual-code content, the
 `VerrexVirtualCode` class, or the source-map mappings, the fix is in
-`verrex/language`, not here. The proxy wrapper below is this
+`@verrex/core/language`, not here. The proxy wrapper below is this
 package's actual responsibility.
 
 `getVerrexVirtualCode(fileName)` resolves
@@ -145,7 +145,7 @@ hand-rolled.
 
 - **`getCompletionsAtPosition`** — `.vx`-only span clamp. When the
   user types `count.` mid-edit and triggers completions, Babel's
-  `errorRecovery: true` (in `verrex/compiler`) parses
+  `errorRecovery: true` (in `@verrex/core/compiler`) parses
   `count.\n\nreturn yield*` as `count.return` (the next keyword
   becomes the synthesized property name). That gives us the right
   completion list — members of `count` — but tsserver's
@@ -182,7 +182,7 @@ hand-rolled.
 Find-references and go-to-definition cross `.vx` files natively
 because user code writes `import { X } from "./Foo.vx"` (the
 root invariant) — TS's resolver picks up `.vx` via the
-`extraFileExtensions` registered by [`verrex/language`](../verrex/src/language/AGENTS.md),
+`extraFileExtensions` registered by [`@verrex/core/language`](../verrex/src/language/AGENTS.md),
 the file lands in the program as virtual code, and TS's reference
 index sees usages across files. No sibling `.ts` shim is involved.
 
@@ -195,15 +195,15 @@ index sees usages across files. No sibling `.ts` shim is involved.
   The `_?` in the regex makes it tolerate both the prefixed and
   unprefixed variants.
 
-- **`verrex/compiler` `copyLoc`** — the compiler preserves source
+- **`@verrex/core/compiler` `copyLoc`** — the compiler preserves source
   locations on emitted nodes. Without that, Babel's source map
   collapses everything to the start of the JSX expression, and
   go-to-definition lands on the wrong token.
 
-- **`verrex/compiler` `jsxRanges`** — `TransformResult.jsxRanges` is
+- **`@verrex/core/compiler` `jsxRanges`** — `TransformResult.jsxRanges` is
   load-bearing for two features: classifying source positions as
   "inside h()" or "JSX punctuation" during source-map conversion
-  (in `verrex/language`), and finding tag-pair partners for document
+  (in `@verrex/core/language`), and finding tag-pair partners for document
   highlights (`jsx-tags.ts` here). If the compiler ever stops
   emitting it (e.g. swc swap), both features break silently. The
   array is stored on `VerrexVirtualCode` next to `mappings` so neither
@@ -213,7 +213,7 @@ index sees usages across files. No sibling `.ts` shim is involved.
   `language.scripts.get(fileName)`, keyed by the `.vx` file-path
   string tsserver hands us — the same string `createVerrexLanguagePlugin`
   is configured with (`asFileName` is identity here). If that key
-  convention changes in `verrex/language`, the lookup here breaks with
+  convention changes in `@verrex/core/language`, the lookup here breaks with
   it.
 
 ## Anti-patterns
@@ -244,10 +244,10 @@ index sees usages across files. No sibling `.ts` shim is involved.
   `extraFileExtensions.isMixedContent` /
   `getServiceScript.scriptKind` independently. They form a
   contract with tsc that's load-bearing across both this plugin's
-  tsserver path and `verrex/check`'s kit path. The current
+  tsserver path and `@verrex/core/check`'s kit path. The current
   combination (Deferred + isMixedContent: true + TS for the
   virtual code) is documented in
-  [`verrex/language` AGENTS.md](../verrex/src/language/AGENTS.md#the-extrafileextensions-shape-is-load-bearing).
+  [`@verrex/core/language` AGENTS.md](../verrex/src/language/AGENTS.md#the-extrafileextensions-shape-is-load-bearing).
   Change all three together or not at all.
 
 ## Test loop
@@ -272,7 +272,7 @@ shape check.
   semantics" framing this plugin enforces
 - [`verrex`](../verrex/src/runtime/AGENTS.md) — the `_tag/_props/_children`
   parameter naming
-- [`verrex/compiler`](../verrex/src/compiler/AGENTS.md) — the source-location
+- [`@verrex/core/compiler`](../verrex/src/compiler/AGENTS.md) — the source-location
   preservation that the source map depends on
-- [`verrex/language`](../verrex/src/language/AGENTS.md) — the shared Volar
+- [`@verrex/core/language`](../verrex/src/language/AGENTS.md) — the shared Volar
   language plugin that does the heavy lifting

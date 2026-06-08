@@ -1,4 +1,4 @@
-import type { JsxRange } from "verrex/language"
+import type { JsxRange } from "@verrex/core/language"
 
 export interface NameSpan {
   readonly start: number

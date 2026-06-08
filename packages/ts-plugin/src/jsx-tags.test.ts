@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { JsxRange } from "verrex/language"
+import type { JsxRange } from "@verrex/core/language"
 import { findJsxTagPair, type JsxTagProvider } from "./jsx-tags.ts"
 
 const mockProvider = (ranges: ReadonlyArray<JsxRange>): JsxTagProvider => ({

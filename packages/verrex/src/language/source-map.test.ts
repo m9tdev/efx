@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { transformVerrex } from "verrex/compiler"
+import { transformVerrex } from "@verrex/core/compiler"
 import { convertSourceMap } from "./source-map.ts"
 
 /**
@@ -270,7 +270,7 @@ describe("convertSourceMap — structural cases", () => {
   })
 
   it("auto-injected import line has no overlap with user code mappings", () => {
-    // The compiler injects `import { h } from "verrex"` for files using JSX.
+    // The compiler injects `import { h } from "@verrex/core"` for files using JSX.
     // That insertion shouldn't claim source territory that belongs to user code.
     const src = `
       const view = <div>hi</div>

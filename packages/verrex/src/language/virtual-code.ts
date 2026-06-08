@@ -1,6 +1,6 @@
 import type { CodeInformation, VirtualCode } from "@volar/language-core"
 import type { Mapping } from "@volar/source-map"
-import type { JsxRange } from "verrex/compiler"
+import type { JsxRange } from "@verrex/core/compiler"
 import type * as ts from "typescript"
 
 /**

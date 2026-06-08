@@ -1,6 +1,6 @@
 import { Effect, Exit, Layer, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { VerrexLive, mount, type View } from "verrex"
+import { VerrexLive, mount, type View } from "@verrex/core"
 
 /**
  * Services the harness provides for you: the `AtomRegistry` (via `VerrexLive`)

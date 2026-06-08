@@ -1,6 +1,6 @@
 import type { LanguagePlugin, VirtualCode } from "@volar/language-core"
 import type * as ts from "typescript"
-import { transformVerrex } from "verrex/compiler"
+import { transformVerrex } from "@verrex/core/compiler"
 import { convertSourceMap } from "./source-map.ts"
 import { VerrexVirtualCode } from "./virtual-code.ts"
 

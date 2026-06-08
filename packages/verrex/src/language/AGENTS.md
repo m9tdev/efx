@@ -1,4 +1,4 @@
-# `verrex/language` — Volar language plugin for `.vx`
+# `@verrex/core/language` — Volar language plugin for `.vx`
 
 The single source of truth describing `.vx` files to Volar:
 how to identify them, how to produce the virtual TypeScript that
@@ -8,7 +8,7 @@ generated code.
 Shared by two consumers:
 
 - **`@verrex/ts-plugin`** — wraps it for tsserver (editor integration).
-- **`verrex/check`** — wraps it for `@volar/kit` (standalone CLI).
+- **`@verrex/core/check`** — wraps it for `@volar/kit` (standalone CLI).
 
 If you reach for the LanguagePlugin from a third place, you almost
 certainly want to depend on this package rather than copy it.
@@ -18,7 +18,7 @@ certainly want to depend on this package rather than copy it.
 | File | Purpose |
 |---|---|
 | `language-plugin.ts` | `createVerrexLanguagePlugin<T>(asFileName)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns each per-`.vx` `VerrexVirtualCode` to Volar, which owns and indexes it. Returns `LanguagePlugin<T, VerrexVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
-| `source-map.ts` | `convertSourceMap` — thin translator from `verrex/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
+| `source-map.ts` | `convertSourceMap` — thin translator from `@verrex/core/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
 | `virtual-code.ts` | `VerrexVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.vx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`. |
 | `source-map.test.ts` | Vitest suite pinning `convertSourceMap`'s span-length passthrough and the user/h-call/punctuation profile assignments. |
 | `index.ts` | Re-exports. |
@@ -108,7 +108,7 @@ by the compiler; we map it to a Volar `CodeInformation` profile:
 The compiler decides `kind` while building the mappings — it
 already knows what each emitted byte represents. This package's
 job is the Volar-shape translation only. See
-[`verrex/compiler` AGENTS.md → "Source-map mappings"](../compiler/AGENTS.md#source-map-mappings--typed-sourcegenerated-spans)
+[`@verrex/core/compiler` AGENTS.md → "Source-map mappings"](../compiler/AGENTS.md#source-map-mappings--typed-sourcegenerated-spans)
 for the algorithm.
 
 ### Source and generated lengths come from the compiler
@@ -125,7 +125,7 @@ territory for that mapping — swallowing positions that belong to
 the next mapping. Inlay-hint positions get this wrong most
 visibly: a `: number` parameter-type hint that should render
 after `n` lands at the `n`'s position instead, displaying as
-`( : numbern)`. Both `verrex/compiler` and `@verrex/ts-plugin` have
+`( : numbern)`. Both `@verrex/core/compiler` and `@verrex/ts-plugin` have
 tests pinning this exact case.
 
 `convertSourceMap` just copies the lengths through — the compiler
@@ -162,7 +162,7 @@ holds no state that could drift.
 Earlier versions threaded a `VirtualCodeRegistry` (a
 `Map<string, VerrexVirtualCode>`) through the factory so consumers could
 look compiled files back up. But that registry was a *second index of
-the very objects Volar already owns* — `verrex/check` constructed one
+the very objects Volar already owns* — `@verrex/core/check` constructed one
 and never read it (pure write-only ceremony), and picking the wrong
 instance silently yielded stale `jsxRanges` with no compile-time
 guard. Resolving through `language.scripts.get(id).generated.root`
@@ -177,7 +177,7 @@ parameter.
 `VerrexVirtualCode`'s constructor does NOT use TypeScript parameter
 properties (the `constructor(readonly x: T)` form). Fields are
 declared and assigned manually instead, because Node's
-`--experimental-strip-types` mode — used by `verrex/check`'s CLI
+`--experimental-strip-types` mode — used by `@verrex/core/check`'s CLI
 and its integration test, both of which load the package's `.ts`
 sources directly — rejects parameter properties as non-type
 syntax. The class still uses readonly field declarations, just
@@ -186,7 +186,7 @@ without arranging for a build step.
 
 ## Coupling to other packages
 
-- **`verrex/compiler`** — required at runtime. `createVirtualCode`
+- **`@verrex/core/compiler`** — required at runtime. `createVirtualCode`
   calls `transformVerrex`; `convertSourceMap` consumes the
   `CompilerMapping[]` the compiler produces (it has both source
   and generated lengths plus a kind tag, ready for translation to
@@ -215,13 +215,13 @@ without arranging for a build step.
   (`instanceof VerrexVirtualCode` to narrow) instead of building a
   second index that can fall out of sync. A new consumer captures
   the `Language` from its host (the `setup(language)` hook for
-  tsserver; the kit checker for `verrex/check`) and reads from it.
+  tsserver; the kit checker for `@verrex/core/check`) and reads from it.
 - Don't switch `VerrexVirtualCode`'s constructor to parameter
   properties (`constructor(readonly source: string, ...)`). They
   desugar into field assignments and break Node's
   `--experimental-strip-types` mode — see the "Parameter properties
   are deliberately avoided" note above.
-- Don't import this package from `verrex` or `verrex/compiler`.
+- Don't import this package from `verrex` or `@verrex/core/compiler`.
   The dependency direction is one-way: `language` consumes
   `compiler`. Reversing it would create a cycle.
 
@@ -246,7 +246,7 @@ If you need more fine-grained tests, follow the existing pattern
 
 - Root [`AGENTS.md`](../../../../AGENTS.md) — the "JSX syntax, not JSX
   semantics" framing.
-- [`verrex/compiler`](../compiler/AGENTS.md) — source location
+- [`@verrex/core/compiler`](../compiler/AGENTS.md) — source location
   preservation and `JsxRange` emission this package depends on.
 - [`@verrex/ts-plugin`](../../../ts-plugin/AGENTS.md) — tsserver consumer.
-- [`verrex/check`](../check/AGENTS.md) — kit consumer.
+- [`@verrex/core/check`](../check/AGENTS.md) — kit consumer.

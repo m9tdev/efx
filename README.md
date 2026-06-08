@@ -67,11 +67,11 @@ pre-exported for the probe scripts).
 ## Install
 
 ```bash
-pnpm add verrex effect            # the framework (effect is a peer dependency)
+pnpm add @verrex/core effect            # the framework (effect is a peer dependency)
 pnpm add -D @verrex/ts-plugin     # editor support for .vx files (see below)
 ```
 
-`verrex` ships its compiled `dist` alongside the original `src` with declaration
+`@verrex/core` ships its compiled `dist` alongside the original `src` with declaration
 maps, so go-to-definition jumps straight into the framework's TypeScript source.
 Releases are cut from conventional commits (release-please) and published to npm
 with provenance. It's `0.x` and experimental — expect breaking changes between
@@ -99,7 +99,7 @@ export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
 ```ts
 // main.vx
 import { Effect, Layer } from "effect"
-import { VerrexLive, mount } from "verrex"
+import { VerrexLive, mount } from "@verrex/core"
 import { Counter } from "./Counter.vx"
 
 const program = Effect.gen(function* () {
@@ -118,12 +118,12 @@ Effect.runFork(program)
 ```
 packages/
   verrex/             one package, subpath exports:
-    src/runtime/        export `verrex`     — View IR, h(), mount(), Await(), list()
-    src/compiler/       export `verrex/compiler` — .vx → plain TypeScript (Babel)
-    src/language/       export `verrex/language` — Volar language plugin
-    src/check/          export `verrex/check`, bin `verrex-check`
-    src/vite-plugin/    export `verrex/vite`  — Vite integration
-    src/testing/        export `verrex/testing`
+    src/runtime/        export `@verrex/core`     — View IR, h(), mount(), Await(), list()
+    src/compiler/       export `@verrex/core/compiler` — .vx → plain TypeScript (Babel)
+    src/language/       export `@verrex/core/language` — Volar language plugin
+    src/check/          export `@verrex/core/check`, bin `verrex-check`
+    src/vite-plugin/    export `@verrex/core/vite`  — Vite integration
+    src/testing/        export `@verrex/core/testing`
   ts-plugin/   publishes as `@verrex/ts-plugin` — TS Language Service plugin (editor)
 apps/
   demo/               Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle
@@ -133,7 +133,7 @@ apps/
 
 | You import from      | What you get                                                                              |
 |----------------------|-------------------------------------------------------------------------------------------|
-| `verrex`      | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `VerrexLive`                             |
+| `@verrex/core`      | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `VerrexLive`                             |
 | `effect`             | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …  |
 | `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                  |
 
@@ -147,9 +147,9 @@ JSX expression is automatically wrapped in a tracking scope.
 | Command            | What it does                                                  |
 |--------------------|---------------------------------------------------------------|
 | `pnpm dev`         | Vite dev server with HMR on `.vx` files                      |
-| `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `verrex/check` (.vx-aware) |
-| `pnpm build`       | Production build via Vite (`verrex/vite` owns the transform) |
-| `pnpm test`        | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `verrex/check` |
+| `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `@verrex/core/check` (.vx-aware) |
+| `pnpm build`       | Production build via Vite (`@verrex/core/vite` owns the transform) |
+| `pnpm test`        | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `@verrex/core/check` |
 
 ## Bundle size
 
@@ -170,8 +170,8 @@ and their mock services. Verified interactive after build — Counter increments
 the `Await` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's
 per-row scope fires releases on row removal.
 
-Vite serves `.vx` files directly through `verrex/vite` at dev time;
-type-checking goes through `verrex/check`, which feeds `.vx` to tsc as virtual
+Vite serves `.vx` files directly through `@verrex/core/vite` at dev time;
+type-checking goes through `@verrex/core/check`, which feeds `.vx` to tsc as virtual
 TypeScript via the shared Volar language plugin. No sibling `.ts` files are
 emitted to disk.
 

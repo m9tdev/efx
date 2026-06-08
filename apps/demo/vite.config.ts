@@ -1,5 +1,5 @@
 import { defineConfig } from "vite"
-import { verrex } from "verrex/vite"
+import { verrex } from "@verrex/core/vite"
 
 export default defineConfig({
   root: ".",

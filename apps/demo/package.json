@@ -10,7 +10,7 @@
     "typecheck": "node --experimental-strip-types ../../packages/verrex/src/check/cli.ts"
   },
   "dependencies": {
-    "verrex": "workspace:*",
+    "@verrex/core": "workspace:*",
     "effect": "4.0.0-beta.71"
   },
   "devDependencies": {

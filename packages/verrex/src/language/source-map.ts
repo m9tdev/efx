@@ -1,6 +1,6 @@
 import type { CodeInformation } from "@volar/language-core"
 import type { Mapping } from "@volar/source-map"
-import type { CompilerMapping, CompilerMappingKind } from "verrex/compiler"
+import type { CompilerMapping, CompilerMappingKind } from "@verrex/core/compiler"
 
 /**
  * Translate the compiler's typed `CompilerMapping[]` into Volar's

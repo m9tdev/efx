@@ -15,7 +15,7 @@ borrows: `V + E + R + X` → **verrex** (and the `.vx` source extension).
 ## Install
 
 ```bash
-pnpm add verrex effect            # effect is a peer dependency
+pnpm add @verrex/core effect            # effect is a peer dependency
 pnpm add -D @verrex/ts-plugin     # editor support for .vx files
 ```
 
@@ -41,12 +41,12 @@ export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
 
 | Import | What you get |
 |---|---|
-| `verrex` | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `VerrexLive` |
-| `verrex/vite` | Vite plugin that compiles `.vx` |
-| `verrex/check` (+ `verrex-check` bin) | `.vx`-aware type-checker (replaces `tsc --noEmit`) |
-| `verrex/compiler`, `verrex/language`, `verrex/testing` | compiler, Volar language plugin, test harness |
+| `@verrex/core` | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `VerrexLive` |
+| `@verrex/core/vite` | Vite plugin that compiles `.vx` |
+| `@verrex/core/check` (+ `verrex-check` bin) | `.vx`-aware type-checker (replaces `tsc --noEmit`) |
+| `@verrex/core/compiler`, `@verrex/core/language`, `@verrex/core/testing` | compiler, Volar language plugin, test harness |
 
-`verrex` ships its compiled `dist` alongside the original `src` with
+`@verrex/core` ships its compiled `dist` alongside the original `src` with
 declaration maps, so go-to-definition lands in the framework's TypeScript
 source.
 
