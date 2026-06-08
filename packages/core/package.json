@@ -8,7 +8,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/m9tdev/verrex.git",
-    "directory": "packages/verrex"
+    "directory": "packages/core"
   },
   "bugs": "https://github.com/m9tdev/verrex/issues",
   "keywords": ["effect", "ui", "framework", "jsx", "reactivity", "verrex", "vx"],

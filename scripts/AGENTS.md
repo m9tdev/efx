@@ -56,7 +56,7 @@ The harness's `finally` only closes the browser.
 
 | Script | What it does |
 |---|---|
-| `test-compiler.mjs` | Runs `transformVerrex` against an inline source string and prints the compiled output. Useful for "what does the compiler do with X" exploration without writing a vitest case. Not a substitute for `packages/verrex/src/compiler/transform.test.ts`. |
+| `test-compiler.mjs` | Runs `transformVerrex` against an inline source string and prints the compiled output. Useful for "what does the compiler do with X" exploration without writing a vitest case. Not a substitute for `packages/core/src/compiler/transform.test.ts`. |
 
 ## Conventions
 
@@ -80,6 +80,6 @@ The harness's `finally` only closes the browser.
 - Don't add probes that overlap with what a vitest unit/type test can
   cover. Probes are for the things that have to render in real DOM —
   HMR, per-row Scope teardown, async state cycles, production-bundle
-  smoke. Reactivity *logic* belongs in `packages/verrex/src/runtime`'s test
+  smoke. Reactivity *logic* belongs in `packages/core/src/runtime`'s test
   suite.
 - Don't `git add` `/tmp/verrex-verify/` screenshots. They're throwaway.

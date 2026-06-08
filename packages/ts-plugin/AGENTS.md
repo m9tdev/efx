@@ -32,7 +32,7 @@ for tsserver to `require()`.
 
 The LanguagePlugin itself (the Volar contract), `convertSourceMap`,
 the `VerrexVirtualCode` class, and the three `CodeInformation` profiles
-live in [`@verrex/core/language`](../verrex/src/language/AGENTS.md) — shared with
+live in [`@verrex/core/language`](../core/src/language/AGENTS.md) — shared with
 `@verrex/core/check`.
 
 ## How it fits together
@@ -66,7 +66,7 @@ The plugin itself — `getLanguageId`, `createVirtualCode`,
 `typescript.extraFileExtensions`, `typescript.getServiceScript`,
 source-map conversion, the three `CodeInformation` profiles for
 h-call vs. punctuation vs. normal source — lives in
-[`@verrex/core/language`](../verrex/src/language/AGENTS.md). Read that node for the full
+[`@verrex/core/language`](../core/src/language/AGENTS.md). Read that node for the full
 picture; the short version is:
 
 - `service-proxy.ts` calls `createVerrexLanguagePlugin<string>((s) => s)`
@@ -182,7 +182,7 @@ hand-rolled.
 Find-references and go-to-definition cross `.vx` files natively
 because user code writes `import { X } from "./Foo.vx"` (the
 root invariant) — TS's resolver picks up `.vx` via the
-`extraFileExtensions` registered by [`@verrex/core/language`](../verrex/src/language/AGENTS.md),
+`extraFileExtensions` registered by [`@verrex/core/language`](../core/src/language/AGENTS.md),
 the file lands in the program as virtual code, and TS's reference
 index sees usages across files. No sibling `.ts` shim is involved.
 
@@ -247,7 +247,7 @@ index sees usages across files. No sibling `.ts` shim is involved.
   tsserver path and `@verrex/core/check`'s kit path. The current
   combination (Deferred + isMixedContent: true + TS for the
   virtual code) is documented in
-  [`@verrex/core/language` AGENTS.md](../verrex/src/language/AGENTS.md#the-extrafileextensions-shape-is-load-bearing).
+  [`@verrex/core/language` AGENTS.md](../core/src/language/AGENTS.md#the-extrafileextensions-shape-is-load-bearing).
   Change all three together or not at all.
 
 ## Test loop
@@ -270,9 +270,9 @@ shape check.
 
 - Root [`AGENTS.md`](../../AGENTS.md) — the "JSX syntax, not JSX
   semantics" framing this plugin enforces
-- [`verrex`](../verrex/src/runtime/AGENTS.md) — the `_tag/_props/_children`
+- [`verrex`](../core/src/runtime/AGENTS.md) — the `_tag/_props/_children`
   parameter naming
-- [`@verrex/core/compiler`](../verrex/src/compiler/AGENTS.md) — the source-location
+- [`@verrex/core/compiler`](../core/src/compiler/AGENTS.md) — the source-location
   preservation that the source map depends on
-- [`@verrex/core/language`](../verrex/src/language/AGENTS.md) — the shared Volar
+- [`@verrex/core/language`](../core/src/language/AGENTS.md) — the shared Volar
   language plugin that does the heavy lifting
