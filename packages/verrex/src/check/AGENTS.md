@@ -117,7 +117,7 @@ LSP protocol.
 ## Tests
 
 ```
-pnpm --filter verrex test
+pnpm --filter @verrex/core test
 ```
 
 Runs `test/check/integration.mjs` with `--experimental-strip-types`.

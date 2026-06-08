@@ -299,7 +299,7 @@ once, here, in the compiler.
 `transform.test.ts` — 28 cases via `vitest`. Coverage includes:
 each rewrite category, wrap-skip when nothing rewrote, import
 injection / dedup, JSX whitespace, tag dispatch shapes, spread
-attributes, source maps. Run with `pnpm --filter verrex test`.
+attributes, source maps. Run with `pnpm --filter @verrex/core test`.
 
 ## What this package does NOT do
 

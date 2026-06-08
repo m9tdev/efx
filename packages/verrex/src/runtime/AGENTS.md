@@ -395,7 +395,7 @@ by the compiler, so it never reaches `h.read`.
 If you change `h()`'s signature or any of the `Fold*` types, run:
 
 ```
-pnpm --filter verrex typecheck
+pnpm --filter @verrex/core typecheck
 # and (for end-to-end JSX shape coverage):
 pnpm --filter verrex-demo typecheck
 ```

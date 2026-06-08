@@ -491,7 +491,7 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
 })
 
 describe("runtime auto-imports", () => {
-  it("adds `import { h } from \"verrex\"` when JSX is present", () => {
+  it("adds `import { h } from \"@verrex/core\"` when JSX is present", () => {
     const out = compile(`
       const x = <div />
     `)
