@@ -31,7 +31,12 @@ export interface ViewList {
   readonly _tag: "List"
   readonly source: AtomRef.Collection<unknown>
   // Returns View or Effect<View, never, never> — mount's valueToView coerces.
-  readonly render: (item: AtomRef.AtomRef<unknown>, index: number) => unknown
+  // `index` is a reactive ref: mount pushes each row's current position into it
+  // on reorder/shift, so `{index.value}` in a row updates without re-rendering.
+  readonly render: (
+    item: AtomRef.AtomRef<unknown>,
+    index: AtomRef.ReadonlyRef<number>,
+  ) => unknown
 }
 export interface ViewEmpty {
   readonly _tag: "Empty"
