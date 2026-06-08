@@ -34,9 +34,11 @@ the editor margin. If you rename them, update the regex.
 | `h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`) |
 | `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Await`) |
 | `View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
-| `mount.ts` | DOM renderer. `buildDom(view, registry, scope) → Node`, `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close |
+| `mount.ts` | DOM renderer. `buildDom(view, registry, scope) → Node`, `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope) and the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes |
+| `reconcile.ts` | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops |
 | `index.ts` | Public exports + `list`, `Await`, `Fragment`, `VerrexLive` |
 | `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
+| `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality matches the old single-pass; index updates on shift) |
 | `types/Fold.ts` | `ChildE`/`ChildR`/`FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps` — the channel-fold conditional types |
 | `types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics |
 | `types/Fold.test-d.ts` | `expectTypeOf` matrix — every channel-fold shape |
@@ -276,6 +278,38 @@ trigger reconciliation. Per-value updates inside a row are handled
 by the row's own reactive bindings — re-reconciling on those would
 tear down DOM unnecessarily.
 
+**The diff is pure; the `List` case is only its interpreter.** The
+keyed-diff decision lives in [`reconcile.ts`](./reconcile.ts) —
+`plan(prevKeys, nextKeys)` returns `remove`/`insert`/`move`/`keep` ops
+over opaque keys, with zero DOM/`Scope`/`Effect` dependency, so the
+runtime's most bug-prone logic is unit-testable without mounting
+(see `reconcile.test.ts`). The `insert`/`move`/`remove` ops are
+behaviourally equivalent to the old inline single-pass cursor loop —
+each drives exactly one of the same DOM mutations, same nodes, same
+order — so behaviour is unchanged. `mount`'s `List` case interprets the
+ops against real DOM nodes and per-row scopes: `remove` closes-then-
+detaches, `insert` calls `buildScopedChild`, `move` repositions, `keep`
+is index-only. Don't reintroduce the diff inline in `mount` — the seam
+is what gives it a test surface.
+
+> **`move` is currently unreachable through `AtomRef.Collection`.** Its
+> public mutators (`push`/`insertAt`/`remove`) each mint or drop a row's
+> `AtomRef`, so existing rows never change position relative to each other
+> — reordering surfaces as `remove` + `insert` of fresh keys, never `move`.
+> The `move` branch is kept for a future reordering API and is covered by
+> the pure `reconcile.test.ts` (synthetic key arrays), not by an integration
+> test — don't go looking for one.
+
+**Row index is reactive.** `render(item, index)` receives `index` as
+an `AtomRef.ReadonlyRef<number>`, not a plain number. The planner emits
+the next-order index on every retained row (`move`/`keep`), and the
+interpreter pushes it into the row's index ref (guarded by an equality
+check so unchanged indices don't notify). A moved or shifted row's
+`{index.value}` therefore updates **without re-rendering the row** —
+the old `index: number` left it stale. Reading `index.value` tracks via
+`h.read` like any ref. A reorder/shift never rebuilds a row's DOM; only
+`insert` builds and `remove` tears down.
+
 **List snapshot must be a copy, not a reference.** Effect's
 `CollectionImpl` mutates its internal array in place on `push`/
 `remove`, so storing `view.source.value` and later comparing
@@ -327,7 +361,10 @@ typically) and keep it alive for the lifetime of the rendered UI.
   orphan scope for a sub-tree. Use `Scope.forkUnsafe(parent, ...)`
   so the sub-scope is parent-linked — closing the surrounding scope
   cascades into the sub-scope. Orphan scopes leak finalizers on
-  unexpected teardown paths.
+  unexpected teardown paths. In practice, route every dynamic subtree
+  (a Reactive emit, a List `insert`) through `buildScopedChild` — it
+  owns the `forkUnsafe → coerceSync → buildDom` triple, so the
+  parent-linked-scope invariant has exactly one home.
 - Don't extend `h.track`'s behavior to handle composite expressions
   — the compiler decides what's rewritten; the runtime just executes.
 - Don't subscribe to `AtomRef.Collection` per-item-value events
@@ -351,7 +388,7 @@ site preserves `T`, and accept a function child instead of a JSX
 `<MyComp<T>>` tag. `list(coll, render)` is the canonical shape:
 
 ```ts
-list<T>(coll: AtomRef.Collection<T>, render: (item: AtomRef.AtomRef<T>, i: number) => …)
+list<T>(coll: AtomRef.Collection<T>, render: (item: AtomRef.AtomRef<T>, i: AtomRef.ReadonlyRef<number>) => …)
 ```
 
 Users normally never write `list()` by hand — the compiler rewrites

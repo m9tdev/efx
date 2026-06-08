@@ -1,6 +1,7 @@
 import { Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { coerceSync, isAtomRef } from "./coerce.ts"
+import { plan } from "./reconcile.ts"
 import { type Props, View } from "./View.ts"
 
 // Subscribe to a ref and register the unsubscribe as a finalizer on the
@@ -91,6 +92,26 @@ const applyProps = (el: Element, props: Props, scope: Scope.Scope): void => {
   }
 }
 
+// Materialize a dynamic value into a DOM node under a fresh child scope forked
+// from `parent`. Every dynamic subtree (a Reactive emit, a List row) goes
+// through here so the "child scope is parent-LINKED, never an orphan" invariant
+// lives in one place — closing `parent` cascades into the returned scope, so
+// finalizers can't leak on an unexpected teardown path (see AGENTS.md).
+const buildScopedChild = (
+  value: unknown,
+  parent: Scope.Scope,
+  registry: AtomRegistry.AtomRegistry,
+): { readonly node: Node; readonly scope: Scope.Closeable } => {
+  const scope = Scope.forkUnsafe(parent, "sequential")
+  const node = buildDom(coerceSync(value, scope), registry, scope)
+  return { node, scope }
+}
+
+const closeScope = (scope: Scope.Closeable): void => {
+  const e = Scope.closeUnsafe(scope, Exit.void)
+  if (e) Effect.runFork(e)
+}
+
 const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.Scope): Node => {
   switch (view._tag) {
     case "Empty":
@@ -132,15 +153,11 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.
         // down the OLD subtree. The reverse order would unsubscribe many
         // listeners and resubscribe many — the documented "diff, not
         // unsub-all-then-resub" hazard (see h.ts AGENTS.md) extends here.
-        const newScope = Scope.forkUnsafe(scope, "sequential")
-        const node = buildDom(coerceSync(next, newScope), registry, newScope)
+        const { node, scope: newScope } = buildScopedChild(next, scope, registry)
         if (currentNode.parentNode) {
           currentNode.parentNode.replaceChild(node, currentNode)
         }
-        if (renderChildScope) {
-          const e = Scope.closeUnsafe(renderChildScope, Exit.void)
-          if (e) Effect.runFork(e)
-        }
+        if (renderChildScope) closeScope(renderChildScope)
         renderChildScope = newScope
         currentNode = node
       }
@@ -164,57 +181,71 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.
       const wrapper = document.createElement("span")
       wrapper.style.display = "contents"
 
-      // Per-item: rendered DOM node + the row's own scope (which holds all
-      // finalizers registered by the row component, including
-      // `Effect.acquireRelease` releases). Keyed by AtomRef identity so
-      // reactivity is preserved across reorders/inserts.
-      type Row = { readonly node: Node; readonly rowScope: Scope.Closeable }
+      // Per-row: its DOM node, its own scope (holds every finalizer the row
+      // registered — subscriptions, user `acquireRelease` releases), and a
+      // reactive index ref the planner's `keep`/`move` ops update. Keyed by
+      // AtomRef identity so reactivity is preserved across reorders/inserts.
+      type Row = {
+        readonly node: Node
+        readonly rowScope: Scope.Closeable
+        readonly indexRef: AtomRef.AtomRef<number>
+      }
       const rendered = new Map<AtomRef.AtomRef<unknown>, Row>()
       // Snapshot the array (not just the reference!) — CollectionImpl mutates
       // its internal array in place on push/remove, so comparing references
-      // would never detect structural changes.
+      // would never detect structural changes. This is the planner's `prev`.
       let snapshot: Array<AtomRef.AtomRef<unknown>> = []
 
-      const reconcile = (next: ReadonlyArray<AtomRef.AtomRef<unknown>>): void => {
-        const nextSet = new Set(next)
+      // A plan's `before` is a row key; resolve it to the reference node.
+      const nodeBefore = (key: AtomRef.AtomRef<unknown> | null): Node | null =>
+        key === null ? null : rendered.get(key)?.node ?? null
 
-        // Drop rows whose ref is gone. Close the row scope first (firing
-        // every finalizer the row registered: subscriptions, user
-        // `acquireRelease` releases), THEN detach the DOM. Matches the prior
-        // order so user releases that observe DOM still see it.
-        for (const [ref, row] of rendered) {
-          if (!nextSet.has(ref)) {
-            const e = Scope.closeUnsafe(row.rowScope, Exit.void)
-            if (e) Effect.runFork(e)
-            if (row.node.parentNode === wrapper) wrapper.removeChild(row.node)
-            rendered.delete(ref)
+      const setIndex = (row: Row, index: number): void => {
+        if (row.indexRef.value !== index) row.indexRef.set(index)
+      }
+
+      // The diff itself lives in the pure `plan` (see reconcile.ts); this is the
+      // interpreter — it just applies the ops to real DOM + scopes.
+      const reconcile = (next: ReadonlyArray<AtomRef.AtomRef<unknown>>): void => {
+        for (const op of plan(snapshot, next)) {
+          switch (op.op) {
+            case "remove": {
+              // Close the row scope first (firing the row's finalizers) THEN
+              // detach the DOM, so user releases that observe DOM still see it.
+              const row = rendered.get(op.key)
+              if (row) {
+                closeScope(row.rowScope)
+                if (row.node.parentNode === wrapper) wrapper.removeChild(row.node)
+                rendered.delete(op.key)
+              }
+              break
+            }
+            case "insert": {
+              const indexRef = AtomRef.make(op.index)
+              const { node, scope: rowScope } = buildScopedChild(
+                view.render(op.key, indexRef),
+                scope,
+                registry,
+              )
+              rendered.set(op.key, { node, rowScope, indexRef })
+              wrapper.insertBefore(node, nodeBefore(op.before))
+              break
+            }
+            case "move": {
+              const row = rendered.get(op.key)
+              if (row) {
+                wrapper.insertBefore(row.node, nodeBefore(op.before))
+                setIndex(row, op.index)
+              }
+              break
+            }
+            case "keep": {
+              const row = rendered.get(op.key)
+              if (row) setIndex(row, op.index)
+              break
+            }
           }
         }
-
-        // Build any new rows and place each in its current position. Each new
-        // row gets its own scope, forked from the List's scope — so on full
-        // mount teardown the fork-cascade closes any rows that didn't get
-        // explicitly removed first.
-        let cursor: ChildNode | null = wrapper.firstChild
-        next.forEach((ref, i) => {
-          let row = rendered.get(ref)
-          if (!row) {
-            const rowScope = Scope.forkUnsafe(scope, "sequential")
-            const node = buildDom(
-              coerceSync(view.render(ref, i), rowScope),
-              registry,
-              rowScope,
-            )
-            row = { node, rowScope }
-            rendered.set(ref, row)
-          }
-          if (cursor !== row.node) {
-            wrapper.insertBefore(row.node, cursor)
-          } else {
-            cursor = cursor.nextSibling
-          }
-        })
-
         snapshot = Array.from(next)
       }
 
@@ -222,7 +253,9 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.
 
       // Re-reconcile only on structural changes. CollectionImpl also notifies
       // on per-item value updates (which are handled separately by each row's
-      // own reactive bindings) — those are no-ops here.
+      // own reactive bindings) — those are no-ops here. This is a pure perf
+      // short-circuit, not a correctness gate: a redundant reconcile would just
+      // plan all-`keep`. Don't tighten it into something the diff relies on.
       subscribeRefScoped(
         view.source,
         (next) => {
