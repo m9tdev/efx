@@ -283,13 +283,22 @@ keyed-diff decision lives in [`reconcile.ts`](./reconcile.ts) —
 `plan(prevKeys, nextKeys)` returns `remove`/`insert`/`move`/`keep` ops
 over opaque keys, with zero DOM/`Scope`/`Effect` dependency, so the
 runtime's most bug-prone logic is unit-testable without mounting
-(see `reconcile.test.ts`). The `insert`/`move`/`remove` ops are a
-faithful 1:1 port of the old inline single-pass cursor loop — same
-nodes move, same order — so behaviour is unchanged. `mount`'s `List`
-case interprets the ops against real DOM nodes and per-row scopes:
-`remove` closes-then-detaches, `insert` calls `buildScopedChild`,
-`move` repositions, `keep` is index-only. Don't reintroduce the diff
-inline in `mount` — the seam is what gives it a test surface.
+(see `reconcile.test.ts`). The `insert`/`move`/`remove` ops are
+behaviourally equivalent to the old inline single-pass cursor loop —
+each drives exactly one of the same DOM mutations, same nodes, same
+order — so behaviour is unchanged. `mount`'s `List` case interprets the
+ops against real DOM nodes and per-row scopes: `remove` closes-then-
+detaches, `insert` calls `buildScopedChild`, `move` repositions, `keep`
+is index-only. Don't reintroduce the diff inline in `mount` — the seam
+is what gives it a test surface.
+
+> **`move` is currently unreachable through `AtomRef.Collection`.** Its
+> public mutators (`push`/`insertAt`/`remove`) each mint or drop a row's
+> `AtomRef`, so existing rows never change position relative to each other
+> — reordering surfaces as `remove` + `insert` of fresh keys, never `move`.
+> The `move` branch is kept for a future reordering API and is covered by
+> the pure `reconcile.test.ts` (synthetic key arrays), not by an integration
+> test — don't go looking for one.
 
 **Row index is reactive.** `render(item, index)` receives `index` as
 an `AtomRef.ReadonlyRef<number>`, not a plain number. The planner emits

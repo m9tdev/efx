@@ -24,6 +24,10 @@ export type { HtmlEventHandlers, IntrinsicProps } from "./types/Html.ts"
  * `mount` pushes the new index into this ref without re-rendering the row. Read
  * it as `index.value` (the compiler routes that through `h.read`, so it tracks
  * like any other ref) to display a live position.
+ *
+ * **Breaking:** `index` was a plain `number` in earlier versions; it is now a
+ * `ReadonlyRef<number>`. Migrate `i` → `i.value` (and note `i` can no longer be
+ * used in arithmetic without `.value`).
  */
 export const list = <T>(
   from: AtomRef.Collection<T>,

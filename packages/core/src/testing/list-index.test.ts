@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { h, list } from "@verrex/core"
+import { h, list, type View } from "@verrex/core"
 import { render } from "./index.ts"
 
 // Each row renders "<index>: <value>". `index` is the reactive ReadonlyRef the
@@ -52,5 +52,63 @@ describe("list() reactive index", () => {
       "3: c",
     ])
     await ui.unmount()
+  })
+
+  it("survives an empty → full → empty → full cycle", async () => {
+    const coll = AtomRef.collection<string>(["a", "b"])
+    const ui = await render(IndexedList(coll))
+    expect(ui.all(".row").map((r) => r.textContent)).toEqual(["0: a", "1: b"])
+
+    // Empty it — every row removed, `rendered`/`snapshot` reset.
+    for (const ref of [...coll.value]) coll.remove(ref)
+    await ui.tick()
+    expect(ui.all(".row")).toEqual([])
+
+    // Refill — fresh inserts off an empty snapshot, like an initial mount.
+    coll.push("c")
+    coll.push("d")
+    await ui.tick()
+    expect(ui.all(".row").map((r) => r.textContent)).toEqual(["0: c", "1: d"])
+    await ui.unmount()
+  })
+})
+
+describe("list() row lifecycle", () => {
+  // A row whose render returns an Effect with acquireRelease — the release
+  // registers on the row's own scope (via coerceSync providing it), so it must
+  // fire when THAT row is removed, not only on full unmount. The refactor moved
+  // this teardown into the `remove` op + closeScope, so pin it here.
+  const TrackedList = (coll: AtomRef.Collection<string>, log: string[]) =>
+    Effect.gen(function* () {
+      return yield* h(
+        "ul",
+        {},
+        list(coll, (item) =>
+          Effect.gen(function* () {
+            const id = item.value
+            yield* Effect.acquireRelease(
+              Effect.sync(() => log.push(`acquire:${id}`)),
+              () => Effect.sync(() => log.push(`release:${id}`)),
+            )
+            return yield* h("li", { class: "row" }, id)
+          })) as View,
+      )
+    })
+
+  it("fires a row's acquireRelease release when only that row is removed", async () => {
+    const log: string[] = []
+    const coll = AtomRef.collection<string>(["a", "b", "c"])
+    const ui = await render(TrackedList(coll, log))
+    expect(log).toEqual(["acquire:a", "acquire:b", "acquire:c"])
+
+    // Remove just "b": its release fires; a and c stay live.
+    coll.remove(coll.value[1]!)
+    await ui.tick()
+    expect(log).toEqual(["acquire:a", "acquire:b", "acquire:c", "release:b"])
+    expect(ui.all(".row").map((r) => r.textContent)).toEqual(["a", "c"])
+
+    // Unmount: the surviving rows' releases fire via the parent-fork cascade.
+    await ui.unmount()
+    expect(log.slice(3).sort()).toEqual(["release:a", "release:b", "release:c"])
   })
 })

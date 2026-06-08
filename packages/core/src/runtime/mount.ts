@@ -253,7 +253,9 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.
 
       // Re-reconcile only on structural changes. CollectionImpl also notifies
       // on per-item value updates (which are handled separately by each row's
-      // own reactive bindings) — those are no-ops here.
+      // own reactive bindings) — those are no-ops here. This is a pure perf
+      // short-circuit, not a correctness gate: a redundant reconcile would just
+      // plan all-`keep`. Don't tighten it into something the diff relies on.
       subscribeRefScoped(
         view.source,
         (next) => {
