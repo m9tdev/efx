@@ -426,7 +426,7 @@ const transformChild = (
   return transformJsxNode(child, state)
 }
 
-const RUNTIME_PKG = "verrex"
+const RUNTIME_PKG = "@verrex/core"
 
 const ensureRuntimeImports = (program: t.Program, wanted: Set<string>): void => {
   // First pass: find an existing import from the runtime; drop names that
@@ -614,7 +614,7 @@ export const transformVerrex = (
   })
 
   // Auto-inject the runtime imports the rewritten code now depends on.
-  // Looks for an existing `import … from "verrex"` and adds the
+  // Looks for an existing `import … from "@verrex/core"` and adds the
   // missing names there; otherwise prepends a new import. Keeps the user's
   // imports untouched and avoids duplicate specifiers. `h` is needed if the
   // JSX pass emitted `h(...)` OR pass 3 emitted any `h.read(...)`.

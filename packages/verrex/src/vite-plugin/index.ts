@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { type Plugin, transformWithOxc } from "vite"
-import { transformVerrex } from "verrex/compiler"
+import { transformVerrex } from "@verrex/core/compiler"
 
 const VERREX_RE = /\.vx(?:\?[^.]*)?$/
 const VERREX_PATH_RE = /\.vx$/

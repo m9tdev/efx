@@ -23,12 +23,12 @@ importers:
 
   apps/demo:
     dependencies:
+      '@verrex/core':
+        specifier: workspace:*
+        version: link:../../packages/verrex
       effect:
         specifier: 4.0.0-beta.71
         version: 4.0.0-beta.71
-      verrex:
-        specifier: workspace:*
-        version: link:../../packages/verrex
     devDependencies:
       '@verrex/ts-plugin':
         specifier: workspace:*
@@ -42,6 +42,9 @@ importers:
       '@effect/vitest':
         specifier: 4.0.0-beta.71
         version: 4.0.0-beta.71(effect@4.0.0-beta.71)(vitest@4.1.8(@types/node@25.9.1)(happy-dom@20.9.0)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(yaml@2.9.0)))
+      '@verrex/core':
+        specifier: workspace:*
+        version: link:../verrex
       '@volar/language-core':
         specifier: ^2.4.28
         version: 2.4.28
@@ -54,9 +57,6 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      verrex:
-        specifier: workspace:*
-        version: link:../verrex
 
   packages/verrex:
     dependencies:

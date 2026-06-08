@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from "vitest"
 import { Context, Effect, Layer, Scope } from "effect"
-import { Await, h, type View } from "verrex"
+import { Await, h, type View } from "@verrex/core"
 import { render } from "./index.ts"
 
 class Greeter extends Context.Service<Greeter, {

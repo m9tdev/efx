@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Fiber, Layer, Scope } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
-import { VerrexLive, mount, type View } from "verrex"
+import { VerrexLive, mount, type View } from "@verrex/core"
 import { Counter } from "./Counter.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { flashOnUpdate } from "./flash.ts"

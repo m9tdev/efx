@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest"
 import { Context, Effect, Layer } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { h } from "verrex"
+import { h } from "@verrex/core"
 import { render } from "./index.ts"
 
 // Components are built with raw `h()` calls (no `.vx` compiler needed in the

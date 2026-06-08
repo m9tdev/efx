@@ -2,7 +2,7 @@ import { transformVerrex } from "../packages/verrex/src/compiler/index.ts"
 
 const src = `
 import { Effect } from "effect"
-import { h, Fragment } from "verrex"
+import { h, Fragment } from "@verrex/core"
 
 export const Demo = (name: string) => Effect.gen(function*() {
   return yield* (

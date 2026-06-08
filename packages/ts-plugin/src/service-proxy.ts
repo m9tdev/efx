@@ -1,7 +1,7 @@
 import { createLanguageServicePlugin } from "@volar/typescript/lib/quickstart/createLanguageServicePlugin"
 import type { Language } from "@volar/language-core"
 import type * as ts from "typescript"
-import { createVerrexLanguagePlugin, VerrexVirtualCode } from "verrex/language"
+import { createVerrexLanguagePlugin, VerrexVirtualCode } from "@verrex/core/language"
 import { findJsxTagPair, type JsxTagProvider } from "./jsx-tags.ts"
 import { classifyRefs, dedupeRefs, sortClassifiedRefs } from "./classify-references.ts"
 import { hintText, SUPPRESS_RE } from "./hint-text.ts"
