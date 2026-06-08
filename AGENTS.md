@@ -24,7 +24,7 @@ fatal.
 So this project deliberately **never lets `tsc` see JSX**:
 
 1. Source files use a custom `.vx` extension.
-2. `verrex/compiler` (Babel-based) rewrites every JSX node into an
+2. `@verrex/core/compiler` (Babel-based) rewrites every JSX node into an
    `h(tag, props, ...children)` call **before** tsc sees the file.
 3. `h()`'s generic signature in `verrex` uses conditional
    types (`FoldE`/`FoldR`) to union every child's `E` and `R` into
@@ -75,32 +75,32 @@ subpath export per surface (the subdirs self-reference via `verrex/*`). The
 editor plugin is the one separate package, because tsserver resolves Language
 Service plugins only by bare package name.
 
-- **[`src/runtime/`](./packages/verrex/src/runtime/AGENTS.md)** — export `verrex`. `h`,
+- **[`src/runtime/`](./packages/verrex/src/runtime/AGENTS.md)** — export `@verrex/core`. `h`,
   `mount`, `Await`, `list`, the View IR (mount switches on it), reactivity
   wiring, channel-fold types. The thing components import from.
 - **[`src/compiler/`](./packages/verrex/src/compiler/AGENTS.md)** — export
-  `verrex/compiler`. The Babel transform: JSX → `h()`, `.value` → `h.read()`,
+  `@verrex/core/compiler`. The Babel transform: JSX → `h()`, `.value` → `h.read()`,
   `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`. Smart-skip wrap.
 - **[`src/language/`](./packages/verrex/src/language/AGENTS.md)** — export
-  `verrex/language`. The Volar `LanguagePlugin` describing `.vx` files (file id,
+  `@verrex/core/language`. The Volar `LanguagePlugin` describing `.vx` files (file id,
   virtual code, source-map conversion, JSX region tagging). Bridges
-  `verrex/compiler` to Volar's contracts; consumed by the ts-plugin and check.
-- **[`src/check/`](./packages/verrex/src/check/AGENTS.md)** — export `verrex/check`, bin
+  `@verrex/core/compiler` to Volar's contracts; consumed by the ts-plugin and check.
+- **[`src/check/`](./packages/verrex/src/check/AGENTS.md)** — export `@verrex/core/check`, bin
   `verrex-check`. Standalone CLI/programmatic type-checker on `@volar/kit` +
   the language plugin. Replaces `tsc --noEmit` for `.vx`.
 - **[`src/vite-plugin/`](./packages/verrex/src/vite-plugin/AGENTS.md)** — export
-  `verrex/vite`. Owns the full `.vx` compile (Babel JSX→`h()`, then Oxc
+  `@verrex/core/vite`. Owns the full `.vx` compile (Babel JSX→`h()`, then Oxc
   type-strip via `transformWithOxc`, `moduleType: "js"`); rewrites `.vx` URLs
   with `?import` so strict-MIME browsers accept the response.
 - **[`src/testing/`](./packages/verrex/src/testing/AGENTS.md)** — export
-  `verrex/testing`. In-process component test harness; `render(app, layer?)`
+  `@verrex/core/testing`. In-process component test harness; `render(app, layer?)`
   mounts into a happy-dom DOM and drives it. The `layer` requirement is
   type-enforced so a missing service is a compile error.
 - **[`packages/ts-plugin/`](./packages/ts-plugin/AGENTS.md)** (publishes as
   `@verrex/ts-plugin`) — the Volar-based TS Language Service plugin (editor
   integration): JSX tag-pair
   highlights, inlay-hint filtering, reference dedup/sort, native cross-file
-  go-to-def. esbuild-bundles `verrex/language` into one CJS file.
+  go-to-def. esbuild-bundles `@verrex/core/language` into one CJS file.
 - **[`apps/demo/`](./apps/demo/AGENTS.md)** — usage patterns by primitive; home
   to `channels.test-d.ts`, the compile-time proof.
 - **[`scripts/`](./scripts/AGENTS.md)** — manual Playwright probes
@@ -126,9 +126,9 @@ Service plugins only by bare package name.
   alongside Effect, you're probably on the wrong side of this
   line.
 - **`.vx` files never reach `tsc` directly.** A plugin always
-  intercepts: `verrex/language` (consumed by the TS plugin and by
-  `verrex/check`) hands tsc a JSX-free virtual TS buffer, and
-  `verrex/vite` does the same for Vite. Source files keep
+  intercepts: `@verrex/core/language` (consumed by the TS plugin and by
+  `@verrex/core/check`) hands tsc a JSX-free virtual TS buffer, and
+  `@verrex/core/vite` does the same for Vite. Source files keep
   their angle brackets; only the compiled buffer is JSX-free.
 - **Imports of `.vx` files use the explicit `.vx` extension.**
   `import { X } from "./Foo.vx"` — not `"./Foo"`. TS's resolver
@@ -159,7 +159,7 @@ Service plugins only by bare package name.
 
 ## Tooling at a glance
 
-- pnpm workspace, 2 packages (`verrex` + `@verrex/ts-plugin`) + demo + workspace root.
+- pnpm workspace, 2 packages (`@verrex/core` + `@verrex/ts-plugin`) + demo + workspace root.
 - Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.71`).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.
@@ -180,7 +180,7 @@ Service plugins only by bare package name.
 ```
 pnpm -r test         # compiler tests + ts-plugin integration tests
 pnpm -r typecheck    # fans out: every package runs `tsc --noEmit`,
-                     # apps/demo runs `verrex/check` (the .vx-aware checker)
+                     # apps/demo runs `@verrex/core/check` (the .vx-aware checker)
 pnpm --filter verrex-demo dev   # browser-test interactive features
 ```
 
@@ -190,7 +190,7 @@ re-render."
 
 ## Releasing
 
-Two packages publish to npm — **`verrex`** and **`@verrex/ts-plugin`** —
+Two packages publish to npm — **`@verrex/core`** and **`@verrex/ts-plugin`** —
 driven by conventional commits via release-please
 (`release-please-config.json` + `.release-please-manifest.json`,
 `.github/workflows/release.yml`). On every push to `main`, release-please
@@ -198,14 +198,14 @@ opens/updates one combined **Release PR**; merging it tags the releases and
 the publish job pushes to npm.
 
 - **A commit bumps a package by the path of the files it changes, not by the
-  commit scope.** Files under `packages/verrex/**` bump `verrex`; files under
+  commit scope.** Files under `packages/verrex/**` bump `@verrex/core`; files under
   `packages/ts-plugin/**` bump `@verrex/ts-plugin`; a commit spanning both
   bumps both; a commit touching neither (root, `apps/demo/`, `.github/`, docs)
   releases nothing. The `(scope)` in `feat(compiler):` is changelog-cosmetic
   only — keep a commit's edits inside one package dir to bump just that one.
 - **Versions are independent** (no linked-versions plugin) — each package
   bumps off its own commits and carries its own CHANGELOG + tag
-  (`verrex-v…`, `@verrex/ts-plugin-v…`).
+  (`@verrex/core-v…`, `@verrex/ts-plugin-v…`).
 - **Still pre-1.0:** `bump-minor-pre-major` + `bump-patch-for-minor-pre-major`
   keep `feat`→minor / `fix`→patch *within* 0.x until you cut a 1.0.
 - **Tokenless publish:** OIDC trusted publishing, no `NPM_TOKEN`. Provenance is
@@ -225,7 +225,7 @@ the publish job pushes to npm.
   repoints every subpath to `dist/*` at publish time. The tarball ships
   **both** `dist` and `src` plus declaration maps (`declarationMap` +
   `sourceMap`), so a consumer's go-to-def resolves through `.d.ts.map` into the
-  shipped `.ts`. `verrex` builds via `tsc -p tsconfig.build.json`
+  shipped `.ts`. `@verrex/core` builds via `tsc -p tsconfig.build.json`
   (`rewriteRelativeImportExtensions` turns `./x.ts` imports into `./x.js`);
   `@verrex/ts-plugin` is the esbuild bundle (`dist/index.cjs`), so it ships
   `dist` only.

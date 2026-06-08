@@ -1,8 +1,8 @@
-# `verrex/check` — standalone type-checker for `.vx` projects
+# `@verrex/core/check` — standalone type-checker for `.vx` projects
 
 Replaces `tsc --noEmit` for projects with `.vx` files. Wraps
 `@volar/kit`'s `createTypeScriptChecker` plus the shared
-`verrex/language` plugin, runs in-process, prints tsc-style
+`@verrex/core/language` plugin, runs in-process, prints tsc-style
 diagnostics, exits non-zero on errors.
 
 Used in `apps/demo`'s `typecheck` script. Modeled on Astro's
@@ -22,7 +22,7 @@ Used in `apps/demo`'s `typecheck` script. Modeled on Astro's
 Programmatic:
 
 ```ts
-import { runCheck } from "verrex/check"
+import { runCheck } from "@verrex/core/check"
 const result = await runCheck({ cwd: "/path/to/project" })
 // result: { filesChecked: number, errors: number, warnings: number }
 ```
@@ -37,7 +37,7 @@ verrex-check --root /some/project  # cwd override
 
 In `apps/demo` the script wires it via `node --experimental-strip-types`
 because the workspace ships `.ts` source, not a built CLI. If
-`verrex/check` ever gets published, build an emitted CJS for the bin
+`@verrex/core/check` ever gets published, build an emitted CJS for the bin
 entry — `apps/demo`'s pattern won't work for external consumers.
 
 ## Why kit, not vue-tsc-style tsc-wrapping
@@ -81,7 +81,7 @@ LSP protocol.
 
 ## Coupling
 
-- **`verrex/language`** — provides `createVerrexLanguagePlugin`. The CLI
+- **`@verrex/core/language`** — provides `createVerrexLanguagePlugin`. The CLI
   instantiates the plugin with `<URI>(uri => uri.fsPath)` because kit
   uses `URI` as its script-id type. No registry is threaded: the kit
   checker owns the virtual-code lifetime per `runCheck` call.
@@ -107,7 +107,7 @@ LSP protocol.
   flag here, mirror the Astro name and semantics so future code
   ports cleanly.
 - Don't reintroduce on-disk sibling `.ts` files. The whole point
-  of `verrex/check` replacing the old `verrex-compile + tsc --noEmit`
+  of `@verrex/core/check` replacing the old `verrex-compile + tsc --noEmit`
   flow is that no auxiliary on-disk shim is needed — `.vx`
   enters the program directly through the language plugin's
   virtual code. If you find yourself emitting `.ts` siblings,
@@ -132,7 +132,7 @@ cleanly with only the workspace `node_modules` resolution path.
 
 - Root [`AGENTS.md`](../../../../AGENTS.md) — why `.vx` files never
   reach `tsc` directly.
-- [`verrex/language`](../language/AGENTS.md) — the LanguagePlugin
+- [`@verrex/core/language`](../language/AGENTS.md) — the LanguagePlugin
   this package consumes.
 - [`apps/demo`](../../../../apps/demo/AGENTS.md) — typecheck script
   wiring.

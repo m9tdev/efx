@@ -1,4 +1,4 @@
-# `verrex/vite` — Vite integration for `.vx`
+# `@verrex/core/vite` — Vite integration for `.vx`
 
 Tiny plugin (~70 LOC). Responsible for getting `.vx` files through
 Vite's dev pipeline as if they were `.ts` files.
@@ -50,7 +50,7 @@ and build, so both paths fixed at once.
 ### Build vs. editor error policy
 
 `transformVerrex`'s default `errorRecovery: true` lets the editor tolerate
-mid-edit unparseable source (see [`verrex/compiler`](../compiler/AGENTS.md)).
+mid-edit unparseable source (see [`@verrex/core/compiler`](../compiler/AGENTS.md)).
 The build path passes **`errorRecovery: false`** so a genuine syntax
 error throws here — a Vite error overlay in dev, a failed build in CI —
 instead of the compiler silently recovering and us shipping a broken
@@ -119,7 +119,7 @@ vs Vite id vs path-only). Don't unify naively.
   becomes one, cache by file mtime.
 - No production-build divergence. The same `transform` runs at
   build time. The type-check path (where Vite isn't in the loop)
-  goes through [`verrex/check`](../check/AGENTS.md), which calls
+  goes through [`@verrex/core/check`](../check/AGENTS.md), which calls
   the compiler directly via the shared language plugin.
 
 ## Anti-patterns
@@ -134,7 +134,7 @@ vs Vite id vs path-only). Don't unify naively.
 
 ## Related context
 
-- [`verrex/compiler`](../compiler/AGENTS.md) — the `transformVerrex`
+- [`@verrex/core/compiler`](../compiler/AGENTS.md) — the `transformVerrex`
   function this plugin wraps
 - Root [`AGENTS.md`](../../../../AGENTS.md) — why JSX must never reach
   the downstream TS-aware tools (esbuild's type-stripping step is

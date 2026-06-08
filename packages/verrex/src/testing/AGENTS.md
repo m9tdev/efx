@@ -1,4 +1,4 @@
-# `verrex/testing` — in-process component test harness
+# `@verrex/core/testing` — in-process component test harness
 
 Mount an verrex component into an in-process DOM, drive it, and tear it
 down — without a browser or the Vite dev server. Fills the gap between

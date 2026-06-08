@@ -26,14 +26,14 @@ they can be exercised in a browser side-by-side.
 Cross-file `.vx` imports carry an explicit `.vx` extension (see
 the root [AGENTS.md](../../AGENTS.md) invariant). As a result
 nothing in this demo's build pipeline emits sibling `.ts` files:
-`pnpm typecheck` runs [`verrex/check`](../../packages/verrex/src/check/AGENTS.md)
+`pnpm typecheck` runs [`@verrex/core/check`](../../packages/verrex/src/check/AGENTS.md)
 directly, `vite build` runs
-[`verrex/vite`](../../packages/verrex/src/vite-plugin/AGENTS.md)
+[`@verrex/core/vite`](../../packages/verrex/src/vite-plugin/AGENTS.md)
 directly, and the editor's
 [TS plugin](../../packages/ts-plugin/AGENTS.md) maps virtual-code
 results back to source `.vx` positions natively. (An earlier
 demo build script ran an `verrex-compile` CLI that emitted sibling
-`.ts` files for tsc to pick up — `verrex/compiler` itself was, and
+`.ts` files for tsc to pick up — `@verrex/core/compiler` itself was, and
 still is, a pure in-memory `transformVerrex`. The CLI is gone.)
 
 ## `channels.test-d.ts`
@@ -64,7 +64,7 @@ purely a typing assertion.
 ## Vite dev server
 
 `vite.config.ts` is intentionally minimal — it wires
-`verrex/vite`. The plugin's `configureServer` middleware adds
+`@verrex/core/vite`. The plugin's `configureServer` middleware adds
 `?import` to any `.vx` URL so Vite treats it as a module rather
 than serving raw text on direct GET. Don't add a separate
 filename-rewrite shim; the plugin already handles it.
