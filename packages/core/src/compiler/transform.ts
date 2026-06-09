@@ -123,7 +123,12 @@ interface RewriteState {
  * `h.track`-wrapped and lose its channels (a loud type error at the call site).
  * Import these unaliased.
  */
-const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set(["Async", "catchCause"])
+const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set([
+  "Async",
+  "catchCause",
+  "catchTag",
+  "catchTags",
+])
 const isSelfTrackingCall = (expr: t.Expression): boolean =>
   t.isCallExpression(expr) &&
   t.isIdentifier(expr.callee) &&

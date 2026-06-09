@@ -9,7 +9,7 @@ Public surface (from `index.ts`):
   error discharged), returns `Effect<void, never, R | AtomRegistry | Scope>`
 - `list` — keyed reactive list helper (`View.List` IR node)
 - `Async` / `asyncRef` — async render boundary + primitive (errors-as-values; see "`asyncRef` / `Async`" below)
-- `catchCause` — view-level error boundary (catch-all; mirrors `Effect.catchCause`; see "`catchCause`" below)
+- `catchCause` / `catchTag` / `catchTags` — view-level error boundaries (catch-all + tag-selective; mirror `Effect.catch*`; see "`catchCause`" below)
 - `Fragment` — `<>...</>` compile target
 - `VerrexLive` — base Layer providing `AtomRegistry`
 - Types: `View<E>`, `Props`, `FoldE`/`FoldLiveE`/`FoldR`/`TagE`/`TagLiveE`/`TagR`/`TagProps`,
@@ -43,7 +43,7 @@ the editor margin. If you rename them, update the regex.
 | `View.ts` | `View<E>` IR. The runtime shape is `ViewNode` — a hand-written union of 7 phantom-free named interfaces (`ViewText`…`ViewBoundary`, `ViewEmpty`); constructors via `Data.taggedEnum<ViewNode>()`. `View<E = never> = ViewNode & ViewErr<E>` layers the runtime-error channel on via a covariant phantom (`ViewErr`), so `View<HttpError>` ⊄ `View<never>` (mount can require it) while a `ViewNode` ⊂ any `View<E>` (constructors need no casts). Plus `isView`, `VIEW_TAGS` |
 | `mount.ts` | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink }`), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures) |
 | `reconcile.ts` | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops |
-| `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `catchCause`, `Fragment`, `VerrexLive` |
+| `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `catchCause`/`catchTag`/`catchTags` (over a shared `makeBoundary`), `Fragment`, `VerrexLive` |
 | `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
 | `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality matches the old single-pass; index updates on shift) |
 | `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` + `TagE`/`TagLiveE`/`TagR`/`TagProps` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel) |
@@ -238,14 +238,31 @@ returns. Running the user's Effect directly on the mount fiber is what
 keeps `R` folded. `Atom`/`AtomRef` remain the right tool for *synchronous*
 reactive state (Counter, `list`) — just not the spine for effectful data.
 
-## `catchCause` — the view-level error boundary
+## `catchCause` / `catchTag` / `catchTags` — view-level error boundaries
 
 `catchCause(child, (cause, reset) => fallback)` mirrors `Effect.catchCause`:
 recover the **failure** side of a view subtree, let success pass through (the
 child renders itself). Contrast `Async`, which matches a data `AsyncResult` and
 renders *every* state (`initial`/`success`/`failure`) — a boundary only supplies
-the failure fallback. (Tag-selective `catchTag`/`catchTags`, which narrow `E`
-rather than discharging all of it, come later.)
+the failure fallback.
+
+Three combinators, all over the shared `makeBoundary(child, accepts, handler)`
+(which builds the `Boundary` node and drives `state`); they differ only in
+`accepts` and the handler arg:
+- **`catchCause(child, (cause, reset) => …)`** — catch-all (`accepts` = always);
+  discharges everything to `View<never>`/`never`.
+- **`catchTag(child, "Tag", (error, reset) => …)`** — handles one tagged error
+  (`accepts` = the cause's `_tag` matches), hands the handler the unwrapped error,
+  and **narrows** both channels by `Exclude<E, { _tag: "Tag" }>`. `Tag` is
+  constrained to the child's actual error tags (a typo is a compile error).
+- **`catchTags(child, { Tag: handler, … })`** — same, for a subset of tags.
+
+A cause a tag-boundary doesn't `accept` is **escalated**: at construction it
+re-raises on the Effect channel (its residual rides `EC`, so a parent boundary /
+`mount` still sees it); when live it goes to the ambient sink (the parent
+boundary — `mount` hands it over via the node's `setAmbient`). So a leftover tag
+must still be discharged before `mount`. (Tag-selective only catches errors in
+the *type*; an untyped event-handler/reactive error needs `catchCause`.)
 
 **Typed discharge.** Signature `catchCause<EV, EC, R>(child: Effect<View<EV>, EC, R>,
 handler: (cause: Cause<EC | EV>, reset) => …): Effect<View<never>, never, R | Scope>`.
@@ -272,10 +289,11 @@ state synchronously inside the child's render, which would close the child scope
 mid-render (reentrant). The runtime impl is untyped (`Cause<unknown>` sink); the
 precise `Cause<EC | EV>` is the public-signature contract, bridged by one cast.
 
-Unlike `Async`, this **is** a View IR variant (`Boundary`) — the sink-swap for
+Unlike `Async`, these **are** a View IR variant (`Boundary`) — the sink-swap for
 the child subtree is a `buildDom`-time concern an existing `Reactive` can't
-express. The compiler skips the `h.track` wrap for `catchCause(...)` calls (it's
-in `isSelfTrackingCall` alongside `Async`); import it unaliased.
+express. The compiler skips the `h.track` wrap for `catchCause`/`catchTag`/
+`catchTags` calls (all in `isSelfTrackingCall` alongside `Async`); import them
+unaliased.
 
 ## mount internals — invariants
 

@@ -346,6 +346,20 @@ describe("catchCause calls are not h.track-wrapped", () => {
     `)
     expect(out).not.toContain(`h.track`)
   })
+
+  it("leaves catchTag / catchTags calls bare too (same self-tracking set)", () => {
+    const tag = compile(`
+      const x = <div>{catchTag(<Child />, "HttpError", (e) => <span>{label.value}</span>)}</div>
+    `)
+    expect(tag).toContain(`h.read(label)`)
+    expect(tag).not.toContain(`h.track`)
+
+    const tags = compile(`
+      const x = <div>{catchTags(<Child />, { HttpError: (e) => <span>{label.value}</span> })}</div>
+    `)
+    expect(tags).toContain(`h.read(label)`)
+    expect(tags).not.toContain(`h.track`)
+  })
 })
 
 describe("whole-body `.value` reads (tracking outside JSX)", () => {

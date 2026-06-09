@@ -311,7 +311,10 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       // The child subtree renders with a sink that reports into THIS boundary
       // (live failures flip its state to `error`); the fallback renders with the
       // ambient `ctx` sink, so a failure in the fallback bubbles to the next
-      // boundary outward. Same build-NEW → swap → close-OLD ordering as Reactive.
+      // boundary outward. `setAmbient` hands the boundary the parent sink so a
+      // tag-selective boundary can escalate a cause it doesn't handle.
+      // Same build-NEW → swap → close-OLD ordering as Reactive.
+      view.setAmbient(ctx.sink)
       const childCtx: BuildCtx = { ...ctx, sink: view.report }
       let currentNode: Node = document.createComment("boundary-pending")
       let contentScope: Scope.Closeable | null = null
