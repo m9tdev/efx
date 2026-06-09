@@ -5,6 +5,3 @@ dist/
 .DS_Store
 /refs
 .claude/
-
-# probe screenshot artifact
-scripts/.catch-probe.png

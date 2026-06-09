@@ -48,7 +48,7 @@ the editor margin. If you rename them, update the regex.
 | `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality matches the old single-pass; index updates on shift) |
 | `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` + `TagE`/`TagLiveE`/`TagR`/`TagProps` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel) |
 | `types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics |
-| `types/Fold.test-d.ts` | `expectTypeOf` matrix — every channel-fold shape |
+| `types/Fold.test-d.ts` | `assertEquals` matrix — every channel-fold shape |
 
 ## Reactivity model
 
@@ -110,10 +110,13 @@ for-now at 7 variants:
 - `Reactive { source: Atom | AtomRef.ReadonlyRef }` — subscribe to
   source, swap rendered child on emit
 - `List { source: AtomRef.Collection, render }` — keyed reactive list
-- `Boundary { state, handler, reset, report }` — error boundary; renders the
-  child subtree (with `report` swapped in as the subtree's error sink) or, on a
-  caught failure, `handler(cause, reset)`. Built by `Catch` (see below).
-  The one variant that carries behavior, not just data.
+- `Boundary { state, handler, reset, report, setAmbient }` — error boundary;
+  renders the child subtree (with `report` swapped in as the subtree's error sink)
+  or, on a caught failure, `handler(cause, reset)`. `setAmbient` lets `mount` hand
+  it the parent sink for escalation. `state` is a `BoundaryState` carrying a
+  monotonic `gen` (so `AtomRef`'s `Equal`-dedup can't drop a reset into an
+  identical state). Built by `Catch` (see below). The one variant that carries
+  behavior, not just data.
 - `Empty {}` — comment placeholder (used for `false`/`null` children)
 
 ### Why hand-written interfaces (not `Data.TaggedEnum<{...}>`)
@@ -286,10 +289,32 @@ state synchronously inside the child's render, which would close the child scope
 mid-render (reentrant). The runtime impl is untyped (`Cause<unknown>` sink); the
 precise types are the public-signature contract (two overloads), bridged by casts.
 
+**Two lifecycle details that are easy to get wrong (and were):**
+- **Generation stamp.** Each `BoundaryState` carries a monotonic `gen`. Without
+  it, `AtomRef.set` dedups via `Equal.equals`, and a reset that re-fails with a
+  structurally-identical `Cause` is `Equal`-equal to the current state → no notify
+  → a *dead retry button*. `gen` makes every emission distinct.
+- **Per-build construction scope.** Each child build (initial + every reset) runs
+  in a fresh scope forked from the mount scope (`Scope.forkUnsafe` + `provideService(Scope.Scope, …)`),
+  so a child's construction-time effects (an `asyncRef` supervisor + its
+  finalizers, `acquireRelease`) are released when we swap away or reset — not
+  leaked onto the mount scope. The prior build's scope is closed on swap/reset
+  (`adopt`); the live one closes on teardown via the fork cascade. A reset whose
+  rebuild is rejected (non-accepted tag) discards its just-built scope and keeps
+  the current content.
+
 Unlike `Async`, this **is** a View IR variant (`Boundary`) — the sink-swap for
 the child subtree is a `buildDom`-time concern an existing `Reactive` can't
 express. The compiler skips the `h.track` wrap for `Catch(...)` calls (in
 `isSelfTrackingCall` alongside `Async`); import `Catch` unaliased.
+
+**Scope/fiber lifetime is uniform across the runtime** — internalize this when
+touching any of it: construction effects bind to a per-build scope (above),
+event-handler fibers are `Effect.forkIn(scope)`-ed into the element scope (`mount.ts`
+`runHandlerEffect`), reactive/list subtrees go through `buildScopedChild`, and
+`asyncRef`'s supervisor is `forkScoped`. Every sink also guards
+`Cause.hasInterruptsOnly` so a teardown interrupt isn't surfaced as a failure.
+Anything forked must be tied to a scope that closes when its DOM does.
 
 ## mount internals — invariants
 
@@ -528,4 +553,4 @@ pnpm --filter verrex-demo typecheck
 The `channels.test-d.ts` files (`types/Fold.test-d.ts`
 and `apps/demo/src/channels.test-d.ts`) are compile-time proofs
 that the fold works for the JSX shapes we care about. Failing
-`expectTypeOf` calls are real regressions.
+`assertEquals` checks are real regressions.

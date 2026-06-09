@@ -91,8 +91,6 @@ await runProbe({
     const recovered = (await demo.locator(".crasher .crash").count()) > 0
     console.log("\n[after reset] crash button back:", recovered)
 
-    await page.screenshot({ path: "scripts/.catch-probe.png", fullPage: false })
-
     const results = { tagMapCaughtConstruction, sawSuccess, tagMapCaughtLive, tagMapHandled, retryReRan, crashVisible, catchAllCaught, crashGone, recovered }
     console.log("\n[results]", JSON.stringify(results, null, 2))
     const ok = Object.values(results).every(Boolean) && errors.length === 0
