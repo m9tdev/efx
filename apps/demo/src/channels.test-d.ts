@@ -4,9 +4,9 @@
  * Each assertion either holds or produces a type error naming the
  * mismatched channel — this *is* the demonstration.
  */
-import type { Chunk, Effect, Option, Result, Scope } from "effect"
+import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { h, type View } from "@verrex/core"
+import { Catch, h, mount, type View } from "@verrex/core"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
 import { LiveUser } from "./LiveUser.vx"
@@ -165,7 +165,101 @@ declare const chunkEff: Chunk.Chunk<Effect.Effect<View, HttpError, Http>>
 const WithChunk = h("div", {}, chunkEff)
 assertEquals<typeof WithChunk, Effect.Effect<View, HttpError, Http>>()
 
+// ─── The error-boundary thesis: discharge-or-it-won't-compile ───────────
+//     `Catch` discharges a subtree's errors; `mount` requires a fully
+//     discharged app (`View<never>`, `never`). A forgotten boundary is a
+//     compile error that NAMES the error — the runtime counterpart of a
+//     forgotten Layer naming a service.
+
+declare const root: HTMLElement
+
+// Catch-all (function form) turns a failing subtree into a fully-discharged one.
+// The handler's cause is precisely typed — `Cause<HttpError>`, not `Cause<unknown>`.
+const Caught = Catch(UserPage({ userId: "42" }), (cause, reset) => {
+  const _typedCause: Cause.Cause<HttpError> = cause
+  void _typedCause
+  void reset
+  return h("div", {}, "failed")
+})
+// E discharged to `never`; UserPage's `Http | Theme` fold through, plus `Scope`
+// from the boundary's fork.
+assertEquals<typeof Caught, Effect.Effect<View, never, Http | Theme | Scope.Scope>>()
+
+// @ts-expect-error — UserPage's HttpError is undischarged: `mount` rejects it,
+// and the error names `HttpError` (not assignable to `never`). Forgot a boundary.
+mount(UserPage({ userId: "42" }), root)
+
+// With the boundary, the same app mounts.
+mount(Caught, root)
+
+// A pure component needs no boundary — it's already `View<never>`, `never`.
+mount(Counter(), root)
+
+// ─── Catch tag-map form narrows the error channel by tag ────────────────
+//     Handle specific tags; the rest stay on the channel and must still be
+//     discharged before `mount`. A typo'd tag key is a compile error.
+
+class ParseError {
+  readonly _tag = "ParseError" as const
+  readonly message = ""
+}
+declare const TwoErrors: Effect.Effect<View, HttpError | ParseError, Http>
+
+// Handle one tag → handler gets the unwrapped error; both channels narrow by
+// `Exclude<E, { _tag }>`.
+const CaughtHttp = Catch(TwoErrors, {
+  HttpError: (e, reset) => {
+    const _status: number = e.status
+    void _status
+    void reset
+    return h("p", {}, "http error")
+  },
+})
+assertEquals<typeof CaughtHttp, Effect.Effect<View, ParseError, Http | Scope.Scope>>()
+
+// @ts-expect-error — "Nope" is not one of the child's error tags
+Catch(TwoErrors, { Nope: () => h("p", {}, "x") })
+
+// @ts-expect-error — ParseError is still undischarged; mount rejects it, naming it
+mount(CaughtHttp, root)
+
+// Handle the remaining tag → fully discharged, mountable.
+const CaughtBoth = Catch(CaughtHttp, {
+  ParseError: (e) => {
+    const _msg: string = e.message
+    void _msg
+    return h("p", {}, "parse error")
+  },
+})
+assertEquals<typeof CaughtBoth, Effect.Effect<View, never, Http | Scope.Scope>>()
+mount(CaughtBoth, root)
+
+// Handle every tag at once → discharged, mountable.
+const AllTags = Catch(TwoErrors, {
+  HttpError: (e) => h("p", {}, `${e.status}`),
+  ParseError: (e) => h("p", {}, e.message),
+})
+assertEquals<typeof AllTags, Effect.Effect<View, never, Http | Scope.Scope>>()
+mount(AllTags, root)
+
+// ─── The LIVE half of the mount gate ────────────────────────────────────
+//     A View carrying a live error (`View<E≠never>`) is also rejected by `mount`,
+//     and `Catch` discharges it — the symmetric counterpart of the construction
+//     (Effect-E) gate above. (No leaf primitive stamps `View<E≠never>` today, so
+//     this is the type-level guarantee in isolation.)
+
+declare const liveOnly: Effect.Effect<View<HttpError>, never, never>
+
+// @ts-expect-error — the View can fail live with HttpError; mount requires View<never>.
+mount(liveOnly, root)
+
+// catch-all discharges the live error → mountable.
+mount(Catch(liveOnly, (_cause) => h("p", {}, "live error")), root)
+
+// tag-map discharges it too, narrowing to View<never>.
+mount(Catch(liveOnly, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
+
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
 // The `@ts-expect-error` assertions above prove props are type-checked at
-// JSX call sites.
+// JSX call sites, and that a forgotten error boundary fails to compile.

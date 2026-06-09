@@ -1,10 +1,20 @@
-import { Chunk, Effect, Exit, Option, Result, Scope } from "effect"
+import { Cause, Chunk, Effect, Exit, Option, Result, Scope } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { ChildE, ChildR } from "./types/Fold.ts"
 import { isView, View } from "./View.ts"
 
 export const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
   typeof u === "object" && u !== null && AtomRef.TypeId in u
+
+/**
+ * Where a runtime (post-mount) failure is routed instead of being swallowed.
+ * A reactive re-render whose Effect fails, and (in `mount`) a failing event
+ * handler, both hand their `Cause` to a sink threaded down from `mount`. The
+ * root default logs; a `Catch` boundary replaces it per-subtree. Carries
+ * `Cause<unknown>` because the build path is untyped — the type-level guarantee
+ * that only declared errors reach a boundary lives in the fold, not here.
+ */
+export type ErrorSink = (cause: Cause.Cause<unknown>) => void
 
 // ─── Dependency tracking (shared by h.track and Async) ───────────────────
 //
@@ -91,8 +101,13 @@ function coerceChildren(cs: ReadonlyArray<unknown>): Effect.Effect<View, any, an
  * Option/Result/Chunk/Atom/AtomRef. At render-time those containers have
  * already been unwrapped by the caller; if one shows up here it's coerced
  * via `String()` rather than silently expanded.
+ *
+ * A failing render Effect is **routed to `sink`** and renders nothing (an
+ * `Empty` placeholder) — not stringified into the DOM as `[effect failed: …]`.
+ * Pure-interrupt causes (a scope tearing down mid-render) are dropped, not
+ * routed: they're teardown, not errors.
  */
-export const coerceSync = (v: unknown, scope: Scope.Scope): View => {
+export const coerceSync = (v: unknown, scope: Scope.Scope, sink: ErrorSink): View => {
   if (v == null || v === false || v === true) return Empty
   if (typeof v === "string") return View.Text({ value: v })
   if (typeof v === "number" || typeof v === "bigint") {
@@ -107,13 +122,15 @@ export const coerceSync = (v: unknown, scope: Scope.Scope): View => {
     )
     const exit = Effect.runSyncExit(provided)
     return Exit.match(exit, {
-      onSuccess: (val) => coerceSync(val, scope),
-      onFailure: (cause) =>
-        View.Text({ value: `[effect failed: ${String(cause)}]` }),
+      onSuccess: (val) => coerceSync(val, scope, sink),
+      onFailure: (cause) => {
+        if (!Cause.hasInterruptsOnly(cause)) sink(cause)
+        return Empty
+      },
     })
   }
   if (Array.isArray(v)) {
-    return View.Fragment({ children: v.map((x) => coerceSync(x, scope)) })
+    return View.Fragment({ children: v.map((x) => coerceSync(x, scope, sink)) })
   }
   return View.Text({ value: String(v) })
 }

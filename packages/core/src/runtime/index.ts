@@ -1,13 +1,25 @@
-import { Cause, Effect, Fiber, Layer, Queue, Scope } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Option, Queue, Scope } from "effect"
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { trackDeps } from "./coerce.ts"
-import { type Props, View } from "./View.ts"
+import { type ErrorSink, trackDeps } from "./coerce.ts"
+import { type BoundaryState, type Props, View } from "./View.ts"
 
 export { h } from "./h.ts"
 export { mount } from "./mount.ts"
 export { type Props, View } from "./View.ts"
-// `Async`, `asyncRef`, `list`, `Fragment`, `VerrexLive` are declared + exported below.
-export type { Child, ChildE, ChildR, FoldE, FoldR, TagE, TagProps, TagR } from "./types/Fold.ts"
+// `Async`, `asyncRef`, `Catch`, `list`, `Fragment`, `VerrexLive` are declared + exported below.
+export type {
+  Child,
+  ChildE,
+  ChildLiveE,
+  ChildR,
+  FoldE,
+  FoldLiveE,
+  FoldR,
+  TagE,
+  TagLiveE,
+  TagProps,
+  TagR,
+} from "./types/Fold.ts"
 export type { HtmlEventHandlers, IntrinsicProps } from "./types/Html.ts"
 
 /**
@@ -93,13 +105,22 @@ export const asyncRef = <A, E, R>(
     yield* Effect.forkScoped(
       Effect.gen(function* () {
         let child: Fiber.Fiber<void, never> | null = null
+        let first = true
         while (true) {
           const eff = yield* Queue.take(runs)
           if (child) yield* Fiber.interrupt(child)
-          state.set(AsyncResult.initial(true)) // waiting
+          // First run shows Initial(waiting); a refetch keeps the prior result with
+          // a waiting flag (stale-while-revalidate) instead of flashing to Initial.
+          state.set(first ? AsyncResult.initial(true) : AsyncResult.waitingFrom(Option.some(state.value)))
+          first = false
           child = yield* Effect.forkChild(
             Effect.matchCause(eff, {
-              onFailure: (cause) => { state.set(AsyncResult.failure(cause)) },
+              onFailure: (cause) => {
+                // A refetch interrupts the prior run; an interrupt-only cause is that
+                // teardown, not a real failure — don't surface it as a Failure (the
+                // guard every other sink in the runtime applies).
+                if (!Cause.hasInterruptsOnly(cause)) state.set(AsyncResult.failure(cause))
+              },
               onSuccess: (value) => { state.set(AsyncResult.success(value)) },
             }),
           )
@@ -128,8 +149,9 @@ interface AsyncArms<A, E> {
  *
  * `from` is a thunk, so it can be inline or extracted
  * (`const getUser = () => http.getUser(userId.value)`); a ref read inside it
- * auto-refetches. The compiler lowers the `<Async from initial failure success/>`
- * JSX element to this positional call.
+ * auto-refetches. (A `<Async from initial failure success/>` JSX element that
+ * lowers to this positional call is *planned*, not yet implemented — use the call
+ * form.)
  *
  * ```tsx
  * Async(() => http.getUser(userId.value), {
@@ -161,6 +183,231 @@ export const Async = <A, E, R>(
       }),
     ),
   )
+
+// ─── Error boundary (Catch) ────────────────
+
+type Tagged = { readonly _tag: string }
+type TagsOf<E> = E extends Tagged ? E["_tag"] : never
+type WithoutTag<E, Tag extends string> = Exclude<E, { readonly _tag: Tag }>
+
+/** The `_tag` of a cause's first error, if it's a tagged error. */
+const errorTagOf = (cause: Cause.Cause<unknown>): string | undefined => {
+  const err = Option.getOrUndefined(Cause.findErrorOption(cause))
+  return typeof err === "object" && err !== null && "_tag" in err
+    ? (err as Tagged)._tag
+    : undefined
+}
+
+/**
+ * Shared boundary machinery for `Catch` (both forms). `accepts`
+ * decides which causes THIS boundary handles; a non-accepted cause re-raises at
+ * construction (its residual rides the Effect channel → a parent boundary / fails
+ * mount) and escalates to the ambient sink when live. The typed public wrappers
+ * below cast the residual to its precise shape.
+ */
+// The outcome of one child build: shown content (ok / accepted error) + the scope
+// its construction-time effects live in, or a cause this boundary doesn't accept.
+type BuildOutcome =
+  | { readonly content: BoundaryState; readonly scope: Scope.Closeable }
+  | { readonly rejected: Cause.Cause<unknown>; readonly scope: Scope.Closeable }
+
+const makeBoundary = <R>(
+  child: Effect.Effect<View<any>, any, R>,
+  accepts: (cause: Cause.Cause<unknown>) => boolean,
+  handler: (cause: Cause.Cause<unknown>, reset: () => void) => unknown,
+): Effect.Effect<View<never>, unknown, R | Scope.Scope> =>
+  Effect.gen(function* () {
+    const mountScope = yield* Effect.scope
+    // Ambient (parent) sink — set by mount via the node's `setAmbient`. A cause
+    // this boundary doesn't `accept` escalates here. A catch-all never escalates.
+    let ambient: ErrorSink = () => {}
+    const setAmbient = (sink: ErrorSink): void => { ambient = sink }
+
+    // Monotonic generation: `AtomRef.set` dedups via `Equal.equals`, so a build
+    // that fails with a structurally-identical `Cause` would be `Equal`-equal to
+    // the current state and silently not notify (a dead retry). `gen` makes every
+    // emission distinct.
+    let gen = 0
+    // Construction scope of the CURRENT content: a child's construction-time effects
+    // (an `asyncRef` supervisor + finalizers, `acquireRelease`, …) bind to a fresh
+    // scope forked from the mount scope, so they're released when we swap away or
+    // reset rather than leaking onto the mount scope. The fork cascade closes the
+    // live one on teardown; `adopt` closes the prior one mid-life. Error content
+    // holds no scope: a failed build renders nothing, so its scope closes the
+    // moment the failure is accepted — partial resources never idle behind the
+    // fallback.
+    let activeBuild: Scope.Closeable | null = null
+    const close = (s: Scope.Closeable | null): void => {
+      if (!s) return
+      const e = Scope.closeUnsafe(s, Exit.void)
+      if (e) Effect.runFork(e)
+    }
+    const adopt = (s: Scope.Closeable): void => {
+      close(activeBuild)
+      activeBuild = s
+    }
+
+    // Build `child` in a fresh scope. Returns content + that scope, or `{ rejected }`
+    // for a cause this boundary doesn't accept. Never fails. An interrupt-only cause
+    // (teardown) is treated as not-accepted, so a catch-all doesn't render a fallback
+    // for a build interrupted mid-flight.
+    const build = (): Effect.Effect<BuildOutcome, never, R> =>
+      Effect.suspend(() => {
+        const scope = Scope.forkUnsafe(mountScope, "sequential")
+        return Effect.matchCause(Effect.provideService(child, Scope.Scope, scope), {
+          onSuccess: (view): BuildOutcome => ({ content: { _tag: "ok", view, gen: gen++ }, scope }),
+          onFailure: (cause): BuildOutcome =>
+            accepts(cause) && !Cause.hasInterruptsOnly(cause)
+              ? { content: { _tag: "error", cause, gen: gen++ }, scope }
+              : { rejected: cause, scope },
+        })
+      })
+
+    // Initial build inline (folds R; no first-paint flash). A rejected cause here
+    // re-raises on the Effect channel — the residual rides `EC` to a parent boundary
+    // / fails `mount`.
+    const first = yield* build()
+    if ("rejected" in first) {
+      close(first.scope)
+      return yield* Effect.failCause(first.rejected)
+    }
+    if (first.content._tag === "error") close(first.scope)
+    else activeBuild = first.scope
+    const state = AtomRef.make<BoundaryState>(first.content)
+    const runs = yield* Queue.unbounded<{ readonly _tag: "reset" } | {
+      readonly _tag: "error"
+      readonly cause: Cause.Cause<unknown>
+    }>()
+
+    // Live failures: accepted → error state (via the queue, off the render stack —
+    // a synchronous mutation would close the child scope mid-render); non-accepted
+    // → escalate to the ambient sink. Interrupts (teardown) dropped.
+    const report = (cause: Cause.Cause<unknown>): void => {
+      if (Cause.hasInterruptsOnly(cause)) return
+      if (accepts(cause)) Queue.offerUnsafe(runs, { _tag: "error", cause })
+      else ambient(cause)
+    }
+    const reset = (): void => {
+      Queue.offerUnsafe(runs, { _tag: "reset" })
+    }
+
+    yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        while (true) {
+          const msg = yield* Queue.take(runs)
+          if (msg._tag === "error") {
+            // live error: tear down the current content's construction effects, swap.
+            close(activeBuild)
+            activeBuild = null
+            state.set({ _tag: "error", cause: msg.cause, gen: gen++ })
+          } else {
+            // reset: re-build. ok → adopt new scope + swap; accepted error →
+            // swap but close BOTH scopes (nothing renders from a failed build);
+            // rejected → escalate to the parent and KEEP current content
+            // (discard the new scope). A rebuild torn down mid-flight
+            // (interrupt-only) is teardown, not an error — don't escalate it.
+            const b = yield* build()
+            if ("rejected" in b) {
+              close(b.scope)
+              if (!Cause.hasInterruptsOnly(b.rejected)) ambient(b.rejected)
+            } else {
+              if (b.content._tag === "error") {
+                close(activeBuild)
+                activeBuild = null
+                close(b.scope)
+              } else {
+                adopt(b.scope)
+              }
+              state.set(b.content)
+            }
+          }
+        }
+      }),
+    )
+
+    return View.Boundary({ state, handler, reset, report, setAmbient })
+  })
+
+/**
+ * View-level error boundary — `Catch`. Mirrors Effect's `catch*`: recover the
+ * FAILURE side of a view subtree, let success pass through (the child renders
+ * itself). Contrast `Async`, which matches a data `AsyncResult` and renders
+ * *every* state — a boundary supplies only the failure fallback. Two forms,
+ * picked by the second argument:
+ *
+ *  - **catch-all** — a function handler gets the precise `Cause<EC | EV>` and
+ *    discharges *every* error to `never` (mountable):
+ *    ```tsx
+ *    {Catch(<UserCard id={id} />, (cause, reset) =>
+ *      <div class="err">{Cause.pretty(cause)}<button onclick={reset}>retry</button></div>)}
+ *    ```
+ *  - **tag-selective** — a map of `_tag → handler` for any subset of the child's
+ *    error tags (each handler gets the unwrapped tagged error). The result
+ *    **narrows** both channels by `Exclude<E, { _tag }>`, so a leftover tag must
+ *    still be discharged before `mount`. A non-matching error escalates to the
+ *    next boundary out.
+ *    ```tsx
+ *    {Catch(<UserCard id={id} />, {
+ *      HttpError: (e, reset) => <Banner status={e.status} onRetry={reset} />,
+ *      ParseError: (e) => <p>bad data: {e.message}</p>,
+ *    })}
+ *    ```
+ *
+ * Catches both phases — **construction** (`child`'s build Effect fails) and
+ * **live** (a post-mount reactive re-render or event-handler Effect). `reset()`
+ * re-runs construction. `child`'s `R` folds (construction + every reset run on
+ * the mount fiber); the fallback's own `E`/`R` are not folded — keep it pure
+ * markup, like `Async`'s arms. Tag-selective only catches errors in the *type*;
+ * an untyped event-handler or reactive error needs the catch-all form.
+ */
+export function Catch<EV, EC, R>(
+  child: Effect.Effect<View<EV>, EC, R>,
+  handler: (cause: Cause.Cause<EC | EV>, reset: () => void) => View | Effect.Effect<View, any, any>,
+): Effect.Effect<View<never>, never, R | Scope.Scope>
+export function Catch<
+  EV,
+  EC,
+  R,
+  Handlers extends {
+    readonly [K in TagsOf<EC | EV>]?: (
+      error: Extract<EC | EV, { readonly _tag: K }>,
+      reset: () => void,
+    ) => View | Effect.Effect<View, any, any>
+  },
+>(
+  child: Effect.Effect<View<EV>, EC, R>,
+  handlers: Handlers,
+): Effect.Effect<
+  View<WithoutTag<EV, keyof Handlers & string>>,
+  WithoutTag<EC, keyof Handlers & string>,
+  R | Scope.Scope
+>
+export function Catch(
+  child: Effect.Effect<View<any>, any, any>,
+  handlerOrMap:
+    | ((cause: Cause.Cause<unknown>, reset: () => void) => unknown)
+    | Record<string, (error: any, reset: () => void) => unknown>,
+): Effect.Effect<View<never>, unknown, unknown> {
+  if (typeof handlerOrMap === "function") {
+    return makeBoundary(child, () => true, handlerOrMap)
+  }
+  const handlers = handlerOrMap
+  // `accepts` checks for an OWN function-valued handler (not a prototype-chain hit,
+  // not an explicit `undefined` slot). `accepts` dispatches on the FIRST tagged
+  // error of the cause (`Cause.findErrorOption`); the design assumes a single
+  // tagged failure per cause — a multi-tagged cause routes on its first error.
+  const handlerFor = (cause: Cause.Cause<unknown>): ((e: any, r: () => void) => unknown) | undefined => {
+    const t = errorTagOf(cause)
+    if (t === undefined || !Object.hasOwn(handlers, t)) return undefined
+    const fn = handlers[t]
+    return typeof fn === "function" ? fn : undefined
+  }
+  return makeBoundary(
+    child,
+    (cause) => handlerFor(cause) !== undefined,
+    (cause, reset) => handlerFor(cause)!(Option.getOrUndefined(Cause.findErrorOption(cause)), reset),
+  )
+}
 
 /**
  * Fragment component — the compile target for JSX `<>...</>` syntax.

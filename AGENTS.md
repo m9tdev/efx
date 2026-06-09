@@ -3,7 +3,21 @@
 **Purpose:** a TypeScript UI framework where Effect's `<A, E, R>`
 channels propagate from every leaf of the view tree to the root.
 Forgetting to provide a service `Layer` becomes a *compile-time
-error that names the missing service*.
+error that names the missing service*; symmetrically, forgetting to
+handle an error with a `Catch` boundary becomes a *compile-time
+error that names the unhandled error* (`mount` requires
+`Effect<View<never>, never, R>`). Errors live in two phases: construction
+errors ride the Effect `E`; live errors a rendered subtree can still
+produce ride the `View<E>` success — one `Catch` boundary discharges both.
+
+**Honest scope today:** the *construction* channel is fully type-tracked —
+a forgotten boundary on a failing build is a compile error. The `View<E>`
+machinery for *live* errors is built and gated by `mount`, but no leaf
+primitive yet stamps `View<E≠never>` (`Async` discharges to `View<never>`;
+event-handler/reactive errors are erased to `(e) => void` / `unknown`), so
+in compiled `.vx` the live channel is effectively `never` — live failures
+are caught at *runtime* by `Catch`'s sink, not tracked by the type. Closing
+that (a primitive that types live errors) is the remaining thesis work.
 
 **The name** is built from the channels of an `Effect<View, E, R>`:
 **V** (View — the `A`, always the `View` here), **E** (Error), **R**
@@ -76,8 +90,8 @@ editor plugin is the one separate package, because tsserver resolves Language
 Service plugins only by bare package name.
 
 - **[`src/runtime/`](./packages/core/src/runtime/AGENTS.md)** — export `@verrex/core`. `h`,
-  `mount`, `Async`, `asyncRef`, `list`, the View IR (mount switches on it), reactivity
-  wiring, channel-fold types. The thing components import from.
+  `mount`, `Async`, `asyncRef`, `list`, `Catch`, the View IR (mount switches on it),
+  reactivity wiring, channel-fold types. The thing components import from.
 - **[`src/compiler/`](./packages/core/src/compiler/AGENTS.md)** — export
   `@verrex/core/compiler`. The Babel transform: JSX → `h()`, `.value` → `h.read()`,
   `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`. Smart-skip wrap.

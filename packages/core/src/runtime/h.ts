@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { coerceAsync, isAtomRef, recordDep, trackDeps } from "./coerce.ts"
-import type { FoldE, FoldR, TagE, TagProps, TagR } from "./types/Fold.ts"
+import type { FoldE, FoldLiveE, FoldR, TagE, TagLiveE, TagProps, TagR } from "./types/Fold.ts"
 import { type Props, View } from "./View.ts"
 
 // ─── Tracking scope for h.track / h.read ─────────────────────────────────
@@ -71,12 +71,12 @@ function readImpl(obj: unknown): unknown {
  * normalized via `coerceAsync` in `./coerce.ts`.
  */
 const _h = (
-  tag: string | ((props: Props) => Effect.Effect<View, any, any>),
+  tag: string | ((props: Props) => Effect.Effect<View<any>, any, any>),
   props: Props,
   ...children: ReadonlyArray<unknown>
-): Effect.Effect<View, any, any> =>
+): Effect.Effect<View<any>, any, any> =>
   Effect.gen(function* () {
-    const out: View[] = []
+    const out: View<any>[] = []
     for (const c of children) {
       out.push(yield* coerceAsync(c))
     }
@@ -87,14 +87,23 @@ const _h = (
     return View.Element({ tag, props, children: out })
   })
 
+// Errors split by phase across the two channels: CONSTRUCTION errors
+// (`FoldE`/`TagE`) on the Effect `E` (a child's build failing fails this build),
+// LIVE errors (`FoldLiveE`/`TagLiveE`) on the `View<E>` success (errors the
+// rendered subtree can still produce). `mount` requires both `never`;
+// `Catch` discharges both. The position encodes the phase.
 type HFn = <
-  T extends string | ((props: any) => Effect.Effect<View, any, any>),
+  T extends string | ((props: any) => Effect.Effect<View<any>, any, any>),
   Cs extends readonly unknown[],
 >(
   _tag: T,
   _props: TagProps<T>,
   ..._children: Cs
-) => Effect.Effect<View, FoldE<Cs> | TagE<T>, FoldR<Cs> | TagR<T>>
+) => Effect.Effect<
+  View<FoldLiveE<Cs> | TagLiveE<T>>,
+  FoldE<Cs> | TagE<T>,
+  FoldR<Cs> | TagR<T>
+>
 
 /**
  * The view factory, plus two helper methods the compiler calls into:

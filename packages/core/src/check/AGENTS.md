@@ -58,9 +58,8 @@ LSP protocol.
 
 - **Files included**: whatever the resolved tsconfig's `include`
   glob produces, expanded with `extraFileExtensions` (`.vx`
-  recognized). For demo: 7 `.vx` + 4 hand-written `.ts`
-  (`channels.test-d.ts`, `flash.ts`, `highlight.ts`, `services.ts`)
-  = 11 files.
+  recognized) — for the demo, its `.vx` sources plus its hand-written
+  `.ts` (`channels.test-d.ts`, `flash.ts`, `highlight.ts`, `services.ts`).
 - **Diagnostics printed**: errors only by default (matching the
   bare `tsc --noEmit` flow we replaced). Warnings and hints are
   counted in `CheckResult` but not printed — `volar-service-typescript`

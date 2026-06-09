@@ -1,8 +1,9 @@
 import { Cause, Effect, Exit, Fiber, Layer, Scope } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
-import { VerrexLive, mount, type View } from "@verrex/core"
+import { VerrexLive, Catch, mount, type View } from "@verrex/core"
 import { Counter } from "./Counter.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
+import { CatchDemo } from "./CatchDemo.vx"
 import { flashOnUpdate } from "./flash.ts"
 import { highlight } from "./highlight.ts"
 import { Lifecycle } from "./Lifecycle.vx"
@@ -262,6 +263,37 @@ const App = (
       {demoSlot("lifecycle")}
     </section>
 
+    <section class="tour">
+      {copy({
+        step: "07",
+        title: "Error boundary (catch the failure side)",
+        concept:
+          "Catch mirrors Effect's catch*: recover the failure side of a view subtree, let success pass through. It catches BOTH a failed construction Effect and a post-mount failure inside the live subtree — here the crash button's Effect, which has no E channel to land on and is routed to the boundary instead of dropped. reset re-runs the child's construction. Scope is the boundary's own contribution (it forks its reset/report loop into the enclosing scope). A function handler is the catch-all (it gets the full Cause); an object of {Tag: handler} narrows the channel by the handled tags. mount requires every error discharged — a forgotten boundary is a compile error that names it.",
+        type: "Effect<View, never, Scope>",
+        code: `export const CatchDemo = Effect.fn("CatchDemo")(function* () {
+  return yield* (
+    <section>
+      {/* catch-all: a function handler recovers any failure */}
+      {Catch(<Crasher />, (cause, reset) => (
+        <div class="fallback">
+          <pre>{Cause.pretty(cause)}</pre>
+          <button onclick={reset}>reset</button>
+        </div>
+      ))}
+
+      {/* tag-map: route by tag; handler gets the unwrapped error */}
+      {Catch(<BadRequest />, {
+        HttpError: (e, reset) =>
+          <p>HttpError {e.status} <button onclick={reset}>retry</button></p>,
+      })}
+    </section>
+  )
+})`,
+        file: "CatchDemo.vx",
+      })}
+      {demoSlot("boundary")}
+    </section>
+
     <footer class="site-footer">
       <p>
         verrex is an experimental proof-of-concept.{" "}
@@ -301,9 +333,22 @@ const setupDemo = <E>(id: string, make: () => Effect.Effect<View, E, DemoR>): vo
   const remount = (): void => {
     teardown?.()
     const scope = Scope.makeUnsafe()
+    // `mount` requires a discharged app. Wrap every demo in a `Catch`
+    // boundary so any error (construction or live) becomes a visible fallback
+    // instead of a compile error here — and to discharge the `E` channel uniformly
+    // (UserPage carries HttpError). The happy paths don't fail, so they render
+    // through unchanged; this is also where the boundary itself gets exercised.
     Effect.runFork(
       Scope.provide(
-        mount(make(), container).pipe(
+        mount(
+          Catch(make(), (cause) => (
+            <div class="demo-error">
+              <strong>this demo failed:</strong>
+              <pre>{Cause.pretty(cause)}</pre>
+            </div>
+          )),
+          container,
+        ).pipe(
           Effect.catchCause((cause) =>
             Effect.sync(() => console.error(`[verrex demo: ${id}]`, Cause.pretty(cause))),
           ),
@@ -332,6 +377,7 @@ const program = Effect.gen(function* () {
     setupDemo("live", () => LiveUser())
     setupDemo("todos", () => Todos())
     setupDemo("lifecycle", () => Lifecycle())
+    setupDemo("boundary", () => CatchDemo())
   })
   // Start the reactivity flash once the initial mounts settle (incl. the
   // simulated fetch latency), so only interactions and resets flash — not page

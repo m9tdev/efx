@@ -50,7 +50,9 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    `<Row item={item} />` (where `item` is a generic `T`). Static
    passes through with no wrap. The `.value.map → list(...)` rewrite
    (#3) also does **not** trigger a wrap — `list()` subscribes inside
-   `mount`, so wrapping in `h.track` would be a redundant layer.
+   `mount`, so wrapping in `h.track` would be a redundant layer. Same
+   for `Async(...)` and `Catch(...)` calls (`isSelfTrackingCall`):
+   they self-track and must reach the `h()` fold un-erased.
 
 2. **`x.value` → `h.read(x)`** inside the wrapped expression. Tracks
    AtomRef reads. (The *same* read rewrite also runs over the whole
