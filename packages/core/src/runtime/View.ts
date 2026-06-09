@@ -1,8 +1,19 @@
 import { Data } from "effect"
+import type { Cause } from "effect"
 import type { Atom } from "effect/unstable/reactivity"
 import type { AtomRef } from "effect/unstable/reactivity"
 
 export type Props = Readonly<Record<string, unknown>>
+
+/**
+ * A `ViewBoundary`'s current content: the child subtree rendered normally
+ * (`ok`), or a caught failure awaiting the fallback (`error`). Driven by
+ * `catchCause` — construction sets the initial value, a live failure reported
+ * from the child subtree flips it to `error`, and `reset` re-runs construction.
+ */
+export type BoundaryState =
+  | { readonly _tag: "ok"; readonly view: View }
+  | { readonly _tag: "error"; readonly cause: Cause.Cause<unknown> }
 
 // Per-variant named interfaces — required so TS preserves the `View` alias
 // in hovers. `Data.TaggedEnum<{...}>` runs every variant through
@@ -41,6 +52,19 @@ export interface ViewList {
 export interface ViewEmpty {
   readonly _tag: "Empty"
 }
+// Error boundary. Renders `state.ok.view` (child subtree) or, on a caught
+// failure, `handler(cause, reset)` (fallback). Unlike other variants this
+// carries behavior, not just data: `handler` produces the fallback, `reset`
+// re-runs the child construction, and `report` is the sink the child subtree's
+// LIVE failures route to (mount swaps `ctx.sink` to it when descending). See
+// `catchCause` (index.ts) which builds it and drives `state`.
+export interface ViewBoundary {
+  readonly _tag: "Boundary"
+  readonly state: AtomRef.ReadonlyRef<BoundaryState>
+  readonly handler: (cause: Cause.Cause<unknown>, reset: () => void) => unknown
+  readonly reset: () => void
+  readonly report: (cause: Cause.Cause<unknown>) => void
+}
 
 export type View =
   | ViewText
@@ -48,12 +72,13 @@ export type View =
   | ViewFragment
   | ViewReactive
   | ViewList
+  | ViewBoundary
   | ViewEmpty
 
 export const View = Data.taggedEnum<View>()
 
 export const VIEW_TAGS: ReadonlySet<View["_tag"]> = new Set<View["_tag"]>([
-  "Text", "Element", "Fragment", "Reactive", "List", "Empty",
+  "Text", "Element", "Fragment", "Reactive", "List", "Boundary", "Empty",
 ])
 
 export const isView = (u: unknown): u is View =>

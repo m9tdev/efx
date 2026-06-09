@@ -1,0 +1,48 @@
+import { Cause, Data, Effect } from "effect"
+import { catchCause } from "@verrex/core"
+
+// A local tagged error so the failure has a real shape in `Cause.pretty`.
+class BoomError extends Data.TaggedError("BoomError")<{ readonly why: string }> {}
+
+// The protected subtree. Renders fine; its button's `onclick` returns a failing
+// Effect, which — post-mount, with no E channel to land on — is routed to the
+// nearest boundary instead of being dropped.
+const Crasher = Effect.fn("Crasher")(function* (_props: {} = {}) {
+  return yield* (
+    <div class="crasher">
+      <p>This subtree works fine — until you push the button.</p>
+      <button
+        class="crash"
+        onclick={() => Effect.fail(new BoomError({ why: "you pushed the button" }))}
+      >
+        crash me
+      </button>
+    </div>
+  )
+})
+
+/**
+ * `catchCause(child, (cause, reset) => fallback)` — the view-level error
+ * boundary, mirroring `Effect.catchCause`. It recovers the *failure* side of the
+ * subtree (the child renders itself on success) and catches BOTH a failed
+ * construction Effect and a post-mount failure inside the live subtree — here the
+ * crash button's Effect. `reset` re-runs the child's construction.
+ *
+ * Inferred type: `Effect<View, never, Scope>` — `Scope` is the boundary's own
+ * contribution (it forks its reset/report loop into the enclosing scope). The
+ * caught error is `Cause<unknown>` for now; a later pass makes a *forgotten*
+ * boundary a compile error that names the unhandled error.
+ */
+export const CatchCause = Effect.fn("CatchCause")(function* (_props: {} = {}) {
+  return yield* (
+    <section class="catch-cause">
+      {catchCause(<Crasher />, (cause, reset) => (
+        <div class="boundary-fallback">
+          <p class="caught">caught a runtime failure:</p>
+          <pre class="cause">{Cause.pretty(cause)}</pre>
+          <button class="reset" onclick={reset}>reset</button>
+        </div>
+      ))}
+    </section>
+  )
+})

@@ -1,12 +1,12 @@
 import { Cause, Effect, Fiber, Layer, Queue, Scope } from "effect"
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { trackDeps } from "./coerce.ts"
-import { type Props, View } from "./View.ts"
+import { type BoundaryState, type Props, View } from "./View.ts"
 
 export { h } from "./h.ts"
 export { mount } from "./mount.ts"
 export { type Props, View } from "./View.ts"
-// `Async`, `asyncRef`, `list`, `Fragment`, `VerrexLive` are declared + exported below.
+// `Async`, `asyncRef`, `catchCause`, `list`, `Fragment`, `VerrexLive` are declared + exported below.
 export type { Child, ChildE, ChildR, FoldE, FoldR, TagE, TagProps, TagR } from "./types/Fold.ts"
 export type { HtmlEventHandlers, IntrinsicProps } from "./types/Html.ts"
 
@@ -161,6 +161,75 @@ export const Async = <A, E, R>(
       }),
     ),
   )
+
+/**
+ * View-level error boundary — the catch-all. Mirrors `Effect.catchCause`: it
+ * recovers the FAILURE side of a view subtree and lets success pass through (the
+ * child renders itself). Contrast `Async`, which matches a data `AsyncResult`
+ * and renders *every* state — a boundary supplies only the failure fallback.
+ *
+ * `catchCause(child, (cause, reset) => fallback)` catches both phases of failure:
+ *  - **construction** — `child`'s build Effect fails (run under `Effect.catchCause`);
+ *  - **live** — a post-mount failure inside the rendered subtree (a reactive
+ *    re-render or an event-handler Effect) routed to this boundary's sink.
+ * Either swaps the subtree for `fallback(cause, reset)`; `reset()` re-runs the
+ * child's construction. Pure-interrupt causes (scope teardown) are ignored.
+ *
+ * `child`'s `R` folds into the component (construction + every `reset` run on the
+ * mount fiber, like `asyncRef`), so a forgotten `Layer` is still a compile error
+ * at `mount`. `cause` is `Cause<unknown>` for now — the typed `View<E>` discharge
+ * (where a forgotten boundary becomes a compile error naming the error) lands in
+ * a later pass. The fallback's own `E`/`R` are not folded — keep it pure markup,
+ * like `Async`'s arms.
+ *
+ * ```tsx
+ * {catchCause(<UserCard id={id} />, (cause, reset) => (
+ *   <div class="err">{Cause.pretty(cause)}<button onClick={reset}>retry</button></div>
+ * ))}
+ * ```
+ */
+export const catchCause = <E, R>(
+  child: Effect.Effect<View, E, R>,
+  handler: (cause: Cause.Cause<unknown>, reset: () => void) => View | Effect.Effect<View, any, any>,
+): Effect.Effect<View, never, R | Scope.Scope> =>
+  Effect.gen(function* () {
+    // Run `child`, folding both outcomes into a BoundaryState. `Effect.matchCause`
+    // discharges `child`'s E (catch-all) while keeping R; re-runnable for reset.
+    const construct: Effect.Effect<BoundaryState, never, R> = Effect.matchCause(child, {
+      onSuccess: (view): BoundaryState => ({ _tag: "ok", view }),
+      onFailure: (cause): BoundaryState => ({ _tag: "error", cause }),
+    })
+
+    // Initial construction inline (folds R; no first-paint flash before the
+    // child appears — unlike a forked run, which mount would race).
+    const state = AtomRef.make<BoundaryState>(yield* construct)
+    const runs = yield* Queue.unbounded<{ readonly _tag: "reset" } | {
+      readonly _tag: "error"
+      readonly cause: Cause.Cause<unknown>
+    }>()
+
+    // report/reset both go through the queue → applied on the forked fiber, never
+    // synchronously inside the child's render (which would close the child scope
+    // mid-render — reentrant). This is also why `report` is safe as a sink.
+    const report = (cause: Cause.Cause<unknown>): void => {
+      if (!Cause.hasInterruptsOnly(cause)) Queue.offerUnsafe(runs, { _tag: "error", cause })
+    }
+    const reset = (): void => {
+      Queue.offerUnsafe(runs, { _tag: "reset" })
+    }
+
+    yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        while (true) {
+          const msg = yield* Queue.take(runs)
+          if (msg._tag === "error") state.set({ _tag: "error", cause: msg.cause })
+          else state.set(yield* construct)
+        }
+      }),
+    )
+
+    return View.Boundary({ state, handler, reset, report })
+  })
 
 /**
  * Fragment component — the compile target for JSX `<>...</>` syntax.

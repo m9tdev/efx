@@ -3,6 +3,7 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import { VerrexLive, mount, type View } from "@verrex/core"
 import { Counter } from "./Counter.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
+import { CatchCause } from "./CatchCause.vx"
 import { flashOnUpdate } from "./flash.ts"
 import { highlight } from "./highlight.ts"
 import { Lifecycle } from "./Lifecycle.vx"
@@ -262,6 +263,36 @@ const App = (
       {demoSlot("lifecycle")}
     </section>
 
+    <section class="tour">
+      {copy({
+        step: "07",
+        title: "Error boundary (catch the failure side)",
+        concept:
+          "catchCause mirrors Effect.catchCause: recover the failure side of a view subtree, let success pass through. It catches BOTH a failed construction Effect and a post-mount failure inside the live subtree — here the crash button's Effect, which has no E channel to land on and is routed to the boundary instead of dropped. reset re-runs the child's construction. Scope is the boundary's own contribution (it forks its reset/report loop into the enclosing scope). The cause is Cause<unknown> for now; a later pass makes a forgotten boundary a compile error that names the unhandled error.",
+        type: "Effect<View, never, Scope>",
+        code: `const Crasher = Effect.fn("Crasher")(function* () {
+  return yield* (
+    <button onclick={() => Effect.fail(new BoomError())}>
+      crash me
+    </button>
+  )
+})
+
+export const CatchCause = Effect.fn("CatchCause")(function* () {
+  return yield* (
+    {catchCause(<Crasher />, (cause, reset) => (
+      <div class="fallback">
+        <pre>{Cause.pretty(cause)}</pre>
+        <button onclick={reset}>reset</button>
+      </div>
+    ))}
+  )
+})`,
+        file: "CatchCause.vx",
+      })}
+      {demoSlot("boundary")}
+    </section>
+
     <footer class="site-footer">
       <p>
         verrex is an experimental proof-of-concept.{" "}
@@ -332,6 +363,7 @@ const program = Effect.gen(function* () {
     setupDemo("live", () => LiveUser())
     setupDemo("todos", () => Todos())
     setupDemo("lifecycle", () => Lifecycle())
+    setupDemo("boundary", () => CatchCause())
   })
   // Start the reactivity flash once the initial mounts settle (incl. the
   // simulated fetch latency), so only interactions and resets flash — not page
