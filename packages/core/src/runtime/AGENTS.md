@@ -209,11 +209,11 @@ identically to inline. The read must happen *inside* the thunk; a `.value` read
 into a local *before* it (`const id = userId.value; Async(() => http.getUser(id), …)`)
 captures a snapshot and won't refetch — ordinary eager-read semantics.
 
-**The compiler skips the `h.track` wrap for `Async(...)` calls** (`isAsyncCall`
-in the compiler) — `Async` self-tracks, and `h.track`'s `unknown` return would
-erase its `Effect<View, never, R | Scope>` channels from the `h()` fold. The
-inner `.value`→`h.read` rewrite is kept (the tracker needs it). Matched by callee
-name, so import `Async` unaliased.
+**The compiler skips the `h.track` wrap for `Async(...)` calls** (`isSelfTrackingCall`
+in the compiler — the same guard covers `Catch`) — `Async` self-tracks, and
+`h.track`'s `unknown` return would erase its `Effect<View, never, R | Scope>`
+channels from the `h()` fold. The inner `.value`→`h.read` rewrite is kept (the
+tracker needs it). Matched by callee name, so import `Async`/`Catch` unaliased.
 
 Neither is a View IR variant. `asyncRef` builds an `AtomRef<AsyncResult>`; `Async`
 maps it through `AsyncResult.match` and returns a `View.Reactive` — the existing
@@ -256,8 +256,13 @@ second argument:
 - **tag-selective** — `Catch(child, { Tag: (error, reset) => …, … })`. Handles a
   subset of the child's error tags (each handler gets the unwrapped tagged error)
   and **narrows** both channels by `Exclude<E, { _tag }>`. Keys are constrained to
-  the child's actual error tags (a typo'd key is a compile error). A leftover tag
-  must still be discharged before `mount`.
+  the child's actual error tags — a typo'd key is a compile error *when it is the
+  only key*; mixed with ≥1 valid key it is silently accepted (the exactness guard
+  is omitted to preserve per-handler `error` inference). That is a safe
+  over-approximation, not a soundness hole: a bad key just yields a dead handler,
+  and the residual keeps its tag in `E`, so no error is ever wrongly discharged —
+  an ergonomic gap, not a soundness one. A leftover tag must still be discharged
+  before `mount`.
 
 Both run over the internal `makeBoundary(child, accepts, handler)` (builds the
 `Boundary` node, drives `state`); they differ only in `accepts` (catch-all = always;
@@ -286,8 +291,9 @@ Catches **both phases** through one fallback:
 `reset()` re-runs construction. **`report` and `reset` both go through a `Queue`
 drained by a `forkScoped` loop** (like `asyncRef`) — never mutating boundary
 state synchronously inside the child's render, which would close the child scope
-mid-render (reentrant). The runtime impl is untyped (`Cause<unknown>` sink); the
-precise types are the public-signature contract (two overloads), bridged by casts.
+mid-render (reentrant). The runtime impl runs on a deliberately wider, untyped
+signature (`Cause<unknown>` sink); the precise types live in the two public
+overloads that front it.
 
 **Two lifecycle details that are easy to get wrong (and were):**
 - **Generation stamp.** Each `BoundaryState` carries a monotonic `gen`. Without
@@ -338,8 +344,10 @@ routed to `ctx.sink: (cause: Cause<unknown>) => void` instead of being
 swallowed. Two producers: (1) a **reactive re-render** whose Effect fails —
 `coerceSync` calls `sink(cause)` and renders `Empty` (it no longer stringifies
 `[effect failed: …]` into the DOM); (2) an **event handler** that returns an
-Effect — `applyProp` forks it via `Effect.runForkWith(ctx.context)` (so it gets
-the app's services) and `Effect.matchCause` routes its failure to the same sink.
+Effect — `applyProp` runs it on the captured context (`Effect.runForkWith(ctx.context)`,
+so it gets the app's services) forked into the element's DOM `scope`
+(`Effect.forkIn(scope)`, so the fiber is interrupted when the element is removed),
+with `Effect.matchCause` routing its failure to the same sink.
 Both guard with `Cause.hasInterruptsOnly` — a pure-interrupt cause is scope
 teardown, not an error, and is dropped. The root sink (`mount`) logs via
 `Effect.logError` on the captured context; a `Catch` boundary replaces the

@@ -168,8 +168,8 @@ JSX expression is automatically wrapped in a tracking scope.
 The JS bundle contains: `effect@4.0.0-beta.71` runtime (~6 kB gzipped per
 upstream docs), `effect/unstable/reactivity` (`AtomRef`, `Atom`,
 `AtomRegistry`, `AsyncResult`), the `verrex` runtime (~600 LOC,
-contributes single-digit kB), plus all six demo components (`Counter`,
-`UserPage`, `AsyncUserPage`, `LiveUser`, `Todos`, `Lifecycle`), the guided-tour
+contributes single-digit kB), plus all seven demo components (`Counter`,
+`UserPage`, `AsyncUserPage`, `LiveUser`, `Todos`, `Lifecycle`, `CatchDemo`), the guided-tour
 shell (a small dependency-free TSX highlighter + reactivity-flash visualizer),
 and their mock services. Verified interactive after build — Counter increments,
 the `Async` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's

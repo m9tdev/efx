@@ -25,7 +25,10 @@ await ui.unmount()
   provided. Returns once the DOM is attached.
 - `RenderResult` — `get`/`query`/`all`/`text` (DOM queries),
   `click`/`fire` (dispatch bubbling events that hit the component's
-  handlers), `tick()` (flush a macrotask so async/atom updates settle),
+  handlers — an `onClick` returning an `Effect` is forked on the mount
+  context with its services, and its failures route to the error sink, so
+  a failing handler is contained rather than thrown; `event-handlers.test.ts`
+  pins this), `tick()` (flush a macrotask so async/atom updates settle),
   `unmount()` (close the scope → fire every finalizer → detach).
 
 ## The load-bearing invariant: do NOT swallow E/R
@@ -47,6 +50,17 @@ same forgotten-`Layer`-is-a-compile-error guarantee verrex gives at a real
 that lies about coverage (`Layer.empty as Layer<Required<R>>`): that
 would defeat the thesis exactly where it should be proven. The internal
 `Layer.empty` fallback is only reached when `Required<R>` is `never`.
+
+## `E` is auto-discharged to a defect
+
+`R` is the caller's to satisfy (above); the construction error channel `E`
+is the harness's to discharge. `render` wraps the app in
+`Effect.catchCause(app, (cause) => Effect.die(Cause.squash(cause)))`, so an
+**unboundaried** construction failure rejects the `render()` promise loudly —
+a failing test, not a silently-empty DOM. A `Catch` boundary inside the tree
+discharges first (its subtree resolves to `View<never>` and the fallback
+renders), so only a failure that escaped every boundary reaches this
+last-resort `die`. `catch.test.ts` exercises both paths.
 
 ## Why a Closeable scope (not `Effect.scoped`)
 
