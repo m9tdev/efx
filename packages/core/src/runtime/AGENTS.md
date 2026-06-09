@@ -8,6 +8,7 @@ Public surface (from `index.ts`):
 - `mount` — DOM renderer (returns `Effect<void, E, R | AtomRegistry | Scope>`)
 - `list` — keyed reactive list helper (`View.List` IR node)
 - `Async` / `asyncRef` — async render boundary + primitive (errors-as-values; see "`asyncRef` / `Async`" below)
+- `catchCause` — view-level error boundary (catch-all; mirrors `Effect.catchCause`; see "`catchCause`" below)
 - `Fragment` — `<>...</>` compile target
 - `VerrexLive` — base Layer providing `AtomRegistry`
 - Types: `View`, `Props`, `FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps`,
@@ -36,7 +37,7 @@ the editor margin. If you rename them, update the regex.
 | `View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
 | `mount.ts` | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink }`), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures) |
 | `reconcile.ts` | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops |
-| `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `Fragment`, `VerrexLive` |
+| `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `catchCause`, `Fragment`, `VerrexLive` |
 | `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
 | `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality matches the old single-pass; index updates on shift) |
 | `types/Fold.ts` | `ChildE`/`ChildR`/`FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps` — the channel-fold conditional types |
@@ -95,7 +96,7 @@ and "DOM nodes." `coerceAsync` (in `coerce.ts`) coerces inputs to
 View at `h()` call time; `coerceSync` (also in `coerce.ts`) coerces
 render-time emissions from Reactive sources; `buildDom` (in
 `mount.ts`) switches on the variant tag and produces DOM. Closed-
-for-now at 6 variants:
+for-now at 7 variants:
 
 - `Text { value }` — plain text node
 - `Element { tag, props, children }` — DOM element
@@ -103,6 +104,10 @@ for-now at 6 variants:
 - `Reactive { source: Atom | AtomRef.ReadonlyRef }` — subscribe to
   source, swap rendered child on emit
 - `List { source: AtomRef.Collection, render }` — keyed reactive list
+- `Boundary { state, handler, reset, report }` — error boundary; renders the
+  child subtree (with `report` swapped in as the subtree's error sink) or, on a
+  caught failure, `handler(cause, reset)`. Built by `catchCause` (see below).
+  The one variant that carries behavior, not just data.
 - `Empty {}` — comment placeholder (used for `false`/`null` children)
 
 ### Why hand-written interfaces (not `Data.TaggedEnum<{...}>`)
@@ -122,7 +127,7 @@ inline form.
 
 ### Closed-for-now, not closed-forever
 
-The current 6 variants cover everything we need to render. Adding
+The current 7 variants cover everything we need to render. Adding
 a variant is a coordinated edit across two files:
 
   - `buildDom` (mount.ts) — exhaustive `switch (view._tag)` forces
@@ -142,8 +147,11 @@ hoisted into the surrounding Effect.
 
 Good candidates if a need arises: `Portal` (render children to a
 different DOM root). Note an async boundary did **not** need a new
-variant — see `Async` below. Anti-pattern: convenience wrappers like
-`Card`/`Heading` — those are components, not IR.
+variant (`Async` builds a `Reactive` — see below), but the *error*
+boundary **did** (`Boundary`): it has to redirect the error sink for its
+child subtree, which only `buildDom` can do when it descends into the
+node — not expressible by `Reactive`-over-a-ref alone. Anti-pattern:
+convenience wrappers like `Card`/`Heading` — those are components, not IR.
 
 ## `asyncRef` / `Async` — the async data primitive + render boundary
 
@@ -223,6 +231,38 @@ from a captured context dies "registry disposed" once the creating program
 returns. Running the user's Effect directly on the mount fiber is what
 keeps `R` folded. `Atom`/`AtomRef` remain the right tool for *synchronous*
 reactive state (Counter, `list`) — just not the spine for effectful data.
+
+## `catchCause` — the view-level error boundary
+
+`catchCause(child, (cause, reset) => fallback)` mirrors `Effect.catchCause`:
+recover the **failure** side of a view subtree, let success pass through (the
+child renders itself). Contrast `Async`, which matches a data `AsyncResult` and
+renders *every* state (`initial`/`success`/`failure`) — a boundary only supplies
+the failure fallback. (Tag-selective `catchTag`/`catchTags` + the typed `Cause<E>`
+discharge come later; this is the untyped catch-all.)
+
+Catches **both phases** through one fallback:
+- **construction** — `child`'s build Effect is run under `Effect.matchCause`; a
+  failure becomes the initial `error` state. Run **inline** in `catchCause`'s gen
+  (folds `R`, no first-paint flash), so a forgotten `Layer` is still a compile
+  error at `mount`.
+- **live** — a post-mount failure inside the rendered subtree (a reactive
+  re-render via `coerceSync`, or an event-handler Effect) is routed to the
+  boundary's `report` sink, which `buildDom` swaps in as `ctx.sink` for the child
+  subtree (see "Runtime error routing"). The fallback itself renders with the
+  *ambient* sink, so a failure in the fallback bubbles to the next boundary out.
+
+`reset()` re-runs construction. **`report` and `reset` both go through a `Queue`
+drained by a `forkScoped` loop** (like `asyncRef`) — never mutating boundary
+state synchronously inside the child's render, which would close the child scope
+mid-render (reentrant). Result type is `Effect<View, never, R | Scope>` — `E`
+discharged by `matchCause`, `R` folded, `Scope` for the fork. The fallback's own
+`E`/`R` are not folded (keep it pure markup, like `Async`'s arms).
+
+Unlike `Async`, this **is** a View IR variant (`Boundary`) — the sink-swap for
+the child subtree is a `buildDom`-time concern an existing `Reactive` can't
+express. The compiler skips the `h.track` wrap for `catchCause(...)` calls (it's
+in `isSelfTrackingCall` alongside `Async`); import it unaliased.
 
 ## mount internals — invariants
 

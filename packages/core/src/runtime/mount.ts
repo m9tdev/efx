@@ -2,7 +2,7 @@ import { Cause, Context, Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { coerceSync, type ErrorSink, isAtomRef } from "./coerce.ts"
 import { plan } from "./reconcile.ts"
-import { type Props, View } from "./View.ts"
+import { type BoundaryState, type Props, View } from "./View.ts"
 
 // Stable, scope-independent dependencies threaded through the whole build path.
 // `scope` is passed separately because it changes per dynamic subtree; these
@@ -305,6 +305,33 @@ const buildDom = (view: View, ctx: BuildCtx, scope: Scope.Scope): Node => {
       )
 
       return wrapper
+    }
+
+    case "Boundary": {
+      // The child subtree renders with a sink that reports into THIS boundary
+      // (live failures flip its state to `error`); the fallback renders with the
+      // ambient `ctx` sink, so a failure in the fallback bubbles to the next
+      // boundary outward. Same build-NEW → swap → close-OLD ordering as Reactive.
+      const childCtx: BuildCtx = { ...ctx, sink: view.report }
+      let currentNode: Node = document.createComment("boundary-pending")
+      let contentScope: Scope.Closeable | null = null
+
+      const render = (st: BoundaryState): void => {
+        const built =
+          st._tag === "ok"
+            ? buildScopedChild(st.view, scope, childCtx)
+            : buildScopedChild(view.handler(st.cause, view.reset), scope, ctx)
+        if (currentNode.parentNode) {
+          currentNode.parentNode.replaceChild(built.node, currentNode)
+        }
+        if (contentScope) closeScope(contentScope)
+        contentScope = built.scope
+        currentNode = built.node
+      }
+
+      render(view.state.value)
+      subscribeRefScoped(view.state, render, scope)
+      return currentNode
     }
   }
 }
