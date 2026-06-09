@@ -30,10 +30,15 @@ the running component (with a reset button) on the right.
   works against `loading: AtomRef<boolean>` — you write `.value` explicitly and
   the compiler rewrites that read into a tracked one, wrapping the surrounding
   expression in a tracking scope so it re-renders when `loading` changes.
-- **Effect-native async boundary.** `Await(() => http.getUser(id), { pending, onError, onSuccess })`
-  runs an effect and renders pending → success/error, folding the effect's `R`
+- **Effect-native async boundary.** `Async(() => http.getUser(id), { initial, failure, success })`
+  runs an effect and renders initial → success/failure, folding the effect's `R`
   into the component (a forgotten `Layer` is still a compile error). The thunk
   auto-tracks any `.value` it reads, so it refetches when they change.
+- **Effect-native error boundary.** `Catch(child, (cause, reset) => fallback)` (or
+  `Catch(child, { HttpError: … })` for tag-selective) recovers the failure side of
+  a view subtree, mirroring Effect's `catch*`. `mount` requires every error
+  discharged, so a forgotten boundary is a compile error that names the unhandled
+  error — the runtime counterpart of a forgotten `Layer`.
 - **Effect v4 primitives all the way down.** `AtomRef`/`Atom`/`AtomRegistry`
   from `effect/unstable/reactivity` are the reactivity layer; we don't build
   our own. `AsyncResult` is the loading/success/failure shape.
@@ -56,7 +61,7 @@ pnpm dev
 ```
 
 The demo is a guided tour that exercises every primitive — reactive counter,
-blocking and `Await`-boundary data fetches, auto-tracking refetch, keyed
+blocking and `Async`-boundary data fetches, auto-tracking refetch, keyed
 reactive list, and per-component lifecycle — each with a reset button. It's
 also deployed at [m9tdev.github.io/verrex](https://m9tdev.github.io/verrex/).
 
@@ -118,7 +123,7 @@ Effect.runFork(program)
 ```
 packages/
   verrex/             one package, subpath exports:
-    src/runtime/        export `@verrex/core`     — View IR, h(), mount(), Await(), list()
+    src/runtime/        export `@verrex/core`     — View IR, h(), mount(), Async(), list()
     src/compiler/       export `@verrex/core/compiler` — .vx → plain TypeScript (Babel)
     src/language/       export `@verrex/core/language` — Volar language plugin
     src/check/          export `@verrex/core/check`, bin `verrex-check`
@@ -133,7 +138,7 @@ apps/
 
 | You import from      | What you get                                                                              |
 |----------------------|-------------------------------------------------------------------------------------------|
-| `@verrex/core`      | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `VerrexLive`                             |
+| `@verrex/core`      | `h`, `mount`, `Async`, `asyncRef`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive`                             |
 | `effect`             | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …  |
 | `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                  |
 
@@ -167,7 +172,7 @@ contributes single-digit kB), plus all six demo components (`Counter`,
 `UserPage`, `AsyncUserPage`, `LiveUser`, `Todos`, `Lifecycle`), the guided-tour
 shell (a small dependency-free TSX highlighter + reactivity-flash visualizer),
 and their mock services. Verified interactive after build — Counter increments,
-the `Await` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's
+the `Async` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's
 per-row scope fires releases on row removal.
 
 Vite serves `.vx` files directly through `@verrex/core/vite` at dev time;

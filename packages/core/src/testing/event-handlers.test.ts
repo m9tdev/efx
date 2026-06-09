@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest"
-import { Context, Effect, Layer, Logger } from "effect"
+import { Cause, Context, Effect, Layer, Logger } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { h } from "@verrex/core"
 import { render } from "./index.ts"
@@ -93,8 +93,8 @@ describe("event handlers — Effect-returning", () => {
     // Cause through Effect.logError on the captured context).
     const logged: Array<unknown> = []
     const CapturingLogger = Logger.layer([
-      Logger.make(({ message }) => {
-        logged.push(message)
+      Logger.make((options) => {
+        logged.push(options)
       }),
     ])
 
@@ -103,7 +103,7 @@ describe("event handlers — Effect-returning", () => {
       return yield* h(
         "div",
         {},
-        h("button", { class: "bad", onClick: () => Effect.fail("boom") }, "fail"),
+        h("button", { class: "bad", onClick: () => Effect.fail("boom-marker") }, "fail"),
         h(
           "button",
           { class: "good", onClick: () => Effect.sync(() => count.set(count.value + 1)) },
@@ -115,10 +115,25 @@ describe("event handlers — Effect-returning", () => {
 
     const ui = await render(Mixed(), CapturingLogger)
 
-    // A failing handler must not throw out of dispatch nor break the app.
+    // A failing handler must not throw out of dispatch nor break the app, and the
+    // ACTUAL cause must reach the sink (not just "something logged"). The sink logs
+    // the Cause via Effect.logError, so it surfaces in the logger options' message
+    // and/or cause field.
     ui.click(".bad")
     await ui.tick()
-    expect(logged.length).toBeGreaterThan(0) // the failure was routed, not swallowed
+    const mentionsMarker = (v: unknown): boolean =>
+      Cause.isCause(v)
+        ? Cause.pretty(v).includes("boom-marker")
+        : typeof v === "string"
+          ? v.includes("boom-marker")
+          : Array.isArray(v)
+            ? v.some(mentionsMarker)
+            : false
+    const found = logged.some((o) => {
+      const opts = o as { readonly message?: unknown; readonly cause?: unknown }
+      return mentionsMarker(opts.message) || mentionsMarker(opts.cause)
+    })
+    expect(found).toBe(true)
 
     // The app still works after a handler failure.
     ui.click(".good")

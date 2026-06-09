@@ -33,10 +33,15 @@ export interface ViewErr<E> {
  * (`ok`), or a caught failure awaiting the fallback (`error`). Driven by
  * `Catch` — construction sets the initial value, a live failure reported
  * from the child subtree flips it to `error`, and `reset` re-runs construction.
+ *
+ * `gen` is a monotonic generation stamp making every emission distinct: `AtomRef`
+ * dedups via `Equal.equals`, and a reset that fails with a structurally-identical
+ * `Cause` would otherwise be `Equal`-equal to the current state and silently not
+ * notify (a dead retry button). `gen` guarantees the swap always fires.
  */
 export type BoundaryState =
-  | { readonly _tag: "ok"; readonly view: ViewNode }
-  | { readonly _tag: "error"; readonly cause: Cause.Cause<unknown> }
+  | { readonly _tag: "ok"; readonly view: ViewNode; readonly gen: number }
+  | { readonly _tag: "error"; readonly cause: Cause.Cause<unknown>; readonly gen: number }
 
 // Per-variant named interfaces — required so TS preserves the `View` alias
 // in hovers. `Data.TaggedEnum<{...}>` runs every variant through

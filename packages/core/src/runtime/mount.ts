@@ -15,18 +15,27 @@ interface BuildCtx {
   readonly sink: ErrorSink
 }
 
-// Fire-and-forget an event-handler Effect on the mount's captured context, so
-// it sees the app's services. Failures route to the sink; pure-interrupt causes
-// (teardown) are dropped. The handler is detached — its lifetime is not tied to
-// the element scope (a click effect is expected to be short-lived).
-const runHandlerEffect = (effect: Effect.Effect<unknown, unknown, never>, ctx: BuildCtx): void => {
+// Fire-and-forget an event-handler Effect on the mount's captured context, so it
+// sees the app's services. Failures route to the sink; pure-interrupt causes
+// (teardown) are dropped. Forked INTO the element's `scope` (via `Effect.forkIn`)
+// so a long-lived handler (a poll, a subscription, a slow service) is interrupted
+// when the element is removed — upholding the "Scope owns cleanup" invariant — and
+// a torn-down handler can't report a stale failure back to a reset boundary.
+const runHandlerEffect = (
+  effect: Effect.Effect<unknown, unknown, never>,
+  ctx: BuildCtx,
+  scope: Scope.Scope,
+): void => {
   Effect.runForkWith(ctx.context)(
-    Effect.matchCause(effect, {
-      onFailure: (cause) => {
-        if (!Cause.hasInterruptsOnly(cause)) ctx.sink(cause)
-      },
-      onSuccess: () => {},
-    }),
+    Effect.forkIn(
+      Effect.matchCause(effect, {
+        onFailure: (cause) => {
+          if (!Cause.hasInterruptsOnly(cause)) ctx.sink(cause)
+        },
+        onSuccess: () => {},
+      }),
+      scope,
+    ),
   )
 }
 
@@ -91,7 +100,7 @@ const applyProp = (
     const listener: EventListener = (e) => {
       const result = userHandler(e)
       if (Effect.isEffect(result)) {
-        runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, ctx)
+        runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, ctx, scope)
       }
     }
     el.addEventListener(event, listener)

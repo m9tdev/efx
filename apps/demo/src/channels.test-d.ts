@@ -242,6 +242,23 @@ const AllTags = Catch(TwoErrors, {
 assertEquals<typeof AllTags, Effect.Effect<View, never, Http | Scope.Scope>>()
 mount(AllTags, root)
 
+// ─── The LIVE half of the mount gate ────────────────────────────────────
+//     A View carrying a live error (`View<E≠never>`) is also rejected by `mount`,
+//     and `Catch` discharges it — the symmetric counterpart of the construction
+//     (Effect-E) gate above. (No leaf primitive stamps `View<E≠never>` today, so
+//     this is the type-level guarantee in isolation.)
+
+declare const liveOnly: Effect.Effect<View<HttpError>, never, never>
+
+// @ts-expect-error — the View can fail live with HttpError; mount requires View<never>.
+mount(liveOnly, root)
+
+// catch-all discharges the live error → mountable.
+mount(Catch(liveOnly, (_cause) => h("p", {}, "live error")), root)
+
+// tag-map discharges it too, narrowing to View<never>.
+mount(Catch(liveOnly, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
+
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
 // The `@ts-expect-error` assertions above prove props are type-checked at

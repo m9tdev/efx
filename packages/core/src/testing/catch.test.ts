@@ -63,6 +63,7 @@ describe("Catch — catch-all (function)", () => {
     ui.click(".boom")
     await ui.waitFor(".fallback")
     expect(ui.query(".child")).toBeNull()
+    expect(ui.text(".fallback")).toContain("BoomError") // the actual cause reached the handler
     await ui.unmount()
   })
 
@@ -148,6 +149,100 @@ describe("Catch — tag-selective (object)", () => {
     const ui = await render(App())
     expect(ui.query(".http")).toBeNull()
     expect(ui.text(".outer")).toContain("ParseError")
+    await ui.unmount()
+  })
+})
+
+// ─── regression: review findings (MF-1, MF-2, SF-5) ─────────────────────
+describe("Catch — lifecycle correctness", () => {
+  it("reset re-renders even when the child fails IDENTICALLY (gen counter, MF-1)", async () => {
+    // Without a generation stamp, AtomRef.set dedups the Equal-equal BoundaryState
+    // and the reset silently no-ops (the retry button is dead on a deterministic
+    // failure). Handler call count proves the fallback re-renders on each reset.
+    let handlerCalls = 0
+    const AlwaysFails = Effect.fn("AlwaysFails")(function* (_props: {} = {}) {
+      yield* Effect.fail(new BoomError({ why: "always identical" }))
+      return yield* h("p", { class: "child" }, "unreachable")
+    })
+    const App = Effect.fn("App")(function* (_props: {} = {}) {
+      return yield* Catch(AlwaysFails(), (_cause, reset) => {
+        handlerCalls++
+        return h("button", { class: "retry", onClick: reset }, "retry")
+      })
+    })
+    const ui = await render(App())
+    expect(handlerCalls).toBe(1)
+    ui.click(".retry")
+    await ui.tick()
+    expect(handlerCalls).toBe(2) // reset fired despite an identical cause
+    ui.click(".retry")
+    await ui.tick()
+    expect(handlerCalls).toBe(3)
+    await ui.unmount()
+  })
+
+  it("releases a child's construction-scope resources on reset (no leak, MF-2)", async () => {
+    // A child's construction-time `acquireRelease` must bind to a per-build scope
+    // that's closed on each reset — not leaked to the mount scope.
+    let acquired = 0
+    let released = 0
+    const Leaky = Effect.fn("Leaky")(function* (_props: {} = {}) {
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          acquired++
+        }),
+        () => Effect.sync(() => {
+          released++
+        }),
+      )
+      yield* Effect.fail(new BoomError({ why: "x" }))
+      return yield* h("p", { class: "child" }, "unreachable")
+    })
+    const App = Effect.fn("App")(function* (_props: {} = {}) {
+      return yield* Catch(Leaky(), (_cause, reset) =>
+        h("button", { class: "retry", onClick: reset }, "retry"),
+      )
+    })
+    const ui = await render(App())
+    expect(acquired).toBe(1)
+    expect(released).toBe(0)
+    ui.click(".retry")
+    await ui.tick()
+    ui.click(".retry")
+    await ui.tick()
+    // Each reset acquired a fresh resource and released the PRIOR build's — the
+    // leak (released stuck at 0 until unmount) is what MF-2 fixes.
+    expect(acquired).toBe(3)
+    expect(released).toBe(2)
+    await ui.unmount()
+    expect(released).toBe(acquired) // everything released after teardown
+  })
+
+  it("escalates a LIVE non-matching error to an outer boundary (SF-5)", async () => {
+    // `trip:false` keeps ParseError in Child's type (so the inner tag-map is valid)
+    // while the runtime failure is a LIVE HttpError from the button — which the
+    // inner tag-map rejects and escalates via the ambient sink to the outer catch-all.
+    const Child = Effect.fn("Child")(function* (props: { readonly trip: boolean }) {
+      if (props.trip) yield* Effect.fail(new ParseError({ message: "never" }))
+      return yield* h(
+        "div",
+        { class: "child" },
+        h("button", { class: "boom", onClick: () => Effect.fail(new HttpError({ status: 500 })) }, "x"),
+      )
+    })
+    const App = Effect.fn("App")(function* (_props: {} = {}) {
+      return yield* Catch(
+        Catch(Child({ trip: false }), { ParseError: () => h("p", { class: "inner" }, "parse") }),
+        (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
+      )
+    })
+    const ui = await render(App())
+    expect(ui.query(".child")).not.toBeNull()
+    ui.click(".boom")
+    await ui.waitFor(".outer")
+    expect(ui.text(".outer")).toContain("HttpError")
+    expect(ui.query(".inner")).toBeNull() // the inner tag-map did NOT handle it
+    expect(ui.query(".child")).toBeNull()
     await ui.unmount()
   })
 })

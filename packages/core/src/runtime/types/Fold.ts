@@ -68,7 +68,10 @@ export type ChildE<C> =
  */
 export type ChildLiveE<C> =
   C extends Effect.Effect<infer A, any, any> ? ChildLiveE<A> :
-  C extends View<infer VE> ? VE :
+  // Coalesce `unknown`→`never`: a phantom-free `ViewNode` (no `ViewErr`) matches
+  // `View<infer VE>` with `VE = unknown`; treat it as no live error rather than
+  // poisoning the fold. (Latent — `ViewNode` isn't part of the public child shapes.)
+  C extends View<infer VE> ? ([unknown] extends [VE] ? never : VE) :
   C extends Option.Option<infer T> ? ChildLiveE<T> :
   C extends Result.Result<infer A, any> ? ChildLiveE<A> :
   C extends Chunk.Chunk<infer T> ? ChildLiveE<T> :

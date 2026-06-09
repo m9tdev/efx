@@ -6,10 +6,18 @@ Forgetting to provide a service `Layer` becomes a *compile-time
 error that names the missing service*; symmetrically, forgetting to
 handle an error with a `Catch` boundary becomes a *compile-time
 error that names the unhandled error* (`mount` requires
-`Effect<View<never>, never, R>`). Errors live in two phases:
-construction errors ride the Effect `E`; live errors a rendered subtree
-can still produce ride the `View<E>` success — one boundary discharges
-both.
+`Effect<View<never>, never, R>`). Errors live in two phases: construction
+errors ride the Effect `E`; live errors a rendered subtree can still
+produce ride the `View<E>` success — one `Catch` boundary discharges both.
+
+**Honest scope today:** the *construction* channel is fully type-tracked —
+a forgotten boundary on a failing build is a compile error. The `View<E>`
+machinery for *live* errors is built and gated by `mount`, but no leaf
+primitive yet stamps `View<E≠never>` (`Async` discharges to `View<never>`;
+event-handler/reactive errors are erased to `(e) => void` / `unknown`), so
+in compiled `.vx` the live channel is effectively `never` — live failures
+are caught at *runtime* by `Catch`'s sink, not tracked by the type. Closing
+that (a primitive that types live errors) is the remaining thesis work.
 
 **The name** is built from the channels of an `Effect<View, E, R>`:
 **V** (View — the `A`, always the `View` here), **E** (Error), **R**

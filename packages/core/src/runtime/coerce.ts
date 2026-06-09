@@ -10,7 +10,7 @@ export const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
  * Where a runtime (post-mount) failure is routed instead of being swallowed.
  * A reactive re-render whose Effect fails, and (in `mount`) a failing event
  * handler, both hand their `Cause` to a sink threaded down from `mount`. The
- * root default logs; a future `<Boundary>` will replace it per-subtree. Carries
+ * root default logs; a `Catch` boundary replaces it per-subtree. Carries
  * `Cause<unknown>` because the build path is untyped — the type-level guarantee
  * that only declared errors reach a boundary lives in the fold, not here.
  */
