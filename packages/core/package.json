@@ -106,7 +106,7 @@
   },
   "devDependencies": {
     "effect": "4.0.0-beta.78",
-    "@effect/vitest": "4.0.0-beta.71",
+    "@effect/vitest": "4.0.0-beta.78",
     "@types/babel__generator": "^7",
     "@types/babel__traverse": "^7",
     "happy-dom": "^20.9.0",
