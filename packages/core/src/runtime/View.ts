@@ -8,7 +8,7 @@ export type Props = Readonly<Record<string, unknown>>
 /**
  * Phantom carrier for a View's runtime-error channel `E` — the errors a live
  * subtree can still produce after construction (an async refetch, a reactive
- * re-render, an event-handler Effect), routed to the nearest `catchCause`.
+ * re-render, an event-handler Effect), routed to the nearest `Catch`.
  *
  * Covariant via `() => E`, which gives exactly the variance the thesis needs:
  *  - `View<HttpError>` is NOT assignable to `View<never>`, so `mount` requiring
@@ -31,7 +31,7 @@ export interface ViewErr<E> {
 /**
  * A `ViewBoundary`'s current content: the child subtree rendered normally
  * (`ok`), or a caught failure awaiting the fallback (`error`). Driven by
- * `catchCause` — construction sets the initial value, a live failure reported
+ * `Catch` — construction sets the initial value, a live failure reported
  * from the child subtree flips it to `error`, and `reset` re-runs construction.
  */
 export type BoundaryState =
@@ -82,7 +82,7 @@ export interface ViewEmpty {
 // carries behavior, not just data: `handler` produces the fallback, `reset`
 // re-runs the child construction, and `report` is the sink the child subtree's
 // LIVE failures route to (mount swaps `ctx.sink` to it when descending). See
-// `catchCause` (index.ts) which builds it and drives `state`.
+// `Catch` (index.ts) which builds it and drives `state`.
 export interface ViewBoundary {
   readonly _tag: "Boundary"
   readonly state: AtomRef.ReadonlyRef<BoundaryState>
@@ -90,7 +90,7 @@ export interface ViewBoundary {
   readonly reset: () => void
   readonly report: (cause: Cause.Cause<unknown>) => void
   // `mount` calls this with the ambient (parent) sink before rendering the child,
-  // so a tag-selective boundary (`catchTag`/`catchTags`) can escalate a cause it
+  // so a tag-selective `Catch` (object form) can escalate a cause it
   // doesn't handle to the next boundary outward. A catch-all never escalates.
   readonly setAmbient: (sink: (cause: Cause.Cause<unknown>) => void) => void
 }
@@ -109,7 +109,7 @@ export type ViewNode =
 /**
  * The public View type, carrying its runtime-error channel `E` (defaulting to
  * `never` — a bare `View` is `View<never>`, fully discharged). `h()` stamps the
- * folded `E` of a subtree onto its result; `catchCause` discharges it; `mount`
+ * folded `E` of a subtree onto its result; `Catch` discharges it; `mount`
  * requires `View<never>`. Structurally a `ViewNode` plus the phantom marker.
  */
 export type View<E = never> = ViewNode & ViewErr<E>

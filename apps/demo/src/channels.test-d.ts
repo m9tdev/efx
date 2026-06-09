@@ -6,7 +6,7 @@
  */
 import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { catchCause, catchTag, catchTags, h, mount, type View } from "@verrex/core"
+import { Catch, h, mount, type View } from "@verrex/core"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
 import { LiveUser } from "./LiveUser.vx"
@@ -166,16 +166,16 @@ const WithChunk = h("div", {}, chunkEff)
 assertEquals<typeof WithChunk, Effect.Effect<View, HttpError, Http>>()
 
 // ─── The error-boundary thesis: discharge-or-it-won't-compile ───────────
-//     `catchCause` discharges a subtree's errors; `mount` requires a fully
+//     `Catch` discharges a subtree's errors; `mount` requires a fully
 //     discharged app (`View<never>`, `never`). A forgotten boundary is a
 //     compile error that NAMES the error — the runtime counterpart of a
 //     forgotten Layer naming a service.
 
 declare const root: HTMLElement
 
-// catchCause turns a failing subtree into a fully-discharged one. The handler's
-// cause is precisely typed — `Cause<HttpError>`, not `Cause<unknown>`.
-const Caught = catchCause(UserPage({ userId: "42" }), (cause, reset) => {
+// Catch-all (function form) turns a failing subtree into a fully-discharged one.
+// The handler's cause is precisely typed — `Cause<HttpError>`, not `Cause<unknown>`.
+const Caught = Catch(UserPage({ userId: "42" }), (cause, reset) => {
   const _typedCause: Cause.Cause<HttpError> = cause
   void _typedCause
   void reset
@@ -195,9 +195,9 @@ mount(Caught, root)
 // A pure component needs no boundary — it's already `View<never>`, `never`.
 mount(Counter(), root)
 
-// ─── catchTag / catchTags narrow the error channel by tag ───────────────
+// ─── Catch tag-map form narrows the error channel by tag ────────────────
 //     Handle specific tags; the rest stay on the channel and must still be
-//     discharged before `mount`. A typo'd tag is a compile error.
+//     discharged before `mount`. A typo'd tag key is a compile error.
 
 class ParseError {
   readonly _tag = "ParseError" as const
@@ -205,39 +205,37 @@ class ParseError {
 }
 declare const TwoErrors: Effect.Effect<View, HttpError | ParseError, Http>
 
-// catchTag handles one tag → handler gets the unwrapped error; both channels
-// narrow by `Exclude<E, { _tag }>`.
-const CaughtHttp = catchTag(TwoErrors, "HttpError", (e, reset) => {
-  const _status: number = e.status
-  void _status
-  void reset
-  return h("p", {}, "http error")
+// Handle one tag → handler gets the unwrapped error; both channels narrow by
+// `Exclude<E, { _tag }>`.
+const CaughtHttp = Catch(TwoErrors, {
+  HttpError: (e, reset) => {
+    const _status: number = e.status
+    void _status
+    void reset
+    return h("p", {}, "http error")
+  },
 })
 assertEquals<typeof CaughtHttp, Effect.Effect<View, ParseError, Http | Scope.Scope>>()
 
 // @ts-expect-error — "Nope" is not one of the child's error tags
-catchTag(TwoErrors, "Nope", () => h("p", {}, "x"))
+Catch(TwoErrors, { Nope: () => h("p", {}, "x") })
 
 // @ts-expect-error — ParseError is still undischarged; mount rejects it, naming it
 mount(CaughtHttp, root)
 
 // Handle the remaining tag → fully discharged, mountable.
-const CaughtBoth = catchTag(CaughtHttp, "ParseError", (e) => {
-  const _msg: string = e.message
-  void _msg
-  return h("p", {}, "parse error")
+const CaughtBoth = Catch(CaughtHttp, {
+  ParseError: (e) => {
+    const _msg: string = e.message
+    void _msg
+    return h("p", {}, "parse error")
+  },
 })
 assertEquals<typeof CaughtBoth, Effect.Effect<View, never, Http | Scope.Scope>>()
 mount(CaughtBoth, root)
 
-// catchTags handles a subset → residual narrows by the handled keys.
-const SomeTags = catchTags(TwoErrors, {
-  HttpError: (e) => h("p", {}, `${e.status}`),
-})
-assertEquals<typeof SomeTags, Effect.Effect<View, ParseError, Http | Scope.Scope>>()
-
-// catchTags handling every tag → discharged, mountable.
-const AllTags = catchTags(TwoErrors, {
+// Handle every tag at once → discharged, mountable.
+const AllTags = Catch(TwoErrors, {
   HttpError: (e) => h("p", {}, `${e.status}`),
   ParseError: (e) => h("p", {}, e.message),
 })

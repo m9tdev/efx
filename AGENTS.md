@@ -4,7 +4,7 @@
 channels propagate from every leaf of the view tree to the root.
 Forgetting to provide a service `Layer` becomes a *compile-time
 error that names the missing service*; symmetrically, forgetting to
-handle an error with a `catchCause` boundary becomes a *compile-time
+handle an error with a `Catch` boundary becomes a *compile-time
 error that names the unhandled error* (`mount` requires
 `Effect<View<never>, never, R>`). Errors live in two phases:
 construction errors ride the Effect `E`; live errors a rendered subtree
