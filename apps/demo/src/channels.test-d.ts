@@ -4,9 +4,9 @@
  * Each assertion either holds or produces a type error naming the
  * mismatched channel — this *is* the demonstration.
  */
-import type { Chunk, Effect, Option, Result, Scope } from "effect"
+import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { h, type View } from "@verrex/core"
+import { catchCause, h, mount, type View } from "@verrex/core"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
 import { LiveUser } from "./LiveUser.vx"
@@ -165,7 +165,37 @@ declare const chunkEff: Chunk.Chunk<Effect.Effect<View, HttpError, Http>>
 const WithChunk = h("div", {}, chunkEff)
 assertEquals<typeof WithChunk, Effect.Effect<View, HttpError, Http>>()
 
+// ─── The error-boundary thesis: discharge-or-it-won't-compile ───────────
+//     `catchCause` discharges a subtree's errors; `mount` requires a fully
+//     discharged app (`View<never>`, `never`). A forgotten boundary is a
+//     compile error that NAMES the error — the runtime counterpart of a
+//     forgotten Layer naming a service.
+
+declare const root: HTMLElement
+
+// catchCause turns a failing subtree into a fully-discharged one. The handler's
+// cause is precisely typed — `Cause<HttpError>`, not `Cause<unknown>`.
+const Caught = catchCause(UserPage({ userId: "42" }), (cause, reset) => {
+  const _typedCause: Cause.Cause<HttpError> = cause
+  void _typedCause
+  void reset
+  return h("div", {}, "failed")
+})
+// E discharged to `never`; UserPage's `Http | Theme` fold through, plus `Scope`
+// from the boundary's fork.
+assertEquals<typeof Caught, Effect.Effect<View, never, Http | Theme | Scope.Scope>>()
+
+// @ts-expect-error — UserPage's HttpError is undischarged: `mount` rejects it,
+// and the error names `HttpError` (not assignable to `never`). Forgot a boundary.
+mount(UserPage({ userId: "42" }), root)
+
+// With the boundary, the same app mounts.
+mount(Caught, root)
+
+// A pure component needs no boundary — it's already `View<never>`, `never`.
+mount(Counter(), root)
+
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
 // The `@ts-expect-error` assertions above prove props are type-checked at
-// JSX call sites.
+// JSX call sites, and that a forgotten error boundary fails to compile.

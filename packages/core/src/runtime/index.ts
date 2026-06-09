@@ -188,13 +188,14 @@ export const Async = <A, E, R>(
  * ))}
  * ```
  */
-export const catchCause = <E, R>(
-  child: Effect.Effect<View, E, R>,
-  handler: (cause: Cause.Cause<unknown>, reset: () => void) => View | Effect.Effect<View, any, any>,
-): Effect.Effect<View, never, R | Scope.Scope> =>
+export const catchCause = <EV, EC, R>(
+  child: Effect.Effect<View<EV>, EC, R>,
+  handler: (cause: Cause.Cause<EC | EV>, reset: () => void) => View | Effect.Effect<View, any, any>,
+): Effect.Effect<View<never>, never, R | Scope.Scope> =>
   Effect.gen(function* () {
     // Run `child`, folding both outcomes into a BoundaryState. `Effect.matchCause`
-    // discharges `child`'s E (catch-all) while keeping R; re-runnable for reset.
+    // discharges `child`'s construction E (`EC`) while keeping R; re-runnable for
+    // reset. Live errors riding the child's `View<EV>` are routed to `report`.
     const construct: Effect.Effect<BoundaryState, never, R> = Effect.matchCause(child, {
       onSuccess: (view): BoundaryState => ({ _tag: "ok", view }),
       onFailure: (cause): BoundaryState => ({ _tag: "error", cause }),
@@ -228,7 +229,15 @@ export const catchCause = <E, R>(
       }),
     )
 
-    return View.Boundary({ state, handler, reset, report })
+    // The node's handler slot is `Cause<unknown>` (runtime is untyped); the public
+    // signature gives the user the precise `Cause<EC | EV>`. The values flowing in
+    // are exactly those, so the cast is sound.
+    return View.Boundary({
+      state,
+      handler: handler as (cause: Cause.Cause<unknown>, reset: () => void) => unknown,
+      reset,
+      report,
+    })
   })
 
 /**

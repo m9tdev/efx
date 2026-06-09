@@ -2,7 +2,7 @@ import { Cause, Context, Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { coerceSync, type ErrorSink, isAtomRef } from "./coerce.ts"
 import { plan } from "./reconcile.ts"
-import { type BoundaryState, type Props, View } from "./View.ts"
+import { type BoundaryState, type Props, View, type ViewNode } from "./View.ts"
 
 // Stable, scope-independent dependencies threaded through the whole build path.
 // `scope` is passed separately because it changes per dynamic subtree; these
@@ -149,7 +149,7 @@ const closeScope = (scope: Scope.Closeable): void => {
   if (e) Effect.runFork(e)
 }
 
-const buildDom = (view: View, ctx: BuildCtx, scope: Scope.Scope): Node => {
+const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
   switch (view._tag) {
     case "Empty":
       return document.createComment("")
@@ -345,13 +345,19 @@ const buildDom = (view: View, ctx: BuildCtx, scope: Scope.Scope): Node => {
  * cascades to every child scope and runs all finalizers.
  *
  * Post-mount failures (a reactive re-render or an event-handler Effect that
- * fails) are routed to a root error sink that logs via `Effect.logError` on the
- * captured context. A future `<Boundary>` will replace this sink per-subtree.
+ * fails) that aren't caught by a `catchCause` boundary are routed to a root
+ * error sink that logs via `Effect.logError` on the captured context.
+ *
+ * **Requires `Effect<View<never>, never, R>`** — the app must have every error
+ * discharged: construction failures off the Effect `E` channel (via
+ * `Effect.catchCause` or a `catchCause` boundary) and live failures off the
+ * `View<E>` channel (via `catchCause`). A leftover error is a compile error here
+ * that names it — the runtime counterpart of a forgotten `Layer` naming a service.
  */
-export const mount = <E, R>(
-  app: Effect.Effect<View, E, R>,
+export const mount = <R>(
+  app: Effect.Effect<View<never>, never, R>,
   el: HTMLElement,
-): Effect.Effect<void, E, R | AtomRegistry.AtomRegistry | Scope.Scope> =>
+): Effect.Effect<void, never, R | AtomRegistry.AtomRegistry | Scope.Scope> =>
   Effect.gen(function* () {
     const registry = yield* AtomRegistry.AtomRegistry
     // The real ambient context (carries the app's provided services). Typed

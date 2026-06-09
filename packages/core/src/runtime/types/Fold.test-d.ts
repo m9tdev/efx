@@ -7,7 +7,7 @@
  */
 import type { Effect } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
-import type { ChildE, ChildR, FoldE, FoldR } from "./Fold.ts"
+import type { ChildE, ChildLiveE, ChildR, FoldE, FoldLiveE, FoldR, TagE, TagLiveE, TagR } from "./Fold.ts"
 import type { View } from "../View.ts"
 
 // Test fixtures
@@ -62,3 +62,33 @@ assertEquals<FoldR<readonly [CondChild]>, HttpService>()
 type EitherChild = Eff1 | Eff2
 assertEquals<FoldE<readonly [EitherChild]>, HttpError | NotFound>()
 assertEquals<FoldR<readonly [EitherChild]>, HttpService | DbService>()
+
+// ─── View<E> error channel: construction vs live split (the boundary thesis) ──
+
+// 10) A bare View<E> child: its live E rides the View; it's already built, so it
+//     contributes no construction error and no R.
+type ViewErr = View<HttpError>
+assertEquals<ChildLiveE<ViewErr>, HttpError>()
+assertEquals<ChildE<ViewErr>, never>()
+assertEquals<ChildR<ViewErr>, never>()
+
+// 11) An Effect whose SUCCESS is a View<E>: construction and live errors land on
+//     different channels — Effect's own E is construction, the View's E is live.
+type EffLive = Effect.Effect<View<HttpError>, NotFound, DbService>
+assertEquals<ChildE<EffLive>, NotFound>()
+assertEquals<ChildLiveE<EffLive>, HttpError>()
+assertEquals<ChildR<EffLive>, DbService>()
+
+// 12) Folds distribute the split over a tuple.
+assertEquals<FoldE<readonly [ViewErr, EffLive]>, NotFound>()
+assertEquals<FoldLiveE<readonly [ViewErr, EffLive]>, HttpError>()
+
+// 13) A bare View<never> contributes nothing on any channel.
+assertEquals<ChildLiveE<View>, never>()
+assertEquals<ChildE<View>, never>()
+
+// 14) Component tag: construction E vs live View<E> split, R folds.
+type Comp = (props: {}) => Effect.Effect<View<HttpError>, NotFound, DbService>
+assertEquals<TagE<Comp>, NotFound>()
+assertEquals<TagLiveE<Comp>, HttpError>()
+assertEquals<TagR<Comp>, DbService>()
