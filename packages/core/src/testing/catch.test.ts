@@ -159,16 +159,16 @@ describe("Catch — lifecycle correctness", () => {
     // Without a generation stamp, AtomRef.set dedups the Equal-equal BoundaryState
     // and the reset silently no-ops (the retry button is dead on a deterministic
     // failure). Handler call count proves the fallback re-renders on each reset.
-    // The child must be SPAN-LESS (raw Effect.gen, not Effect.fn): a span
+    // The child must be SPAN-LESS (Effect.fnUntraced, not Effect.fn): a span
     // annotation makes every Cause Equal-unequal, which would mask the dedup
     // this test guards against — an Effect.fn child passes even with `gen` removed.
     let handlerCalls = 0
-    const alwaysFails = Effect.gen(function* () {
+    const AlwaysFails = Effect.fnUntraced(function* (_props: {} = {}) {
       yield* Effect.fail(new BoomError({ why: "always identical" }))
       return yield* h("p", { class: "child" }, "unreachable")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(alwaysFails, (_cause, reset) => {
+      return yield* Catch(AlwaysFails(), (_cause, reset) => {
         handlerCalls++
         return h("button", { class: "retry", onClick: reset }, "retry")
       })

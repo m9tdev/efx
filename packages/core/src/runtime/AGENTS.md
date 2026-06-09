@@ -302,8 +302,8 @@ overloads that front it.
   → a *dead retry button*. `gen` makes every emission distinct. Nuance: an
   `Effect.fn` child's causes are never `Equal`-equal in practice (each run's span
   annotation differs), so the hazard bites only span-less subtrees — which is why
-  the MF-1 regression test uses a raw `Effect.gen` child; an `Effect.fn` child
-  would pass vacuously.
+  the MF-1 regression test uses an `Effect.fnUntraced` child; an `Effect.fn`
+  child would pass vacuously.
 - **Per-build construction scope.** Each child build (initial + every reset) runs
   in a fresh scope forked from the mount scope (`Scope.forkUnsafe` + `provideService(Scope.Scope, …)`),
   so a child's construction-time effects (an `asyncRef` supervisor + its
