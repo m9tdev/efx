@@ -270,22 +270,23 @@ const App = (
         concept:
           "Catch mirrors Effect's catch*: recover the failure side of a view subtree, let success pass through. It catches BOTH a failed construction Effect and a post-mount failure inside the live subtree — here the crash button's Effect, which has no E channel to land on and is routed to the boundary instead of dropped. reset re-runs the child's construction. Scope is the boundary's own contribution (it forks its reset/report loop into the enclosing scope). A function handler is the catch-all (it gets the full Cause); an object of {Tag: handler} narrows the channel by the handled tags. mount requires every error discharged — a forgotten boundary is a compile error that names it.",
         type: "Effect<View, never, Scope>",
-        code: `const Crasher = Effect.fn("Crasher")(function* () {
+        code: `export const CatchDemo = Effect.fn("CatchDemo")(function* () {
   return yield* (
-    <button onclick={() => Effect.fail(new BoomError())}>
-      crash me
-    </button>
-  )
-})
+    <section>
+      {/* catch-all: a function handler recovers any failure */}
+      {Catch(<Crasher />, (cause, reset) => (
+        <div class="fallback">
+          <pre>{Cause.pretty(cause)}</pre>
+          <button onclick={reset}>reset</button>
+        </div>
+      ))}
 
-export const CatchDemo = Effect.fn("CatchDemo")(function* () {
-  return yield* (
-    {Catch(<Crasher />, (cause, reset) => (
-      <div class="fallback">
-        <pre>{Cause.pretty(cause)}</pre>
-        <button onclick={reset}>reset</button>
-      </div>
-    ))}
+      {/* tag-map: route by tag; handler gets the unwrapped error */}
+      {Catch(<BadRequest />, {
+        HttpError: (e, reset) =>
+          <p>HttpError {e.status} <button onclick={reset}>retry</button></p>,
+      })}
+    </section>
   )
 })`,
         file: "CatchDemo.vx",
