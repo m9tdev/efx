@@ -27,14 +27,13 @@ await runProbe({
         { timeout: 5000 },
       )
     const demoText = async () => (await demo.innerText()).replace(/\s+/g, " ").trim()
-    // The demo's own "↻ reset" button (recreates the whole demo → re-rolls the
-    // flaky request). It's a sibling of the mount container, in the same panel.
-    const panel = page.locator(".tour-demo", { has: page.locator(sel) })
 
-    // 1) tag-map (object form): the flaky request ~50% fails with a random tagged
-    //    error (caught + unwrapped) and ~50% succeeds. Drive it — `retry` from an
-    //    error, the panel's reset from a success — until BOTH outcomes are seen,
-    //    proving the tag-map catches, retry re-runs, and success recovers.
+    // 1) tag-map (object form): the flaky request ~50% fails at construction with a
+    //    random tagged error (caught + unwrapped) and ~50% succeeds. On success the
+    //    subtree stays live — its button fails with an HttpError on click, which the
+    //    SAME tag-map catches (a LIVE error). Drive it via `retry` (from an error)
+    //    and `.ok .crash` (from a success) until all three are observed: a caught
+    //    construction error, a recovered success, and a caught live error.
     await waitForText(/HttpError \d+|succeeded/i).catch(() => {})
     const observe = async () => {
       const t = await demo.innerText()
@@ -46,31 +45,36 @@ await runProbe({
     const kinds = new Set()
     const statuses = new Set()
     let retryReRan = false
-    for (let i = 0; i < 20 && !(kinds.has("error") && kinds.has("success")); i++) {
+    for (let i = 0; i < 24 && !(kinds.has("error") && kinds.has("success") && kinds.has("live")); i++) {
       const o = await observe()
-      kinds.add(o.kind)
-      if (o.status) statuses.add(o.status)
       if (o.kind === "error") {
+        kinds.add("error")
+        if (o.status) statuses.add(o.status)
         const before = await demo.innerText()
         await demo.locator(".retry").first().click()
         await page.waitForTimeout(200)
         if ((await demo.innerText()) !== before) retryReRan = true
       } else if (o.kind === "success") {
-        await panel.locator(".demo-refresh").click()
-        await page.waitForTimeout(200)
+        kinds.add("success")
+        // crash the live success → the SAME tag-map catches the live HttpError.
+        await demo.locator(".ok .crash").first().click()
+        await waitForText(/HttpError \d+/i).catch(() => {})
+        if (/HttpError\s+\d+/i.test(await demo.innerText())) kinds.add("live")
       } else {
         break
       }
     }
     console.log("\n[tag-map] kinds:", [...kinds].join(", "), "| statuses:", [...statuses].join(", "))
-    const tagMapCaught = kinds.has("error") // caught + unwrapped a typed error
+    const tagMapCaughtConstruction = kinds.has("error") // construction error caught + unwrapped
     const sawSuccess = kinds.has("success") // ~50% path recovers
+    const tagMapCaughtLive = kinds.has("live") // success's live HttpError caught too
     const tagMapHandled = !kinds.has("unknown") // never an unhandled crash/blank
 
     console.log("\n[on load]\n" + (await demoText()))
 
-    // 2) catch-all (function form): child rendered its working button.
-    const crashBtn = demo.locator(".crash")
+    // 2) catch-all (function form): child rendered its working button (scoped to
+    //    `.crasher` — the tag-map's success view also has a `.crash`).
+    const crashBtn = demo.locator(".crasher .crash")
     const crashVisible = (await crashBtn.count()) > 0
 
     // 3) Click "crash me" → the catch-all's handler Effect fails → fallback swaps in.
@@ -79,17 +83,17 @@ await runProbe({
     const afterCrash = await demoText()
     console.log("\n[after crash]\n" + afterCrash)
     const catchAllCaught = /catch-all caught/i.test(afterCrash) && /BoomError/i.test(afterCrash)
-    const crashGone = (await demo.locator(".crash").count()) === 0
+    const crashGone = (await demo.locator(".crasher .crash").count()) === 0
 
     // 4) Reset → the catch-all re-runs construction; the working button returns.
     await demo.locator(".reset").first().click()
-    await demo.locator(".crash").first().waitFor({ state: "attached", timeout: 5000 }).catch(() => {})
-    const recovered = (await demo.locator(".crash").count()) > 0
+    await demo.locator(".crasher .crash").first().waitFor({ state: "attached", timeout: 5000 }).catch(() => {})
+    const recovered = (await demo.locator(".crasher .crash").count()) > 0
     console.log("\n[after reset] crash button back:", recovered)
 
     await page.screenshot({ path: "scripts/.catch-probe.png", fullPage: false })
 
-    const results = { tagMapCaught, sawSuccess, tagMapHandled, retryReRan, crashVisible, catchAllCaught, crashGone, recovered }
+    const results = { tagMapCaughtConstruction, sawSuccess, tagMapCaughtLive, tagMapHandled, retryReRan, crashVisible, catchAllCaught, crashGone, recovered }
     console.log("\n[results]", JSON.stringify(results, null, 2))
     const ok = Object.values(results).every(Boolean) && errors.length === 0
     if (!ok) {
