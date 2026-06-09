@@ -6,7 +6,7 @@
  */
 import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { catchCause, h, mount, type View } from "@verrex/core"
+import { catchCause, catchTag, catchTags, h, mount, type View } from "@verrex/core"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
 import { LiveUser } from "./LiveUser.vx"
@@ -194,6 +194,55 @@ mount(Caught, root)
 
 // A pure component needs no boundary — it's already `View<never>`, `never`.
 mount(Counter(), root)
+
+// ─── catchTag / catchTags narrow the error channel by tag ───────────────
+//     Handle specific tags; the rest stay on the channel and must still be
+//     discharged before `mount`. A typo'd tag is a compile error.
+
+class ParseError {
+  readonly _tag = "ParseError" as const
+  readonly message = ""
+}
+declare const TwoErrors: Effect.Effect<View, HttpError | ParseError, Http>
+
+// catchTag handles one tag → handler gets the unwrapped error; both channels
+// narrow by `Exclude<E, { _tag }>`.
+const CaughtHttp = catchTag(TwoErrors, "HttpError", (e, reset) => {
+  const _status: number = e.status
+  void _status
+  void reset
+  return h("p", {}, "http error")
+})
+assertEquals<typeof CaughtHttp, Effect.Effect<View, ParseError, Http | Scope.Scope>>()
+
+// @ts-expect-error — "Nope" is not one of the child's error tags
+catchTag(TwoErrors, "Nope", () => h("p", {}, "x"))
+
+// @ts-expect-error — ParseError is still undischarged; mount rejects it, naming it
+mount(CaughtHttp, root)
+
+// Handle the remaining tag → fully discharged, mountable.
+const CaughtBoth = catchTag(CaughtHttp, "ParseError", (e) => {
+  const _msg: string = e.message
+  void _msg
+  return h("p", {}, "parse error")
+})
+assertEquals<typeof CaughtBoth, Effect.Effect<View, never, Http | Scope.Scope>>()
+mount(CaughtBoth, root)
+
+// catchTags handles a subset → residual narrows by the handled keys.
+const SomeTags = catchTags(TwoErrors, {
+  HttpError: (e) => h("p", {}, `${e.status}`),
+})
+assertEquals<typeof SomeTags, Effect.Effect<View, ParseError, Http | Scope.Scope>>()
+
+// catchTags handling every tag → discharged, mountable.
+const AllTags = catchTags(TwoErrors, {
+  HttpError: (e) => h("p", {}, `${e.status}`),
+  ParseError: (e) => h("p", {}, e.message),
+})
+assertEquals<typeof AllTags, Effect.Effect<View, never, Http | Scope.Scope>>()
+mount(AllTags, root)
 
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.

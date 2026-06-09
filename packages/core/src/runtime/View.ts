@@ -89,6 +89,10 @@ export interface ViewBoundary {
   readonly handler: (cause: Cause.Cause<unknown>, reset: () => void) => unknown
   readonly reset: () => void
   readonly report: (cause: Cause.Cause<unknown>) => void
+  // `mount` calls this with the ambient (parent) sink before rendering the child,
+  // so a tag-selective boundary (`catchTag`/`catchTags`) can escalate a cause it
+  // doesn't handle to the next boundary outward. A catch-all never escalates.
+  readonly setAmbient: (sink: (cause: Cause.Cause<unknown>) => void) => void
 }
 
 /** The phantom-free runtime IR — the shape `mount` switches on and the
