@@ -1,8 +1,34 @@
-import { Effect, Exit, Scope } from "effect"
+import { Cause, Context, Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { coerceSync, isAtomRef } from "./coerce.ts"
+import { coerceSync, type ErrorSink, isAtomRef } from "./coerce.ts"
 import { plan } from "./reconcile.ts"
 import { type Props, View } from "./View.ts"
+
+// Stable, scope-independent dependencies threaded through the whole build path.
+// `scope` is passed separately because it changes per dynamic subtree; these
+// three don't. `context` is the ambient Effect context captured at mount — used
+// to run event-handler Effects with the app's services. `sink` is where a
+// post-mount failure goes (see coerce.ts `ErrorSink`).
+interface BuildCtx {
+  readonly registry: AtomRegistry.AtomRegistry
+  readonly context: Context.Context<never>
+  readonly sink: ErrorSink
+}
+
+// Fire-and-forget an event-handler Effect on the mount's captured context, so
+// it sees the app's services. Failures route to the sink; pure-interrupt causes
+// (teardown) are dropped. The handler is detached — its lifetime is not tied to
+// the element scope (a click effect is expected to be short-lived).
+const runHandlerEffect = (effect: Effect.Effect<unknown, unknown, never>, ctx: BuildCtx): void => {
+  Effect.runForkWith(ctx.context)(
+    Effect.matchCause(effect, {
+      onFailure: (cause) => {
+        if (!Cause.hasInterruptsOnly(cause)) ctx.sink(cause)
+      },
+      onSuccess: () => {},
+    }),
+  )
+}
 
 // Subscribe to a ref and register the unsubscribe as a finalizer on the
 // given scope. The teardown happens via scope close (full or cascade), so
@@ -33,6 +59,7 @@ const applyProp = (
   el: Element,
   key: string,
   value: unknown,
+  ctx: BuildCtx,
   scope: Scope.Scope,
 ): void => {
   // Reactive prop: AtomRef → subscribe and re-apply on changes.
@@ -45,7 +72,7 @@ const applyProp = (
         if (e) Effect.runFork(e)
       }
       lastChildScope = Scope.forkUnsafe(scope, "sequential")
-      applyProp(el, key, v, lastChildScope)
+      applyProp(el, key, v, ctx, lastChildScope)
     }
     apply(ref.value)
     subscribeRefScoped(ref, apply, scope)
@@ -53,13 +80,23 @@ const applyProp = (
   }
 
   if (value == null || value === false) return
-  // Event handler: onClick, onInput, etc.
+  // Event handler: onClick, onInput, etc. The handler may return an Effect —
+  // run it (on the captured context, so it gets the app's services) and route
+  // its failure to the sink. A handler that returns anything else (a plain
+  // imperative `ref.set(...)`) just runs as before; non-Effect results are
+  // ignored. Today a returned Effect was dropped unexecuted — this is the fix.
   if (key.startsWith("on") && key.length > 2 && typeof value === "function") {
     const event = key.slice(2).toLowerCase()
-    const handler = value as EventListener
-    el.addEventListener(event, handler)
+    const userHandler = value as (event: Event) => unknown
+    const listener: EventListener = (e) => {
+      const result = userHandler(e)
+      if (Effect.isEffect(result)) {
+        runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, ctx)
+      }
+    }
+    el.addEventListener(event, listener)
     Effect.runSync(
-      Scope.addFinalizer(scope, Effect.sync(() => el.removeEventListener(event, handler))),
+      Scope.addFinalizer(scope, Effect.sync(() => el.removeEventListener(event, listener))),
     )
     return
   }
@@ -85,10 +122,10 @@ const applyProp = (
   el.setAttribute(key, String(value))
 }
 
-const applyProps = (el: Element, props: Props, scope: Scope.Scope): void => {
+const applyProps = (el: Element, props: Props, ctx: BuildCtx, scope: Scope.Scope): void => {
   for (const [k, v] of Object.entries(props)) {
     if (k === "children") continue
-    applyProp(el, k, v, scope)
+    applyProp(el, k, v, ctx, scope)
   }
 }
 
@@ -100,10 +137,10 @@ const applyProps = (el: Element, props: Props, scope: Scope.Scope): void => {
 const buildScopedChild = (
   value: unknown,
   parent: Scope.Scope,
-  registry: AtomRegistry.AtomRegistry,
+  ctx: BuildCtx,
 ): { readonly node: Node; readonly scope: Scope.Closeable } => {
   const scope = Scope.forkUnsafe(parent, "sequential")
-  const node = buildDom(coerceSync(value, scope), registry, scope)
+  const node = buildDom(coerceSync(value, scope, ctx.sink), ctx, scope)
   return { node, scope }
 }
 
@@ -112,7 +149,7 @@ const closeScope = (scope: Scope.Closeable): void => {
   if (e) Effect.runFork(e)
 }
 
-const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.Scope): Node => {
+const buildDom = (view: View, ctx: BuildCtx, scope: Scope.Scope): Node => {
   switch (view._tag) {
     case "Empty":
       return document.createComment("")
@@ -122,9 +159,9 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.
 
     case "Element": {
       const el = document.createElement(view.tag)
-      applyProps(el, view.props, scope)
+      applyProps(el, view.props, ctx, scope)
       for (const child of view.children) {
-        el.appendChild(buildDom(child, registry, scope))
+        el.appendChild(buildDom(child, ctx, scope))
       }
       return el
     }
@@ -135,7 +172,7 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.
       const wrapper = document.createElement("span")
       wrapper.style.display = "contents"
       for (const child of view.children) {
-        wrapper.appendChild(buildDom(child, registry, scope))
+        wrapper.appendChild(buildDom(child, ctx, scope))
       }
       return wrapper
     }
@@ -153,7 +190,7 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.
         // down the OLD subtree. The reverse order would unsubscribe many
         // listeners and resubscribe many — the documented "diff, not
         // unsub-all-then-resub" hazard (see h.ts AGENTS.md) extends here.
-        const { node, scope: newScope } = buildScopedChild(next, scope, registry)
+        const { node, scope: newScope } = buildScopedChild(next, scope, ctx)
         if (currentNode.parentNode) {
           currentNode.parentNode.replaceChild(node, currentNode)
         }
@@ -164,8 +201,8 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.
 
       // Initial synchronous render
       if (Atom.isAtom(view.source)) {
-        render(registry.get(view.source))
-        subscribeAtomScoped(registry, view.source, render, scope)
+        render(ctx.registry.get(view.source))
+        subscribeAtomScoped(ctx.registry, view.source, render, scope)
       } else if (isAtomRef(view.source)) {
         render(view.source.value)
         subscribeRefScoped(view.source, render, scope)
@@ -225,7 +262,7 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.
               const { node, scope: rowScope } = buildScopedChild(
                 view.render(op.key, indexRef),
                 scope,
-                registry,
+                ctx,
               )
               rendered.set(op.key, { node, rowScope, indexRef })
               wrapper.insertBefore(node, nodeBefore(op.before))
@@ -279,6 +316,10 @@ const buildDom = (view: View, registry: AtomRegistry.AtomRegistry, scope: Scope.
  * event listener, and per-row `acquireRelease` registers a finalizer on this
  * scope (directly or via a forked child). Closing the surrounding scope
  * cascades to every child scope and runs all finalizers.
+ *
+ * Post-mount failures (a reactive re-render or an event-handler Effect that
+ * fails) are routed to a root error sink that logs via `Effect.logError` on the
+ * captured context. A future `<Boundary>` will replace this sink per-subtree.
  */
 export const mount = <E, R>(
   app: Effect.Effect<View, E, R>,
@@ -286,9 +327,17 @@ export const mount = <E, R>(
 ): Effect.Effect<void, E, R | AtomRegistry.AtomRegistry | Scope.Scope> =>
   Effect.gen(function* () {
     const registry = yield* AtomRegistry.AtomRegistry
+    // The real ambient context (carries the app's provided services). Typed
+    // `never` so it threads without a generic — handler Effects are cast to
+    // `R = never` at the run site; the services are present at runtime.
+    const context = yield* Effect.context<never>()
+    const sink: ErrorSink = (cause) => {
+      Effect.runForkWith(context)(Effect.logError(cause))
+    }
+    const ctx: BuildCtx = { registry, context, sink }
     const view = yield* app
     const scope = yield* Effect.scope
-    const node = buildDom(view, registry, scope)
+    const node = buildDom(view, ctx, scope)
     el.replaceChildren()
     el.appendChild(node)
     yield* Effect.addFinalizer(() =>

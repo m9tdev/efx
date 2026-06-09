@@ -34,7 +34,7 @@ the editor margin. If you rename them, update the regex.
 | `h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`) |
 | `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Async`) |
 | `View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
-| `mount.ts` | DOM renderer. `buildDom(view, registry, scope) → Node`, `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope) and the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes |
+| `mount.ts` | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink }`), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures) |
 | `reconcile.ts` | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops |
 | `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `Fragment`, `VerrexLive` |
 | `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
@@ -181,7 +181,9 @@ deps are *discovered, not declared*.
 Arm channels are accepted permissively (`any`) and are not folded; that avoids a
 JSX conditional's `any`-folded channels breaking inference. **Arms must be
 synchronous View-producers** — they render via `coerceSync` (`runSyncExit`), so
-an *async* arm effect can never resolve. Keep arms pure markup.
+an *async* arm effect can never resolve. A *failing* arm effect is routed to the
+error sink (and renders `Empty`), not stringified — see "Runtime error routing".
+Keep arms pure markup.
 
 **Inline or extracted — both track.** The compiler rewrites `.value`→`h.read`
 across the whole component body, so an extracted thunk —
@@ -224,14 +226,33 @@ reactive state (Counter, `list`) — just not the spine for effectful data.
 
 ## mount internals — invariants
 
-**Scope is threaded through `buildDom`.** Signature:
-`buildDom(view, registry, scope: Scope.Scope) → Node`. Every
-subscription, event listener, and per-row `Effect.acquireRelease`
-release registers a finalizer on this scope (directly via
-`Scope.addFinalizer`, or via a forked child for sub-trees that need
-their own lifetime). On scope close, parent-fork cascade tears
-everything down. There is no `{ node, cleanup }` wrapper return type
-— closing the surrounding scope IS the cleanup.
+**`BuildCtx` carries the scope-independent deps; `Scope` is threaded
+separately.** Signature: `buildDom(view, ctx: BuildCtx, scope: Scope.Scope)
+→ Node`, where `BuildCtx = { registry, context, sink }`. `registry` is the
+`AtomRegistry`; `context` is the ambient Effect context captured at `mount`
+(used to run event-handler Effects with the app's services); `sink` is the
+error sink (see "Runtime error routing" below). These three are stable for the
+whole tree, so they ride in `ctx`; `scope` is passed alongside because it
+changes per dynamic subtree. Every subscription, event listener, and per-row
+`Effect.acquireRelease` release registers a finalizer on the scope (directly
+via `Scope.addFinalizer`, or via a forked child for sub-trees that need their
+own lifetime). On scope close, parent-fork cascade tears everything down.
+There is no `{ node, cleanup }` wrapper return type — closing the surrounding
+scope IS the cleanup.
+
+**Runtime error routing — the sink.** A post-mount failure has no Effect `E`
+channel to land on (the component's build Effect already succeeded), so it is
+routed to `ctx.sink: (cause: Cause<unknown>) => void` instead of being
+swallowed. Two producers: (1) a **reactive re-render** whose Effect fails —
+`coerceSync` calls `sink(cause)` and renders `Empty` (it no longer stringifies
+`[effect failed: …]` into the DOM); (2) an **event handler** that returns an
+Effect — `applyProp` forks it via `Effect.runForkWith(ctx.context)` (so it gets
+the app's services) and `Effect.matchCause` routes its failure to the same sink.
+Both guard with `Cause.hasInterruptsOnly` — a pure-interrupt cause is scope
+teardown, not an error, and is dropped. The root sink (`mount`) logs via
+`Effect.logError` on the captured context; a future `<Boundary>` will replace
+the sink per-subtree (the typed-discharge design). A handler that returns a
+non-Effect value runs as a plain imperative callback, unchanged.
 
 **`subscribeRefScoped` / `subscribeAtomScoped`** are the only two
 ways to subscribe to a reactive source from inside `mount.ts`.
@@ -253,7 +274,9 @@ Source can be `Atom` or `AtomRef.ReadonlyRef`; dispatch on
 `Atom.isAtom` / `isAtomRef`. `coerceSync` (from `coerce.ts`) coerces
 the emitted value into a `View` — including `Effect`, which is run
 with the per-render child scope so `Effect.acquireRelease`
-registers releases on *that* render's scope. `coerceSync` is
+registers releases on *that* render's scope. A failing render Effect
+is routed to the `sink` (passed as `coerceSync`'s third arg) and renders
+`Empty` — see "Runtime error routing" above. `coerceSync` is
 deliberately asymmetric vs. `coerceAsync`: at this point in the
 render path the Atom/AtomRef has already been peeled, so it does
 NOT recurse into Option/Result/Chunk/Atom/AtomRef. Don't "fix" that
