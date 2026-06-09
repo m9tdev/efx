@@ -91,7 +91,7 @@ const _h = (
 // (`FoldE`/`TagE`) on the Effect `E` (a child's build failing fails this build),
 // LIVE errors (`FoldLiveE`/`TagLiveE`) on the `View<E>` success (errors the
 // rendered subtree can still produce). `mount` requires both `never`;
-// `catchCause` discharges both. The position encodes the phase.
+// `Catch` discharges both. The position encodes the phase.
 type HFn = <
   T extends string | ((props: any) => Effect.Effect<View<any>, any, any>),
   Cs extends readonly unknown[],

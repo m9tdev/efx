@@ -109,26 +109,21 @@ interface RewriteState {
 
 /**
  * True when `expr` is a top-level call to a self-tracking boundary helper —
- * `Async(...)` or `catchCause(...)`. Both return an `Effect<View, never, R | …>`
+ * `Async(...)` or `Catch(...)`. Both return an `Effect<View, never, R | …>`
  * that must reach the `h()` fold intact, and both manage their own reactivity
- * (`Async` tracks its `from` thunk; `catchCause` drives its state from a forked
+ * (`Async` tracks its `from` thunk; `Catch` drives its state from a forked
  * loop). Wrapping either in `h.track` is redundant *and* harmful: `h.track` is
  * typed `(thunk) => unknown`, which erases the channels and drops them from the
  * fold. Same reason `.value.map(...)` → `list(...)` is left unwrapped. The inner
  * `.value` reads are still rewritten to `h.read` (e.g. a `.value` read in a
- * `catchCause` fallback or an `Async` thunk).
+ * `Catch` fallback or an `Async` thunk).
  *
  * Matched purely by callee name (the compiler has no types). So
  * `import { Async as A }` defeats the skip — `A(...)` would be wrongly
  * `h.track`-wrapped and lose its channels (a loud type error at the call site).
  * Import these unaliased.
  */
-const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set([
-  "Async",
-  "catchCause",
-  "catchTag",
-  "catchTags",
-])
+const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set(["Async", "Catch"])
 const isSelfTrackingCall = (expr: t.Expression): boolean =>
   t.isCallExpression(expr) &&
   t.isIdentifier(expr.callee) &&
@@ -145,13 +140,13 @@ const isSelfTrackingCall = (expr: t.Expression): boolean =>
  * wrapping would erase their channels:
  *   - `.value.map(arrow → JSX)` → `list(...)` (flips `state.wroteList` for the
  *     `list` auto-import; subscribes inside `mount`).
- *   - `Async(() => …, arms)` and `catchCause(child, fallback)` calls — these
+ *   - `Async(() => …, arms)` and `Catch(child, …)` calls — these
  *     self-track (see `isSelfTrackingCall`).
  */
 const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
   const { expr: rewritten, rewroteRead } = rewriteTrackedExpression(expr, state)
   if (!rewroteRead) return rewritten
-  // Async / catchCause self-track; the `.value`→`h.read` rewrite inside them is
+  // Async / Catch self-track; the `.value`→`h.read` rewrite inside them is
   // kept, but the outer `h.track` wrap is skipped so their channels survive the fold.
   if (isSelfTrackingCall(rewritten)) return rewritten
   return t.callExpression(

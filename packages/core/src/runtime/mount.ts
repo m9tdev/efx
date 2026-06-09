@@ -348,13 +348,13 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
  * cascades to every child scope and runs all finalizers.
  *
  * Post-mount failures (a reactive re-render or an event-handler Effect that
- * fails) that aren't caught by a `catchCause` boundary are routed to a root
+ * fails) that aren't caught by a `Catch` boundary are routed to a root
  * error sink that logs via `Effect.logError` on the captured context.
  *
  * **Requires `Effect<View<never>, never, R>`** — the app must have every error
  * discharged: construction failures off the Effect `E` channel (via
- * `Effect.catchCause` or a `catchCause` boundary) and live failures off the
- * `View<E>` channel (via `catchCause`). A leftover error is a compile error here
+ * `Effect.catchCause` or a `Catch` boundary) and live failures off the
+ * `View<E>` channel (via `Catch`). A leftover error is a compile error here
  * that names it — the runtime counterpart of a forgotten `Layer` naming a service.
  */
 export const mount = <R>(

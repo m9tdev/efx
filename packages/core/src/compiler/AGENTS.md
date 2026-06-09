@@ -51,7 +51,7 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    passes through with no wrap. The `.value.map → list(...)` rewrite
    (#3) also does **not** trigger a wrap — `list()` subscribes inside
    `mount`, so wrapping in `h.track` would be a redundant layer. Same
-   for `Async(...)` and `catchCause(...)` calls (`isSelfTrackingCall`):
+   for `Async(...)` and `Catch(...)` calls (`isSelfTrackingCall`):
    they self-track and must reach the `h()` fold un-erased.
 
 2. **`x.value` → `h.read(x)`** inside the wrapped expression. Tracks

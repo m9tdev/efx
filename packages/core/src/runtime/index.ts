@@ -6,7 +6,7 @@ import { type BoundaryState, type Props, View } from "./View.ts"
 export { h } from "./h.ts"
 export { mount } from "./mount.ts"
 export { type Props, View } from "./View.ts"
-// `Async`, `asyncRef`, `catchCause`, `catchTag`, `catchTags`, `list`, `Fragment`, `VerrexLive` are declared + exported below.
+// `Async`, `asyncRef`, `Catch`, `list`, `Fragment`, `VerrexLive` are declared + exported below.
 export type { Child, ChildE, ChildR, FoldE, FoldR, TagE, TagProps, TagR } from "./types/Fold.ts"
 export type { HtmlEventHandlers, IntrinsicProps } from "./types/Html.ts"
 
@@ -162,7 +162,7 @@ export const Async = <A, E, R>(
     ),
   )
 
-// ─── Error boundaries (catchCause / catchTag / catchTags) ────────────────
+// ─── Error boundary (Catch) ────────────────
 
 type Tagged = { readonly _tag: string }
 type TagsOf<E> = E extends Tagged ? E["_tag"] : never
@@ -177,7 +177,7 @@ const errorTagOf = (cause: Cause.Cause<unknown>): string | undefined => {
 }
 
 /**
- * Shared boundary machinery for `catchCause`/`catchTag`/`catchTags`. `accepts`
+ * Shared boundary machinery for `Catch` (both forms). `accepts`
  * decides which causes THIS boundary handles; a non-accepted cause re-raises at
  * construction (its residual rides the Effect channel → a parent boundary / fails
  * mount) and escalates to the ambient sink when live. The typed public wrappers
@@ -253,85 +253,42 @@ const makeBoundary = <R>(
   })
 
 /**
- * View-level error boundary — the **catch-all**. Mirrors `Effect.catchCause`: it
- * recovers the FAILURE side of a view subtree and lets success pass through (the
- * child renders itself). Contrast `Async`, which matches a data `AsyncResult`
- * and renders *every* state — a boundary supplies only the failure fallback.
+ * View-level error boundary — `Catch`. Mirrors Effect's `catch*`: recover the
+ * FAILURE side of a view subtree, let success pass through (the child renders
+ * itself). Contrast `Async`, which matches a data `AsyncResult` and renders
+ * *every* state — a boundary supplies only the failure fallback. Two forms,
+ * picked by the second argument:
  *
- * Catches both phases: **construction** (`child`'s build Effect fails) and
- * **live** (a post-mount failure inside the rendered subtree — a reactive
- * re-render or an event-handler Effect — routed to this boundary's sink). Either
- * swaps the subtree for `fallback(cause, reset)`; `reset()` re-runs construction.
- * Pure-interrupt causes (scope teardown) are ignored.
+ *  - **catch-all** — a function handler gets the precise `Cause<EC | EV>` and
+ *    discharges *every* error to `never` (mountable):
+ *    ```tsx
+ *    {Catch(<UserCard id={id} />, (cause, reset) =>
+ *      <div class="err">{Cause.pretty(cause)}<button onclick={reset}>retry</button></div>)}
+ *    ```
+ *  - **tag-selective** — a map of `_tag → handler` for any subset of the child's
+ *    error tags (each handler gets the unwrapped tagged error). The result
+ *    **narrows** both channels by `Exclude<E, { _tag }>`, so a leftover tag must
+ *    still be discharged before `mount`. A non-matching error escalates to the
+ *    next boundary out.
+ *    ```tsx
+ *    {Catch(<UserCard id={id} />, {
+ *      HttpError: (e, reset) => <Banner status={e.status} onRetry={reset} />,
+ *      ParseError: (e) => <p>bad data: {e.message}</p>,
+ *    })}
+ *    ```
  *
- * The handler's `cause` is the precise `Cause<EC | EV>` (construction + live
- * errors of the child). Discharges both channels to `never`, so the result is
- * mountable — a subtree with undischarged errors won't pass `mount`. `child`'s
- * `R` folds (construction + every `reset` run on the mount fiber); the fallback's
- * own `E`/`R` are not folded — keep it pure markup, like `Async`'s arms.
- *
- * ```tsx
- * {catchCause(<UserCard id={id} />, (cause, reset) => (
- *   <div class="err">{Cause.pretty(cause)}<button onClick={reset}>retry</button></div>
- * ))}
- * ```
+ * Catches both phases — **construction** (`child`'s build Effect fails) and
+ * **live** (a post-mount reactive re-render or event-handler Effect). `reset()`
+ * re-runs construction. `child`'s `R` folds (construction + every reset run on
+ * the mount fiber); the fallback's own `E`/`R` are not folded — keep it pure
+ * markup, like `Async`'s arms. Tag-selective only catches errors in the *type*;
+ * an untyped event-handler or reactive error needs the catch-all form.
  */
-export const catchCause = <EV, EC, R>(
+export function Catch<EV, EC, R>(
   child: Effect.Effect<View<EV>, EC, R>,
   handler: (cause: Cause.Cause<EC | EV>, reset: () => void) => View | Effect.Effect<View, any, any>,
-): Effect.Effect<View<never>, never, R | Scope.Scope> =>
-  makeBoundary(
-    child,
-    () => true,
-    handler as (cause: Cause.Cause<unknown>, reset: () => void) => unknown,
-  ) as Effect.Effect<View<never>, never, R | Scope.Scope>
-
-/**
- * Tag-selective error boundary — mirrors `Effect.catchTag`. Handles only the one
- * tagged error `tag` (from either channel of `child`); every other error flows
- * through unchanged. `tag` is constrained to the child's actual error tags (a
- * typo is a compile error), the handler gets the unwrapped tagged error, and the
- * result **narrows** both channels by `Exclude<E, { _tag: Tag }>` — so a leftover
- * tag still has to be discharged (by another `catchTag`/`catchCause`) before
- * `mount`. A non-matching live error escalates to the parent boundary.
- *
- * ```tsx
- * {catchTag(<UserCard id={id} />, "HttpError", (e, reset) =>
- *   <Banner status={e.status} onRetry={reset} />)}
- * ```
- */
-export const catchTag = <EV, EC, R, Tag extends TagsOf<EC | EV>>(
-  child: Effect.Effect<View<EV>, EC, R>,
-  tag: Tag,
-  handler: (
-    error: Extract<EC | EV, { readonly _tag: Tag }>,
-    reset: () => void,
-  ) => View | Effect.Effect<View, any, any>,
-): Effect.Effect<View<WithoutTag<EV, Tag>>, WithoutTag<EC, Tag>, R | Scope.Scope> =>
-  makeBoundary(
-    child,
-    (cause) => errorTagOf(cause) === tag,
-    (cause, reset) =>
-      handler(
-        Option.getOrUndefined(Cause.findErrorOption(cause)) as Extract<EC | EV, { readonly _tag: Tag }>,
-        reset,
-      ),
-  ) as Effect.Effect<View<WithoutTag<EV, Tag>>, WithoutTag<EC, Tag>, R | Scope.Scope>
-
-/**
- * Multi-tag error boundary — mirrors `Effect.catchTags`. `handlers` maps tag →
- * fallback for any subset of the child's error tags; each is type-checked against
- * its tag's error, and the result narrows both channels by the handled tags. A
- * non-matching live error escalates to the parent boundary.
- *
- * ```tsx
- * {catchTags(<UserCard id={id} />, {
- *   HttpError: (e, reset) => <Banner status={e.status} onRetry={reset} />,
- *   ParseError: (e) => <p>bad data: {e.message}</p>,
- * })}
- * ```
- */
-export const catchTags = <
+): Effect.Effect<View<never>, never, R | Scope.Scope>
+export function Catch<
   EV,
   EC,
   R,
@@ -348,8 +305,18 @@ export const catchTags = <
   View<WithoutTag<EV, keyof Handlers & string>>,
   WithoutTag<EC, keyof Handlers & string>,
   R | Scope.Scope
-> =>
-  makeBoundary(
+>
+export function Catch(
+  child: Effect.Effect<View<any>, any, any>,
+  handlerOrMap:
+    | ((cause: Cause.Cause<unknown>, reset: () => void) => unknown)
+    | Record<string, (error: any, reset: () => void) => unknown>,
+): Effect.Effect<View<never>, unknown, unknown> {
+  if (typeof handlerOrMap === "function") {
+    return makeBoundary(child, () => true, handlerOrMap)
+  }
+  const handlers = handlerOrMap
+  return makeBoundary(
     child,
     (cause) => {
       const t = errorTagOf(cause)
@@ -357,14 +324,10 @@ export const catchTags = <
     },
     (cause, reset) => {
       const t = errorTagOf(cause)!
-      const fn = (handlers as Record<string, (e: any, r: () => void) => unknown>)[t]!
-      return fn(Option.getOrUndefined(Cause.findErrorOption(cause)), reset)
+      return handlers[t]!(Option.getOrUndefined(Cause.findErrorOption(cause)), reset)
     },
-  ) as Effect.Effect<
-    View<WithoutTag<EV, keyof Handlers & string>>,
-    WithoutTag<EC, keyof Handlers & string>,
-    R | Scope.Scope
-  >
+  )
+}
 
 /**
  * Fragment component — the compile target for JSX `<>...</>` syntax.

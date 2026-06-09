@@ -328,37 +328,31 @@ describe("Async calls are not h.track-wrapped", () => {
   })
 })
 
-describe("catchCause calls are not h.track-wrapped", () => {
-  // Same reason as Async: catchCause returns Effect<View, never, R | Scope> that
-  // must reach the h() fold; h.track would erase it to `unknown`. A `.value` read
+describe("Catch calls are not h.track-wrapped", () => {
+  // Same reason as Async: Catch returns Effect<View, never, R | Scope> that must
+  // reach the h() fold; h.track would erase it to `unknown`. A `.value` read
   // inside the fallback is still rewritten to h.read, but the outer call is bare.
-  it("leaves a `.value`-reading catchCause(...) bare, keeping h.read", () => {
+  it("leaves a `.value`-reading catch-all Catch(...) bare, keeping h.read", () => {
     const out = compile(`
-      const x = <div>{catchCause(<Child />, (cause, reset) => <span>{label.value}</span>)}</div>
+      const x = <div>{Catch(<Child />, (cause, reset) => <span>{label.value}</span>)}</div>
     `)
     expect(out).toContain(`h.read(label)`) // dep rewrite kept inside the fallback
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*catchCause\(/) // not wrapped
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Catch\(/) // not wrapped
   })
 
-  it("does not introduce h.track when catchCause is the only `.value` reader", () => {
+  it("does not introduce h.track when Catch is the only `.value` reader", () => {
     const out = compile(`
-      const x = <div>{catchCause(<Child />, (cause) => <span>{label.value}</span>)}</div>
+      const x = <div>{Catch(<Child />, (cause) => <span>{label.value}</span>)}</div>
     `)
     expect(out).not.toContain(`h.track`)
   })
 
-  it("leaves catchTag / catchTags calls bare too (same self-tracking set)", () => {
-    const tag = compile(`
-      const x = <div>{catchTag(<Child />, "HttpError", (e) => <span>{label.value}</span>)}</div>
+  it("leaves the tag-map Catch form bare too", () => {
+    const out = compile(`
+      const x = <div>{Catch(<Child />, { HttpError: (e) => <span>{label.value}</span> })}</div>
     `)
-    expect(tag).toContain(`h.read(label)`)
-    expect(tag).not.toContain(`h.track`)
-
-    const tags = compile(`
-      const x = <div>{catchTags(<Child />, { HttpError: (e) => <span>{label.value}</span> })}</div>
-    `)
-    expect(tags).toContain(`h.read(label)`)
-    expect(tags).not.toContain(`h.track`)
+    expect(out).toContain(`h.read(label)`)
+    expect(out).not.toContain(`h.track`)
   })
 })
 

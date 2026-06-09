@@ -1,5 +1,5 @@
 import { Cause, Data, Effect } from "effect"
-import { catchCause } from "@verrex/core"
+import { Catch } from "@verrex/core"
 
 // A local tagged error so the failure has a real shape in `Cause.pretty`.
 class BoomError extends Data.TaggedError("BoomError")<{ readonly why: string }> {}
@@ -22,21 +22,22 @@ const Crasher = Effect.fn("Crasher")(function* (_props: {} = {}) {
 })
 
 /**
- * `catchCause(child, (cause, reset) => fallback)` — the view-level error
- * boundary, mirroring `Effect.catchCause`. It recovers the *failure* side of the
- * subtree (the child renders itself on success) and catches BOTH a failed
- * construction Effect and a post-mount failure inside the live subtree — here the
- * crash button's Effect. `reset` re-runs the child's construction.
+ * `Catch(child, (cause, reset) => fallback)` — the view-level error boundary,
+ * mirroring Effect's `catch*`. It recovers the *failure* side of the subtree (the
+ * child renders itself on success) and catches BOTH a failed construction Effect
+ * and a post-mount failure inside the live subtree — here the crash button's
+ * Effect. `reset` re-runs the child's construction. (A function handler is the
+ * catch-all, as here; an object of `{ Tag: handler }` narrows by tag instead.)
  *
  * Inferred type: `Effect<View, never, Scope>` — `Scope` is the boundary's own
- * contribution (it forks its reset/report loop into the enclosing scope). The
- * caught error is `Cause<unknown>` for now; a later pass makes a *forgotten*
- * boundary a compile error that names the unhandled error.
+ * contribution (it forks its reset/report loop into the enclosing scope). `mount`
+ * requires every error discharged, so a *forgotten* boundary is a compile error
+ * that names the unhandled error.
  */
-export const CatchCause = Effect.fn("CatchCause")(function* (_props: {} = {}) {
+export const CatchDemo = Effect.fn("CatchDemo")(function* (_props: {} = {}) {
   return yield* (
     <section class="catch-cause">
-      {catchCause(<Crasher />, (cause, reset) => (
+      {Catch(<Crasher />, (cause, reset) => (
         <div class="boundary-fallback">
           <p class="caught">caught a runtime failure:</p>
           <pre class="cause">{Cause.pretty(cause)}</pre>

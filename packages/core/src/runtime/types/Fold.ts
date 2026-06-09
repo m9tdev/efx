@@ -39,7 +39,7 @@ export type Child =
 //    (errors a rendered subtree can still produce — they ride the child's
 //    `View<E>` success). `R` unifies (one Layer set serves both phases), so
 //    there is a single `ChildR` / `TagR`.
-// A `catchCause` boundary discharges both; `mount` requires both `never`.
+// A `Catch` boundary discharges both; `mount` requires both `never`.
 
 /**
  * Walk a single child's type, extracting the union of every **construction**
