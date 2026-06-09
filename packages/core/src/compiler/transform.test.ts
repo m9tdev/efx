@@ -308,21 +308,21 @@ describe(".value.map(arrow → JSX) → list(...) rewrite", () => {
   })
 })
 
-describe("Await calls are not h.track-wrapped", () => {
-  // The Await boundary self-tracks (it runs its thunk under the same dep
+describe("Async calls are not h.track-wrapped", () => {
+  // The Async boundary self-tracks (it runs its thunk under the same dep
   // tracker), so wrapping it in h.track is redundant AND erases its channels
   // (h.track returns `unknown`). The `.value`→h.read rewrite inside is kept.
-  it("leaves a `.value`-reading Await(...) bare, keeping h.read", () => {
+  it("leaves a `.value`-reading Async(...) bare, keeping h.read", () => {
     const out = compile(`
-      const x = <div>{Await(() => client.get(id.value), { onSuccess: (v) => <span>{v}</span> })}</div>
+      const x = <div>{Async(() => client.get(id.value), { success: (v) => <span>{v}</span> })}</div>
     `)
-    expect(out).toContain(`h.read(id)`)        // dep rewrite kept (Await needs it)
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Await\(/) // not wrapped
+    expect(out).toContain(`h.read(id)`)        // dep rewrite kept (Async needs it)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Async\(/) // not wrapped
   })
 
-  it("does not introduce h.track when Await is the only `.value` reader", () => {
+  it("does not introduce h.track when Async is the only `.value` reader", () => {
     const out = compile(`
-      const x = <div>{Await(() => client.get(id.value), { onSuccess: (v) => <span>{v}</span> })}</div>
+      const x = <div>{Async(() => client.get(id.value), { success: (v) => <span>{v}</span> })}</div>
     `)
     expect(out).not.toContain(`h.track`)
   })
@@ -330,7 +330,7 @@ describe("Await calls are not h.track-wrapped", () => {
 
 describe("whole-body `.value` reads (tracking outside JSX)", () => {
   // The JSX pass only rewrites `.value` inside JSX expressions. A third pass
-  // rewrites `.value` reads that survive in *statements* — extracted Await
+  // rewrites `.value` reads that survive in *statements* — extracted Async
   // thunks, helpers, locals — so an AtomRef tracks anywhere in a component
   // body. Detection is the runtime brand inside `h.read` (faithful for
   // non-AtomRefs); there is no compile-time atom analysis and no `h.track`
@@ -339,10 +339,10 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
   it("rewrites a `.value` read in an extracted thunk (the motivating gap)", () => {
     const out = compile(`
       const get = () => client.getUser(userId.value)
-      const x = <div>{Await(get, { onSuccess: (u) => <span>{u}</span> })}</div>
+      const x = <div>{Async(get, { success: (u) => <span>{u}</span> })}</div>
     `)
     expect(out).toContain(`h.read(userId)`)
-    // No h.track wrap around the thunk read — Await runs it under its own tracker.
+    // No h.track wrap around the thunk read — Async runs it under its own tracker.
     expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*client\.getUser/)
   })
 

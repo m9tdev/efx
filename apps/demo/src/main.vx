@@ -160,19 +160,20 @@ const App = (
     <section class="tour">
       {copy({
         step: "03",
-        title: "Await boundary (non-blocking)",
+        title: "Async boundary (non-blocking)",
         concept:
-          "Same fetch, wrapped in Await. A pending placeholder shows immediately; onError handles failure locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. The Scope is Await's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the element's own demo scope, so reset interrupts an in-flight fetch.",
+          "Same fetch via Async. A pending placeholder shows immediately; failure is handled locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. Scope is Async's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the element's own demo scope, so reset interrupts an in-flight fetch. The arms are the three AsyncResult states, handled as values.",
         type: "Effect<View, never, Http | Scope>",
         code: `export const AsyncUserPage = Effect.fn("AsyncUserPage")(function* (props: {
   userId: string
 }) {
-  const http = yield* Http   // folds into R; Scope comes from Await
+  const http = yield* Http   // folds into R; Scope comes from Async
+  const getUser = () => http.getUser(props.userId)  // extractable thunk
 
-  return yield* Await(() => http.getUser(props.userId), {
-    pending:   <p>loading…</p>,
-    onError:   () => <p>failed</p>,
-    onSuccess: user => <h1>{user.name}</h1>,
+  return yield* Async(getUser, {
+    initial: <p>loading…</p>,
+    failure: () => <p>failed</p>,
+    success: user => <h1>{user.name}</h1>,   // user: User (inferred)
   })
 })`,
         file: "AsyncUserPage.vx",
@@ -183,9 +184,9 @@ const App = (
     <section class="tour">
       {copy({
         step: "04",
-        title: "Await, auto-tracking (deps discovered)",
+        title: "Async, auto-tracking (deps discovered)",
         concept:
-          "The Await thunk reads userId.value, so the compiler tracks it as a dependency and re-runs the fetch whenever the id changes — interrupting the stale request. Deps are discovered, not declared: there is no `from`, no key array. Click the buttons to refetch.",
+          "The Async thunk reads userId.value, so the compiler tracks it as a dependency and re-runs the fetch whenever the id changes — interrupting the stale request. Deps are discovered, not declared: no key array. Failure and pending are AsyncResult values handled by the arms. Click the buttons to refetch.",
         type: "Effect<View, never, Http | Scope>",
         code: `export const LiveUser = Effect.fn("LiveUser")(function* () {
   const userId = AtomRef.make("42")
@@ -195,10 +196,10 @@ const App = (
     <div>
       <button onclick={() => userId.set("7")}>Grace</button>
 
-      {Await(() => http.getUser(userId.value), {
-        pending:   <span>loading…</span>,
-        onError:   () => <span>not found</span>,
-        onSuccess: user => <strong>{user.name}</strong>,
+      {Async(() => http.getUser(userId.value), {
+        initial: <span>loading…</span>,
+        failure: () => <span>not found</span>,
+        success: user => <strong>{user.name}</strong>,
       })}
     </div>
   )
@@ -286,7 +287,7 @@ type DemoR = AtomRegistry.AtomRegistry | Http | Theme | Scope.Scope
 /**
  * Mount a component into its demo container under a Closeable scope we own, and
  * register a `remount` that tears the old one down (firing its finalizers,
- * cancelling in-flight Await fetches) and builds a fresh one. Because `make()`
+ * cancelling in-flight Async fetches) and builds a fresh one. Because `make()`
  * is called anew each time, refresh shows the component's initial state again.
  *
  * `make`'s `R` is constrained to `DemoR`, so a component needing a service

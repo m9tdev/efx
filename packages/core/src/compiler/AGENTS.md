@@ -123,9 +123,9 @@ TS would assign at the source site.
 
 After the JSX pass, a third `traverse(ast, …)` over the **live** AST
 rewrites every *surviving* `obj.value` read — the ones in statements,
-helpers, and **extracted `Await` thunks** — to `h.read(obj)` (via the
+helpers, and **extracted `Async` thunks** — to `h.read(obj)` (via the
 same `rewriteValueRead` helper, so the write-guards are identical). This
-closes the gap where a thunk lifted out of an `Await(...)` call site
+closes the gap where a thunk lifted out of an `Async(...)` call site
 (`const get = () => http.getUser(userId.value)`) silently stopped
 tracking: it now tracks identically to the inline form.
 
@@ -152,7 +152,7 @@ analysis — the key design decision:
   (`const x = ref.value`) stay one-time reads — auto-deriving them would
   be the implicit-infection model Vue retracted (Reactivity Transform)
   and Svelte/Solid reject. Tracking activates only when the read
-  *executes* under a tracker: an `Await` thunk (run under `trackDeps`) or
+  *executes* under a tracker: an `Async` thunk (run under `trackDeps`) or
   a JSX `h.track` scope. A statement read outside any tracker is just
   `.value`.
 

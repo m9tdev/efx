@@ -41,7 +41,7 @@ export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
 
 | Import | What you get |
 |---|---|
-| `@verrex/core` | `h`, `mount`, `Await`, `list`, `Fragment`, `View`, `VerrexLive` |
+| `@verrex/core` | `h`, `mount`, `Async`, `asyncRef`, `list`, `Fragment`, `View`, `VerrexLive` |
 | `@verrex/core/vite` | Vite plugin that compiles `.vx` |
 | `@verrex/core/check` (+ `verrex-check` bin) | `.vx`-aware type-checker (replaces `tsc --noEmit`) |
 | `@verrex/core/compiler`, `@verrex/core/language`, `@verrex/core/testing` | compiler, Volar language plugin, test harness |

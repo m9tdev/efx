@@ -22,8 +22,8 @@ declare function assertEquals<A, B extends Equals<A, B> extends true ? unknown :
 type UserPageType = ReturnType<typeof UserPage>
 assertEquals<UserPageType, Effect.Effect<View, HttpError, Http | Theme>>()
 
-// ─── AsyncUserPage: the same fetch behind an `Await` boundary. The boundary
-//     handles failure locally (onError), so E is `never`; Http still folds
+// ─── AsyncUserPage: the same fetch behind an `Async` boundary. The boundary
+//     handles failure locally (the failure arm), so E is `never`; Http still folds
 //     (fetch on the mount fiber), plus Scope from the fork (`forkScoped`).
 //     Same data, opposite E — the boundary vs. fold-to-root contrast, both
 //     compile-time enforced.
@@ -37,12 +37,12 @@ assertEquals<AsyncUserPageType, Effect.Effect<View, never, Http | Scope.Scope>>(
 type CounterType = ReturnType<typeof Counter>
 assertEquals<CounterType, Effect.Effect<View, never, never>>()
 
-// ─── LiveUser fetches async data via the auto-tracking `Await` boundary
-//     (`Await(() => http.getUser(userId.value), …)`). Because the service is
+// ─── LiveUser fetches async data via the auto-tracking `Async` boundary
+//     (`Async(() => http.getUser(userId.value), …)`). Because the service is
 //     extracted up front (`const http = yield* Http`) and the fetch runs on the
 //     mount fiber (not a baked Atom.runtime), `Http` stays in R — a forgotten
-//     layer is a compile error. `E` is `never`: the boundary renders failure via
-//     onError rather than propagating it. (This is the thesis the boundary
+//     layer is a compile error. `E` is `never`: the boundary renders failure via the
+//     failure arm rather than propagating it. (This is the thesis the boundary
 //     protects.)
 
 type LiveUserType = ReturnType<typeof LiveUser>

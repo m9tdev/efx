@@ -6,12 +6,12 @@ import { isView, View } from "./View.ts"
 export const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
   typeof u === "object" && u !== null && AtomRef.TypeId in u
 
-// ─── Dependency tracking (shared by h.track and Await) ───────────────────
+// ─── Dependency tracking (shared by h.track and Async) ───────────────────
 //
 // `currentTracker`, when set, collects every ref passed to `readTracked`.
 // `trackDeps(thunk)` runs `thunk` with a fresh collector and returns its
 // result plus the set of refs it read — the low-level primitive both the
-// compiler-driven `h.track` and the `Await` boundary use to learn what to
+// compiler-driven `h.track` and the `Async` boundary use to learn what to
 // re-run on.
 
 let currentTracker: Set<AtomRef.ReadonlyRef<unknown>> | null = null

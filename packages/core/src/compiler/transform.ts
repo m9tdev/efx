@@ -108,21 +108,22 @@ interface RewriteState {
 }
 
 /**
- * True when `expr` is a top-level `Await(...)` call. The `Await` boundary does
- * its OWN dependency tracking (it runs its thunk under the same tracker as
- * `h.track`), so wrapping it in `h.track` is redundant *and* harmful: `h.track`
- * is typed `(thunk) => unknown`, which erases `Await`'s `Effect<View, never, R |
- * Scope>` to `unknown` and drops its channels from the `h()` fold. Same reason
- * `.value.map(...)` → `list(...)` is left unwrapped. The inner `.value` reads
- * are still rewritten to `h.read` (Await's tracker needs them).
+ * True when `expr` is a top-level `Async(...)` call. The `Async` boundary does
+ * its OWN dependency tracking (it runs its `from` thunk under the same tracker
+ * as `h.track`), so wrapping it in `h.track` is redundant *and* harmful:
+ * `h.track` is typed `(thunk) => unknown`, which erases `Async`'s
+ * `Effect<View, never, R | Scope>` to `unknown` and drops its channels from the
+ * `h()` fold. Same reason `.value.map(...)` → `list(...)` is left unwrapped. The
+ * inner `.value` reads are still rewritten to `h.read` (Async's tracker needs
+ * them).
  *
  * Matched purely by callee name (the compiler has no types). So
- * `import { Await as A }` defeats the skip — `A(...)` would be wrongly
+ * `import { Async as A }` defeats the skip — `A(...)` would be wrongly
  * `h.track`-wrapped and lose its channels (a loud type error at the call site).
- * Import `Await` unaliased.
+ * Import `Async` unaliased.
  */
-const isAwaitCall = (expr: t.Expression): boolean =>
-  t.isCallExpression(expr) && t.isIdentifier(expr.callee, { name: "Await" })
+const isAsyncCall = (expr: t.Expression): boolean =>
+  t.isCallExpression(expr) && t.isIdentifier(expr.callee, { name: "Async" })
 
 /**
  * Wrap a JSX-expression's value in a `h.track(() => expr)` call **only when
@@ -135,15 +136,15 @@ const isAwaitCall = (expr: t.Expression): boolean =>
  * wrapping would erase their channels:
  *   - `.value.map(arrow → JSX)` → `list(...)` (flips `state.wroteList` for the
  *     `list` auto-import; subscribes inside `mount`).
- *   - `Await(() => …)` calls — the boundary tracks its own deps (see
- *     `isAwaitCall`).
+ *   - `Async(() => …, arms)` calls — the boundary tracks its own deps (see
+ *     `isAsyncCall`).
  */
 const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
   const { expr: rewritten, rewroteRead } = rewriteTrackedExpression(expr, state)
   if (!rewroteRead) return rewritten
-  // Await self-tracks; the `.value`→`h.read` rewrite inside it is kept, but the
-  // outer `h.track` wrap is skipped so Await's channels survive the fold.
-  if (isAwaitCall(rewritten)) return rewritten
+  // Async self-tracks; the `.value`→`h.read` rewrite inside it is kept, but the
+  // outer `h.track` wrap is skipped so Async's channels survive the fold.
+  if (isAsyncCall(rewritten)) return rewritten
   return t.callExpression(
     t.memberExpression(t.identifier("h"), t.identifier("track")),
     [t.arrowFunctionExpression([], rewritten)],
@@ -594,7 +595,7 @@ export const transformVerrex = (
 
   // Pass 3 — whole-body `.value` reads. The JSX pass above only rewrites
   // `.value` inside JSX expressions; a `.value` read in a *statement* (an
-  // extracted `Await` thunk, a helper, a local `const`) was left bare and so
+  // extracted `Async` thunk, a helper, a local `const`) was left bare and so
   // never tracked. Rewrite those surviving reads too, so an AtomRef tracks
   // anywhere in a component body, not just in JSX.
   //
@@ -605,7 +606,7 @@ export const transformVerrex = (
   // it for every `.value` read is safe; the runtime brand check is the exact
   // gate. And NO `h.track` wrap here — eager statement reads stay one-time
   // reads (Solid/Svelte/Vue semantics); tracking only activates when the read
-  // executes under a tracker (an `Await` thunk, or a JSX `h.track` scope).
+  // executes under a tracker (an `Async` thunk, or a JSX `h.track` scope).
   let usedHRead = false
   traverse(ast, {
     MemberExpression(path: NodePath<t.MemberExpression>) {

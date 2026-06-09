@@ -1,15 +1,16 @@
 import { Cause, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { Await } from "@verrex/core"
+import { Async } from "@verrex/core"
 import { Http } from "./services.ts"
 
 /**
- * Live, reactive async data via the `Await` boundary, auto-tracking form.
+ * Live, reactive async data via `Async`, auto-tracking form.
  *
  * The user id is local writable state (`AtomRef`); the buttons set it. The
- * `Await` thunk reads `userId.value`, so it becomes a tracked dependency and
- * the fetch re-runs whenever the id changes — interrupting the stale request
- * and rendering pending/success/error. No explicit trigger to declare.
+ * `Async` thunk reads `userId.value`, so it becomes a tracked dependency and the
+ * fetch re-runs whenever the id changes — interrupting the stale request and
+ * rendering initial/success/failure. No explicit trigger to declare. The arms
+ * are thunk-first positional, so `success`'s `user` infers as `User`.
  *
  * Inferred type: `Effect<View, never, Http | Scope>`
  *   — the service is extracted up front (`const http = yield* Http`), so `Http`
@@ -23,18 +24,18 @@ export const LiveUser = Effect.fn("LiveUser")(function* (_props: {} = {}) {
 
   return yield* (
     <div class="live-user">
-      <h3>Async data via Await (live, reactive, channels intact)</h3>
+      <h3>Async data via Async (live, reactive, channels intact)</h3>
       <div class="controls">
         <button onclick={() => userId.set("42")}>Ada (42)</button>
         <button onclick={() => userId.set("7")}>Grace (7)</button>
         <button onclick={() => userId.set("999")}>Bad id</button>
       </div>
-      {Await(() => http.getUser(userId.value), {
-        pending: <span class="loading">  loading…</span>,
-        onError: (cause) => (
+      {Async(() => http.getUser(userId.value), {
+        initial: <span class="loading">  loading…</span>,
+        failure: (cause) => (
           <span class="error">error: {Cause.pretty(cause)}</span>
         ),
-        onSuccess: (user) => (
+        success: (user) => (
           <div class="user-card">
             <strong>{user.name}</strong>
             {user.bio && <p class="bio">{user.bio}</p>}
