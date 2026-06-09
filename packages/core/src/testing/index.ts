@@ -1,4 +1,4 @@
-import { Effect, Exit, Layer, Scope } from "effect"
+import { Cause, Effect, Exit, Layer, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
 import { VerrexLive, mount, type View } from "@verrex/core"
 
@@ -85,9 +85,14 @@ const renderImpl = async (
   // A Closeable scope we own: mount registers every subscription/listener/
   // release finalizer on it, and we keep it open until unmount().
   const scope = Scope.makeUnsafe()
+  // `mount` requires a discharged app (`Effect<View<never>, never, R>`). The
+  // harness discharges an undischarged construction error by turning it into a
+  // defect, so a component that fails to build (with no boundary) rejects the
+  // `render(...)` promise loudly — exactly the failure a test wants to see.
+  const discharged = Effect.catchCause(app, (cause) => Effect.die(Cause.squash(cause)))
   await Effect.runPromise(
     Scope.provide(
-      mount(app, container).pipe(Effect.provide(layer), Effect.provide(VerrexLive)),
+      mount(discharged, container).pipe(Effect.provide(layer), Effect.provide(VerrexLive)),
       scope,
     ),
   )

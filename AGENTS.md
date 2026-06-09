@@ -3,7 +3,13 @@
 **Purpose:** a TypeScript UI framework where Effect's `<A, E, R>`
 channels propagate from every leaf of the view tree to the root.
 Forgetting to provide a service `Layer` becomes a *compile-time
-error that names the missing service*.
+error that names the missing service*; symmetrically, forgetting to
+handle an error with a `catchCause` boundary becomes a *compile-time
+error that names the unhandled error* (`mount` requires
+`Effect<View<never>, never, R>`). Errors live in two phases:
+construction errors ride the Effect `E`; live errors a rendered subtree
+can still produce ride the `View<E>` success — one boundary discharges
+both.
 
 **The name** is built from the channels of an `Effect<View, E, R>`:
 **V** (View — the `A`, always the `View` here), **E** (Error), **R**

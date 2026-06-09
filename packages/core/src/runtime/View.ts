@@ -6,19 +6,44 @@ import type { AtomRef } from "effect/unstable/reactivity"
 export type Props = Readonly<Record<string, unknown>>
 
 /**
+ * Phantom carrier for a View's runtime-error channel `E` — the errors a live
+ * subtree can still produce after construction (an async refetch, a reactive
+ * re-render, an event-handler Effect), routed to the nearest `catchCause`.
+ *
+ * Covariant via `() => E`, which gives exactly the variance the thesis needs:
+ *  - `View<HttpError>` is NOT assignable to `View<never>`, so `mount` requiring
+ *    `View<never>` is a compile error until every error is discharged by a
+ *    boundary (it names the error — the runtime counterpart of a forgotten Layer);
+ *  - a phantom-free `ViewNode` (what the constructors produce) IS assignable to
+ *    any `View<E>` (the marker is optional and absent), so construction needs no
+ *    casts and `View.Empty()` stays a no-arg call.
+ *
+ * Kept off the variant interfaces (so `Data.taggedEnum` constructor args don't
+ * gain a phantom field) and mixed in only via `View<E> = ViewNode & ViewErr<E>`.
+ * The fold (`ChildE` in types/Fold.ts) reads it directly via `infer`; it does
+ * not walk a View's children, so the recursion stays shallow.
+ */
+declare const ErrorTypeId: unique symbol
+export interface ViewErr<E> {
+  readonly [ErrorTypeId]?: () => E
+}
+
+/**
  * A `ViewBoundary`'s current content: the child subtree rendered normally
  * (`ok`), or a caught failure awaiting the fallback (`error`). Driven by
  * `catchCause` — construction sets the initial value, a live failure reported
  * from the child subtree flips it to `error`, and `reset` re-runs construction.
  */
 export type BoundaryState =
-  | { readonly _tag: "ok"; readonly view: View }
+  | { readonly _tag: "ok"; readonly view: ViewNode }
   | { readonly _tag: "error"; readonly cause: Cause.Cause<unknown> }
 
 // Per-variant named interfaces — required so TS preserves the `View` alias
 // in hovers. `Data.TaggedEnum<{...}>` runs every variant through
 // `Types.Simplify`, which strips the alias and forces TS to inline the full
-// union everywhere `Effect<View, ...>` appears.
+// union everywhere `Effect<View, ...>` appears. These are the phantom-free
+// runtime shapes the `Data.taggedEnum` constructors build; the error channel is
+// mixed in only at the `View<E>` alias below.
 export interface ViewText {
   readonly _tag: "Text"
   readonly value: string
@@ -27,11 +52,11 @@ export interface ViewElement {
   readonly _tag: "Element"
   readonly tag: string
   readonly props: Props
-  readonly children: ReadonlyArray<View>
+  readonly children: ReadonlyArray<ViewNode>
 }
 export interface ViewFragment {
   readonly _tag: "Fragment"
-  readonly children: ReadonlyArray<View>
+  readonly children: ReadonlyArray<ViewNode>
 }
 export interface ViewReactive {
   readonly _tag: "Reactive"
@@ -66,7 +91,9 @@ export interface ViewBoundary {
   readonly report: (cause: Cause.Cause<unknown>) => void
 }
 
-export type View =
+/** The phantom-free runtime IR — the shape `mount` switches on and the
+ * constructors build. `View<E>` layers the error channel on top. */
+export type ViewNode =
   | ViewText
   | ViewElement
   | ViewFragment
@@ -75,12 +102,20 @@ export type View =
   | ViewBoundary
   | ViewEmpty
 
-export const View = Data.taggedEnum<View>()
+/**
+ * The public View type, carrying its runtime-error channel `E` (defaulting to
+ * `never` — a bare `View` is `View<never>`, fully discharged). `h()` stamps the
+ * folded `E` of a subtree onto its result; `catchCause` discharges it; `mount`
+ * requires `View<never>`. Structurally a `ViewNode` plus the phantom marker.
+ */
+export type View<E = never> = ViewNode & ViewErr<E>
 
-export const VIEW_TAGS: ReadonlySet<View["_tag"]> = new Set<View["_tag"]>([
+export const View = Data.taggedEnum<ViewNode>()
+
+export const VIEW_TAGS: ReadonlySet<ViewNode["_tag"]> = new Set<ViewNode["_tag"]>([
   "Text", "Element", "Fragment", "Reactive", "List", "Boundary", "Empty",
 ])
 
-export const isView = (u: unknown): u is View =>
+export const isView = (u: unknown): u is ViewNode =>
   typeof u === "object" && u !== null && "_tag" in u &&
-  VIEW_TAGS.has((u as { _tag: View["_tag"] })._tag)
+  VIEW_TAGS.has((u as { _tag: ViewNode["_tag"] })._tag)
