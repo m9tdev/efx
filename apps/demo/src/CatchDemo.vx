@@ -32,7 +32,19 @@ const BadRequest = Effect.fn("BadRequest")(function* (_props: {} = {}) {
     const status = STATUSES[Math.floor(Math.random() * STATUSES.length)]!
     yield* Effect.fail(new HttpError({ status, message: "request failed" }))
   }
-  return yield* <p class="ok">request succeeded ✓</p>
+  // Even on success the subtree stays live — its button fails with an HttpError on
+  // click, which the SAME tag-map catches (a live failure, not just construction).
+  return yield* (
+    <div class="ok">
+      <p>request succeeded ✓</p>
+      <button
+        class="crash"
+        onclick={() => Effect.fail(new HttpError({ status: 500, message: "crashed live" }))}
+      >
+        crash it
+      </button>
+    </div>
+  )
 })
 
 /**
