@@ -7,7 +7,7 @@ Public surface (from `index.ts`):
   syntax) + `h.track`/`h.read` (compiler hooks)
 - `mount` — DOM renderer (returns `Effect<void, E, R | AtomRegistry | Scope>`)
 - `list` — keyed reactive list helper (`View.List` IR node)
-- `Await` — async render boundary (auto-tracking; see "`Await`" below)
+- `Async` / `asyncRef` — async render boundary + primitive (errors-as-values; see "`asyncRef` / `Async`" below)
 - `Fragment` — `<>...</>` compile target
 - `VerrexLive` — base Layer providing `AtomRegistry`
 - Types: `View`, `Props`, `FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps`,
@@ -32,11 +32,11 @@ the editor margin. If you rename them, update the regex.
 | File | Purpose |
 |---|---|
 | `h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`) |
-| `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Await`) |
+| `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Async`) |
 | `View.ts` | `View` IR (intermediate representation) — hand-written union of 6 named interfaces (`ViewText`, `ViewElement`, `ViewFragment`, `ViewReactive`, `ViewList`, `ViewEmpty`); constructors via `Data.taggedEnum<View>()`. The normalized DOM-materialization shape `mount` switches on. Plus `isView`, `VIEW_TAGS` |
 | `mount.ts` | DOM renderer. `buildDom(view, registry, scope) → Node`, `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope) and the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes |
 | `reconcile.ts` | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops |
-| `index.ts` | Public exports + `list`, `Await`, `Fragment`, `VerrexLive` |
+| `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `Fragment`, `VerrexLive` |
 | `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
 | `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality matches the old single-pass; index updates on shift) |
 | `types/Fold.ts` | `ChildE`/`ChildR`/`FoldE`/`FoldR`/`TagE`/`TagR`/`TagProps` — the channel-fold conditional types |
@@ -71,7 +71,7 @@ The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
   *every* `.value` read in a component body (not just JSX) without any
   compile-time atom analysis — the `isAtomRef` brand is the exact gate.
 
-`h.track` itself (via `trackDeps` in `coerce.ts`, shared with `Await`):
+`h.track` itself (via `trackDeps` in `coerce.ts`, shared with `Async`):
 
 1. `trackDeps` sets a module-level collector to a fresh dep set.
 2. Runs the thunk; `h.read`→`recordDep` adds to the set per AtomRef.
@@ -142,81 +142,78 @@ hoisted into the surrounding Effect.
 
 Good candidates if a need arises: `Portal` (render children to a
 different DOM root). Note an async boundary did **not** need a new
-variant — see `Await` below. Anti-pattern: convenience wrappers like
+variant — see `Async` below. Anti-pattern: convenience wrappers like
 `Card`/`Heading` — those are components, not IR.
 
-## `Await` — the async render boundary
+## `asyncRef` / `Async` — the async data primitive + render boundary
 
-`Await` (index.ts) renders an Effect's pending/success/error states as a
-leaf that owns one effectful data source (a Resource, à la Solid — **not**
-React Suspense: no throw-and-catch). One auto-tracking form:
+Effectful/async data is **errors-as-values**: it's an `AsyncResult<A, E>` you
+match where it's consumed, not a throw-and-catch boundary (à la effect-atom /
+Solid's Resource — **not** React Suspense). Two exports, both in `index.ts`:
 
-```tsx
-Await(() => effect, { pending?, onSuccess, onError? })
-```
+- **`asyncRef(() => effect)`** — the primitive. Runs the effect and returns a
+  reactive `AtomRef.ReadonlyRef<AsyncResult<A, E>>`. Handle it with Effect's own
+  `AsyncResult.match`:
+  ```tsx
+  const user = yield* asyncRef(() => http.getUser(userId.value))
+  {user.map(AsyncResult.match({ onInitial, onFailure, onSuccess }))}
+  ```
+- **`Async(from, { initial?, failure?, success })`** — the render boundary,
+  **thunk-first positional**, sugar over `asyncRef` + `AsyncResult.match`:
+  ```tsx
+  {Async(() => http.getUser(userId.value), {
+    initial: <Spinner/>,
+    failure: (cause) => <Err cause={cause}/>,
+    success: (user) => <UserCard user={user}/>,
+  })}
+  ```
+  The compiler lowers the `<Async from initial failure success/>` JSX element to
+  this positional call (planned). **It must stay positional** — a single props
+  object passed through `h(Async, props)` defeats inference (`success`'s value
+  collapses to `unknown`), the same reason `list` is positional.
 
-The first arg is a **thunk** that produces the effect. It runs under the
-**same dependency tracker as `h.track`** (`trackDeps`/`recordDep`, shared
-from `coerce.ts`): any reactive ref the thunk reads via `.value`/`h.read`
-becomes a dependency, and the boundary **re-runs the effect when one
-changes**, interrupting the stale run. So a static fetch and a reactive
-refetch are the same call — deps are *discovered, not declared*:
+The `from`/thunk runs under the **same dependency tracker as `h.track`**
+(`trackDeps`/`recordDep`, from `coerce.ts`): any reactive ref it reads via
+`.value`/`h.read` becomes a dependency, and the effect **re-runs when one
+changes**, interrupting the stale run. A thunk that reads no refs runs once —
+deps are *discovered, not declared*.
 
-```tsx
-const userId = AtomRef.make("42")    // buttons: userId.set("7")
-const http = yield* Http             // extract services up front
-{Await(() => http.getUser(userId.value), { pending, onSuccess, onError })}
-```
-
-A thunk that reads no refs runs once. Positional thunk-first (like
-`list(coll, render)`) so `A`/`E` are fixed before the arms are contextually
-typed — arms in the same object literal as the effect defeat inference
-(`onSuccess`'s value collapses to `unknown`). Arm channels are accepted
-permissively (`any`) and are not folded into the result; that also avoids a
+Arm channels are accepted permissively (`any`) and are not folded; that avoids a
 JSX conditional's `any`-folded channels breaking inference. **Arms must be
-synchronous View-producers** — they render via `coerceSync` (`runSyncExit`),
-so an *async* arm effect can never resolve and renders `[effect failed: …]`;
-an arm effect needing an unprovided service also fails only at runtime (its
-`R` isn't folded). Keep arms pure markup.
+synchronous View-producers** — they render via `coerceSync` (`runSyncExit`), so
+an *async* arm effect can never resolve. Keep arms pure markup.
 
 **Inline or extracted — both track.** The compiler rewrites `.value`→`h.read`
-across the whole component body, not just in JSX expressions (see the compiler's
-"Whole-body `.value` reads"), so an extracted thunk —
-`const get = () => http.getUser(userId.value)` then `Await(get, …)` — refetches
-identically to the inline form. The read just has to happen *inside* the thunk
-(so it runs under `Await`'s tracker); a `.value` read into a local *before* the
-thunk (`const id = userId.value; Await(() => http.getUser(id), …)`) captures a
-snapshot and won't refetch — that's the ordinary eager-read semantics, not a
-special case.
+across the whole component body, so an extracted thunk —
+`const get = () => http.getUser(userId.value)` then `Async(get, …)` — refetches
+identically to inline. The read must happen *inside* the thunk; a `.value` read
+into a local *before* it (`const id = userId.value; Async(() => http.getUser(id), …)`)
+captures a snapshot and won't refetch — ordinary eager-read semantics.
 
-**Why a thunk, not the bare expression** (`Await(http.getUser(userId.value))`):
-the bare form evaluates the effect eagerly with nothing re-runnable, and the
-compiler's `h.track` wrapper can't run `Await`'s fiber (it would store the
-unexecuted `Effect` in a ref → DOM stuck on the stale value). Making `Await`
-itself the tracker — taking the thunk — composes the two reactive layers
-(sync ref-tracking + async fiber) correctly.
+**The compiler skips the `h.track` wrap for `Async(...)` calls** (`isAsyncCall`
+in the compiler) — `Async` self-tracks, and `h.track`'s `unknown` return would
+erase its `Effect<View, never, R | Scope>` channels from the `h()` fold. The
+inner `.value`→`h.read` rewrite is kept (the tracker needs it). Matched by callee
+name, so import `Async` unaliased.
 
-It is a **plain helper, not a View IR variant** — it builds an
-`AtomRef<unknown>` holding the current rendered arm and returns a
-`View.Reactive` over it, so the existing Reactive node does all the DOM
-work. The design that makes this fit verrex:
+Neither is a View IR variant. `asyncRef` builds an `AtomRef<AsyncResult>`; `Async`
+maps it through `AsyncResult.match` and returns a `View.Reactive` — the existing
+Reactive node does the DOM work. The design that makes this fit verrex:
 
-- **State** is Effect's `AsyncResult` matched to an arm, stored in a
-  *synchronous* `AtomRef` (so the Reactive node reads it immediately and
-  re-renders on `.set`).
-- **Tracking + execution:** a `schedule()` runs the thunk under `trackDeps`,
+- **State** is Effect's `AsyncResult` in a *synchronous* `AtomRef` (the Reactive
+  node reads it immediately and re-renders on `.set`).
+- **Tracking + execution:** `schedule()` runs the thunk under `trackDeps`,
   subscribes to the refs it read (re-scheduling on change), and enqueues the
-  effect onto a `Queue`. A `forkScoped` supervisor loop drains the queue —
-  `forkChild` per run, prior run `Fiber.interrupt`ed — on the **mount fiber**.
-  Fork interrupted on scope close (teardown); ref subscriptions are a scope
-  finalizer.
-- **Channels:** because `forkScoped` forks the thunk's effect, the result
-  folds its `R` — `Await` returns `Effect<View, never, R | Scope>` with **no
-  cast**. Extract services with `yield* Service` before the thunk so they fold
-  into the *component's* `R` (a missing Layer is a compile error at `mount`).
-  `E` is `never` on purpose: the boundary *handles* failure via `onError`
-  (rendered) rather than propagating it. Contrast in-component fetching
-  (UserPage), where `E`+`R` both fold to the root.
+  effect onto a `Queue`. A `forkScoped` supervisor drains the queue — `forkChild`
+  per run, prior run `Fiber.interrupt`ed — on the **mount fiber**. Fork
+  interrupted on scope close; ref subscriptions are a scope finalizer.
+- **Channels:** because `forkScoped` forks the thunk's effect, the result folds
+  its `R` — `asyncRef`/`Async` are `Effect<…, never, R | Scope>` with **no cast**.
+  Extract services with `yield* Service` before the thunk so they fold into the
+  *component's* `R` (a missing Layer is a compile error at `mount`). `E` is
+  `never`: failure is a `Failure` value (matched / rendered via `failure`), not
+  propagated. Contrast in-component fetching (UserPage), where `E`+`R` fold to
+  the root.
 
 Why NOT `Atom`/`Atom.runtime` for this: an `Atom.runtime(layer)` bakes the
 Layer in and discharges `R` (loses the thesis); a per-call runtime built

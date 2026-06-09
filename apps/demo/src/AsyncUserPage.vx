@@ -1,36 +1,33 @@
 import { Cause, Effect } from "effect"
-import { Await } from "@verrex/core"
+import { Async } from "@verrex/core"
 import { Http } from "./services.ts"
 
 /**
- * The `Await` boundary, once form — the non-blocking counterpart to
- * `UserPage.vx`.
+ * The async leaf, errors-as-values style.
  *
- * `UserPage` fetches in-component (`yield* http.getUser`), so the whole subtree
- * blocks until the request resolves and a failure folds `E = HttpError` to the
- * root. `AsyncUserPage` wraps the same fetch in `Await(() => http.getUser(id))`:
- * a pending placeholder shows immediately and failure is handled locally
- * (`onError`), so `E` is discharged to `never`. The thunk reads no reactive
- * refs, so it runs once. `Http` is extracted up front, so it folds into `R` —
- * a forgotten layer is still a compile error. `Scope` is added by `Await`
- * itself: it doesn't create a scope, it borrows the *enclosing* one (via
- * `Effect.scope`) and forks the fetch into it with `Effect.forkScoped`, so the
- * request is interrupted when that scope closes. The framework supplies the
- * scope where the component is mounted — placed statically here, that's the
- * root app scope; under a `Reactive`/`List` slot it's the per-slot scope, so
- * the fetch is cancelled exactly on that element's unmount.
+ * `Async(from, { initial, failure, success })` runs `from` on the mount fiber —
+ * so `Http` folds into `R` (a forgotten Layer is still a compile error) and
+ * `Scope` is borrowed for cancellation — and renders the three `AsyncResult`
+ * states. `from` is a thunk, so it can be extracted (`getUser` below); a ref
+ * read inside it auto-refetches. Thunk-first positional so `success`'s `user`
+ * infers as `User`. Failure renders via `failure`, handled as a value — never
+ * thrown, never folded to `E`.
+ *
+ * (The compiler will lower `<Async from initial failure success/>` to this call;
+ * here it's written out so the prototype needs no compiler change yet.)
  *
  * Inferred type: `Effect<View, never, Http | Scope>`
  */
 export const AsyncUserPage = Effect.fn("AsyncUserPage")(function* (props: { userId: string }) {
   const http = yield* Http
+  const getUser = () => http.getUser(props.userId)
 
   return yield* (
     <article class="async-user-page">
-      {Await(() => http.getUser(props.userId), {
-        pending: <p class="loading">  loading user…</p>,
-        onError: (cause) => <p class="error">error: {Cause.pretty(cause)}</p>,
-        onSuccess: (user) => (
+      {Async(getUser, {
+        initial: <p class="loading">  loading user…</p>,
+        failure: (cause) => <p class="error">error: {Cause.pretty(cause)}</p>,
+        success: (user) => (
           <div class="user-body">
             <h1>{user.name}</h1>
             {user.bio && <p class="bio">{user.bio}</p>}

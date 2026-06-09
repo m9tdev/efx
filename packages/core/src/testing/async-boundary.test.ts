@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 /**
- * F1: async render boundary (Await), run-once form. `Await(effect, arms)` runs
- * the effect on the mount fiber and renders pending → success/error.
- * Proves: channel folding (R reflects the effect, E handled by onError → never,
- * no cast) and runtime behavior in-process.
+ * Async render boundary, run-once form. `Async(from, arms)` runs the effect on
+ * the mount fiber and renders the three AsyncResult states (initial → success /
+ * failure). Proves: channel folding (R reflects the effect, failure handled by
+ * the `failure` arm → E never, no cast) and runtime behavior in-process.
  */
 import { describe, it, expect } from "vitest"
 import { Context, Effect, Layer, Scope } from "effect"
-import { Await, h, type View } from "@verrex/core"
+import { Async, h, type View } from "@verrex/core"
 import { render } from "./index.ts"
 
 class Greeter extends Context.Service<Greeter, {
@@ -31,11 +31,11 @@ const greeting = Effect.gen(function* () {
   return yield* g.greet("ada")
 })
 
-// ② folding (no cast): R = Greeter folds through; E handled by onError → never.
-const _folds = Await(() => greeting, {
-  pending: h("span", { class: "p" }, "…"),
-  onSuccess: (msg) => h("span", { class: "ok" }, msg),
-  onError: () => h("span", { class: "err" }, "boom"),
+// folding (no cast): R = Greeter folds through; failure handled → E never.
+const _folds = Async(() => greeting, {
+  initial: h("span", { class: "p" }, "…"),
+  success: (msg) => h("span", { class: "ok" }, msg),
+  failure: () => h("span", { class: "err" }, "boom"),
 }) satisfies Effect.Effect<View, never, Greeter | Scope.Scope>
 void _folds
 
@@ -44,18 +44,17 @@ const page = (effect: Effect.Effect<string, GreetError, Greeter>) =>
     return yield* h(
       "div",
       { class: "page" },
-      yield* Await(() => effect, {
-        pending: h("span", { class: "loading" }, "loading"),
-        onSuccess: (msg) => h("span", { class: "ok" }, msg),
-        onError: () => h("span", { class: "err" }, "failed"),
+      yield* Async(() => effect, {
+        initial: h("span", { class: "loading" }, "loading"),
+        success: (msg) => h("span", { class: "ok" }, msg),
+        failure: () => h("span", { class: "err" }, "failed"),
       }),
     )
   })()
 
-describe("Await (once)", () => {
-  it("renders pending immediately, running the effect in the provided context", async () => {
-    let release!: () => void
-    const gate = new Promise<void>((r) => { release = r })
+describe("Async (once)", () => {
+  it("renders initial immediately, running the effect in the provided context", async () => {
+    const gate = new Promise<void>(() => {}) // never resolves
     const gated = Effect.gen(function* () {
       const g = yield* Greeter
       yield* Effect.promise(() => gate)
@@ -82,7 +81,7 @@ describe("Await (once)", () => {
     await ui.unmount()
   })
 
-  it("renders the error arm when the effect fails", async () => {
+  it("renders the failure arm when the effect fails", async () => {
     const ui = await render(page(greeting), GreeterBoom)
     const err = await ui.waitFor(".err")
     expect(err.textContent?.trim()).toBe("failed")
@@ -95,9 +94,9 @@ describe("Await (once)", () => {
       return yield* h(
         "div",
         {},
-        yield* Await(() => Effect.never as Effect.Effect<string, never, never>, {
-          pending: h("span", { class: "loading" }, "…"),
-          onSuccess: () => h("span", {}, "x"),
+        yield* Async(() => Effect.never as Effect.Effect<string, never, never>, {
+          initial: h("span", { class: "loading" }, "…"),
+          success: () => h("span", {}, "x"),
         }),
       )
     })()

@@ -11,7 +11,7 @@ import { type Props, View } from "./View.ts"
 // a dependency. If any reads occurred, h.track returns a derived AtomRef
 // that re-runs the thunk on dep changes; otherwise it returns the value
 // directly (no reactivity overhead for static expressions). The collector
-// itself lives in coerce.ts (`trackDeps`/`recordDep`) so `Await` can share it.
+// itself lives in coerce.ts (`trackDeps`/`recordDep`) so `Async` can share it.
 
 const trackImpl = (thunk: () => unknown): unknown => {
   const { result, deps } = trackDeps(thunk)
@@ -103,7 +103,7 @@ type HFn = <
  *   the static value if no refs were read, or a derived `AtomRef` that
  *   re-runs the thunk when deps change.
  * - `h.read(obj)` — a faithful, transparent wrapper for `obj.value` that, when
- *   called inside an `h.track` (or `Await`) tracking scope, registers `obj` as a
+ *   called inside an `h.track` (or `Async`) tracking scope, registers `obj` as a
  *   dependency if it's an AtomRef. On any non-AtomRef it is exactly `obj.value`.
  *
  * Inside any JSX expression `{…}` that contains a `.value` read, the
