@@ -159,13 +159,16 @@ describe("Catch — lifecycle correctness", () => {
     // Without a generation stamp, AtomRef.set dedups the Equal-equal BoundaryState
     // and the reset silently no-ops (the retry button is dead on a deterministic
     // failure). Handler call count proves the fallback re-renders on each reset.
+    // The child must be SPAN-LESS (raw Effect.gen, not Effect.fn): a span
+    // annotation makes every Cause Equal-unequal, which would mask the dedup
+    // this test guards against — an Effect.fn child passes even with `gen` removed.
     let handlerCalls = 0
-    const AlwaysFails = Effect.fn("AlwaysFails")(function* (_props: {} = {}) {
+    const alwaysFails = Effect.gen(function* () {
       yield* Effect.fail(new BoomError({ why: "always identical" }))
       return yield* h("p", { class: "child" }, "unreachable")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(AlwaysFails(), (_cause, reset) => {
+      return yield* Catch(alwaysFails, (_cause, reset) => {
         handlerCalls++
         return h("button", { class: "retry", onClick: reset }, "retry")
       })
@@ -181,9 +184,11 @@ describe("Catch — lifecycle correctness", () => {
     await ui.unmount()
   })
 
-  it("releases a child's construction-scope resources on reset (no leak, MF-2)", async () => {
-    // A child's construction-time `acquireRelease` must bind to a per-build scope
-    // that's closed on each reset — not leaked to the mount scope.
+  it("releases a failed build's construction-scope resources immediately (no leak, MF-2)", async () => {
+    // A child's construction-time `acquireRelease` must bind to a per-build scope —
+    // not leaked to the mount scope. A FAILED build's scope closes as soon as the
+    // failure is accepted (nothing renders from it), so its resources never idle
+    // behind the fallback.
     let acquired = 0
     let released = 0
     const Leaky = Effect.fn("Leaky")(function* (_props: {} = {}) {
@@ -205,17 +210,17 @@ describe("Catch — lifecycle correctness", () => {
     })
     const ui = await render(App())
     expect(acquired).toBe(1)
-    expect(released).toBe(0)
+    expect(released).toBe(1) // the failed build's scope closed on acceptance
     ui.click(".retry")
     await ui.tick()
     ui.click(".retry")
     await ui.tick()
-    // Each reset acquired a fresh resource and released the PRIOR build's — the
-    // leak (released stuck at 0 until unmount) is what MF-2 fixes.
+    // Every failed build released its own resource immediately — the leak
+    // (released stuck at 0 until unmount) is what MF-2 fixes.
     expect(acquired).toBe(3)
-    expect(released).toBe(2)
+    expect(released).toBe(3)
     await ui.unmount()
-    expect(released).toBe(acquired) // everything released after teardown
+    expect(released).toBe(acquired) // nothing left for teardown to find
   })
 
   it("escalates a LIVE non-matching error to an outer boundary (SF-5)", async () => {

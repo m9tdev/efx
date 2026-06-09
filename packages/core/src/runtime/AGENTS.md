@@ -299,15 +299,22 @@ overloads that front it.
 - **Generation stamp.** Each `BoundaryState` carries a monotonic `gen`. Without
   it, `AtomRef.set` dedups via `Equal.equals`, and a reset that re-fails with a
   structurally-identical `Cause` is `Equal`-equal to the current state → no notify
-  → a *dead retry button*. `gen` makes every emission distinct.
+  → a *dead retry button*. `gen` makes every emission distinct. Nuance: an
+  `Effect.fn` child's causes are never `Equal`-equal in practice (each run's span
+  annotation differs), so the hazard bites only span-less subtrees — which is why
+  the MF-1 regression test uses a raw `Effect.gen` child; an `Effect.fn` child
+  would pass vacuously.
 - **Per-build construction scope.** Each child build (initial + every reset) runs
   in a fresh scope forked from the mount scope (`Scope.forkUnsafe` + `provideService(Scope.Scope, …)`),
   so a child's construction-time effects (an `asyncRef` supervisor + its
   finalizers, `acquireRelease`) are released when we swap away or reset — not
   leaked onto the mount scope. The prior build's scope is closed on swap/reset
-  (`adopt`); the live one closes on teardown via the fork cascade. A reset whose
-  rebuild is rejected (non-accepted tag) discards its just-built scope and keeps
-  the current content.
+  (`adopt`); the live one closes on teardown via the fork cascade. A build that
+  fails with an *accepted* cause closes its scope immediately (nothing renders
+  from it — error content holds no live scope). A reset whose rebuild is
+  rejected (non-accepted tag) discards its just-built scope and keeps the
+  current content; a rejected cause that is interrupt-only (rebuild torn down
+  mid-flight) is dropped, not escalated.
 
 Unlike `Async`, this **is** a View IR variant (`Boundary`) — the sink-swap for
 the child subtree is a `buildDom`-time concern an existing `Reactive` can't

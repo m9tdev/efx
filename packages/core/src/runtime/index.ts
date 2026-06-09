@@ -232,7 +232,10 @@ const makeBoundary = <R>(
     // (an `asyncRef` supervisor + finalizers, `acquireRelease`, …) bind to a fresh
     // scope forked from the mount scope, so they're released when we swap away or
     // reset rather than leaking onto the mount scope. The fork cascade closes the
-    // live one on teardown; `adopt` closes the prior one mid-life.
+    // live one on teardown; `adopt` closes the prior one mid-life. Error content
+    // holds no scope: a failed build renders nothing, so its scope closes the
+    // moment the failure is accepted — partial resources never idle behind the
+    // fallback.
     let activeBuild: Scope.Closeable | null = null
     const close = (s: Scope.Closeable | null): void => {
       if (!s) return
@@ -268,7 +271,8 @@ const makeBoundary = <R>(
       close(first.scope)
       return yield* Effect.failCause(first.rejected)
     }
-    activeBuild = first.scope
+    if (first.content._tag === "error") close(first.scope)
+    else activeBuild = first.scope
     const state = AtomRef.make<BoundaryState>(first.content)
     const runs = yield* Queue.unbounded<{ readonly _tag: "reset" } | {
       readonly _tag: "error"
@@ -297,14 +301,23 @@ const makeBoundary = <R>(
             activeBuild = null
             state.set({ _tag: "error", cause: msg.cause, gen: gen++ })
           } else {
-            // reset: re-build. ok/accepted → adopt new scope + swap; rejected →
-            // escalate to the parent and KEEP current content (discard the new scope).
+            // reset: re-build. ok → adopt new scope + swap; accepted error →
+            // swap but close BOTH scopes (nothing renders from a failed build);
+            // rejected → escalate to the parent and KEEP current content
+            // (discard the new scope). A rebuild torn down mid-flight
+            // (interrupt-only) is teardown, not an error — don't escalate it.
             const b = yield* build()
             if ("rejected" in b) {
               close(b.scope)
-              ambient(b.rejected)
+              if (!Cause.hasInterruptsOnly(b.rejected)) ambient(b.rejected)
             } else {
-              adopt(b.scope)
+              if (b.content._tag === "error") {
+                close(activeBuild)
+                activeBuild = null
+                close(b.scope)
+              } else {
+                adopt(b.scope)
+              }
               state.set(b.content)
             }
           }
