@@ -181,6 +181,30 @@
       .todos .controls, .lifecycle .controls { display: flex; gap: 0.75rem; align-items: center; }
       .lifecycle li { padding: 0.2rem 0; }
       .lifecycle .hint { font-size: 0.82rem; color: var(--muted); margin-top: 0.75rem; }
+
+      /* Catch error boundary (step 07): two boundaries stacked, each a fallback panel. */
+      .catch-demo { display: flex; flex-direction: column; gap: 0.85rem; }
+      .crasher p { margin: 0 0 0.5rem; }
+      .catch-demo button {
+        background: #1c2128; color: var(--text); border: 1px solid var(--border);
+        padding: 0.25rem 0.75rem; border-radius: 5px; cursor: pointer; font-family: inherit;
+      }
+      .catch-demo button:hover { background: #232932; }
+      .catch-demo button:active { transform: translateY(1px); }
+      .catch-demo .crash { border-color: var(--accent-dim); color: var(--accent); }
+      .catch-demo .ok { color: var(--accent); margin: 0; }
+      .boundary-fallback {
+        border: 1px solid #5a3a3a; background: rgba(224, 138, 138, 0.07);
+        border-radius: 8px; padding: 0.7rem 0.9rem;
+      }
+      .boundary-fallback .caught {
+        margin: 0 0 0.5rem; color: #e08a8a;
+        font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em;
+      }
+      .boundary-fallback .cause {
+        margin: 0 0 0.7rem; font-size: 0.75rem; color: var(--muted);
+        white-space: pre-wrap; word-break: break-word; max-height: 8rem; overflow: auto;
+      }
     </style>
   </head>
   <body>

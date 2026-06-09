@@ -22,11 +22,17 @@ const Crasher = Effect.fn("Crasher")(function* (_props: {} = {}) {
   )
 })
 
-// tag-map subject: a request that fails (at construction) with a typed, tagged
-// error — the kind a tag-map handler routes on and unwraps.
+// tag-map subject: a flaky request. ~50% of attempts fail (at construction) with
+// a random tagged error — the kind a tag-map handler routes on and unwraps — and
+// the rest succeed. So clicking "retry" visibly re-runs the boundary and may
+// recover (or surface a different error).
+const STATUSES = [500, 503, 429, 404, 418]
 const BadRequest = Effect.fn("BadRequest")(function* (_props: {} = {}) {
-  yield* Effect.fail(new HttpError({ status: 404, message: "user not found" }))
-  return yield* <p>unreachable</p>
+  if (Math.random() < 0.5) {
+    const status = STATUSES[Math.floor(Math.random() * STATUSES.length)]!
+    yield* Effect.fail(new HttpError({ status, message: "request failed" }))
+  }
+  return yield* <p class="ok">request succeeded ✓</p>
 })
 
 /**
@@ -62,7 +68,7 @@ export const CatchDemo = Effect.fn("CatchDemo")(function* (_props: {} = {}) {
         HttpError: (e, reset) => (
           <div class="boundary-fallback">
             <p class="caught">caught HttpError {e.status}: {e.message}</p>
-            <button class="reset" onclick={reset}>retry</button>
+            <button class="retry" onclick={reset}>retry</button>
           </div>
         ),
       })}
