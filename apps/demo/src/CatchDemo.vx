@@ -1,16 +1,17 @@
 import { Cause, Data, Effect } from "effect"
 import { Catch } from "@verrex/core"
+import { HttpError } from "./services.ts"
 
 // A local tagged error so the failure has a real shape in `Cause.pretty`.
 class BoomError extends Data.TaggedError("BoomError")<{ readonly why: string }> {}
 
-// The protected subtree. Renders fine; its button's `onclick` returns a failing
+// catch-all subject: renders fine; its button's `onclick` returns a failing
 // Effect, which — post-mount, with no E channel to land on — is routed to the
 // nearest boundary instead of being dropped.
 const Crasher = Effect.fn("Crasher")(function* (_props: {} = {}) {
   return yield* (
     <div class="crasher">
-      <p>This subtree works fine — until you push the button.</p>
+      <p>Works fine — until you push the button.</p>
       <button
         class="crash"
         onclick={() => Effect.fail(new BoomError({ why: "you pushed the button" }))}
@@ -21,29 +22,50 @@ const Crasher = Effect.fn("Crasher")(function* (_props: {} = {}) {
   )
 })
 
+// tag-map subject: a request that fails (at construction) with a typed, tagged
+// error — the kind a tag-map handler routes on and unwraps.
+const BadRequest = Effect.fn("BadRequest")(function* (_props: {} = {}) {
+  yield* Effect.fail(new HttpError({ status: 404, message: "user not found" }))
+  return yield* <p>unreachable</p>
+})
+
 /**
- * `Catch(child, (cause, reset) => fallback)` — the view-level error boundary,
- * mirroring Effect's `catch*`. It recovers the *failure* side of the subtree (the
- * child renders itself on success) and catches BOTH a failed construction Effect
- * and a post-mount failure inside the live subtree — here the crash button's
- * Effect. `reset` re-runs the child's construction. (A function handler is the
- * catch-all, as here; an object of `{ Tag: handler }` narrows by tag instead.)
+ * `Catch` — the view-level error boundary, mirroring Effect's `catch*`. Two forms,
+ * both shown here:
  *
- * Inferred type: `Effect<View, never, Scope>` — `Scope` is the boundary's own
+ *  - **catch-all** — a function handler recovers *any* failure (it gets the full
+ *    `Cause`). Here it catches the crash button's live Effect; `reset` re-runs the
+ *    child (the button works again).
+ *  - **tag-map** — an object of `{ Tag: handler }` routes by tag and hands each
+ *    handler the *unwrapped* error (`e.status`). Only the listed tags are caught;
+ *    anything else flows out to a parent boundary, narrowing the channel.
+ *
+ * Inferred type: `Effect<View, never, Scope>` — `Scope` is each boundary's own
  * contribution (it forks its reset/report loop into the enclosing scope). `mount`
  * requires every error discharged, so a *forgotten* boundary is a compile error
  * that names the unhandled error.
  */
 export const CatchDemo = Effect.fn("CatchDemo")(function* (_props: {} = {}) {
   return yield* (
-    <section class="catch-cause">
+    <section class="catch-demo">
+      {/* catch-all (function): one fallback for any failure */}
       {Catch(<Crasher />, (cause, reset) => (
         <div class="boundary-fallback">
-          <p class="caught">caught a runtime failure:</p>
+          <p class="caught">catch-all caught:</p>
           <pre class="cause">{Cause.pretty(cause)}</pre>
           <button class="reset" onclick={reset}>reset</button>
         </div>
       ))}
+
+      {/* tag-map (object): route by tag; handler gets the unwrapped error */}
+      {Catch(<BadRequest />, {
+        HttpError: (e, reset) => (
+          <div class="boundary-fallback">
+            <p class="caught">caught HttpError {e.status}: {e.message}</p>
+            <button class="reset" onclick={reset}>retry</button>
+          </div>
+        ),
+      })}
     </section>
   )
 })
