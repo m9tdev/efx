@@ -219,7 +219,9 @@ the publish job pushes to npm.
   only — keep a commit's edits inside one package dir to bump just that one.
 - **Versions are independent** (no linked-versions plugin) — each package
   bumps off its own commits and carries its own CHANGELOG + tag
-  (`@verrex/core-v…`, `@verrex/ts-plugin-v…`).
+  (`core-v…`, `ts-plugin-v…` — release-please's node strategy strips the
+  npm scope from tag names; a scoped tag like `@verrex/core-v0.1.0` is
+  invisible to it and breaks changelog anchoring).
 - **Still pre-1.0:** `bump-minor-pre-major` + `bump-patch-for-minor-pre-major`
   keep `feat`→minor / `fix`→patch *within* 0.x until you cut a 1.0.
 - **Tokenless publish:** OIDC trusted publishing, no `NPM_TOKEN`. Provenance is
