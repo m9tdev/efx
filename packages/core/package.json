@@ -1,6 +1,6 @@
 {
   "name": "@verrex/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "An Effect-native UI framework where Effect's <A, E, R> channels propagate from every leaf of the view tree to the root — a forgotten Layer becomes a compile-time error that names the missing service.",
   "license": "MIT",
   "author": "Mathieu Post",
@@ -11,7 +11,15 @@
     "directory": "packages/core"
   },
   "bugs": "https://github.com/m9tdev/verrex/issues",
-  "keywords": ["effect", "ui", "framework", "jsx", "reactivity", "verrex", "vx"],
+  "keywords": [
+    "effect",
+    "ui",
+    "framework",
+    "jsx",
+    "reactivity",
+    "verrex",
+    "vx"
+  ],
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -43,7 +51,13 @@
   "bin": {
     "verrex-check": "./src/check/cli.ts"
   },
-  "files": ["dist", "src", "!**/*.test.ts", "!**/*.test-d.ts", "!**/AGENTS.md"],
+  "files": [
+    "dist",
+    "src",
+    "!**/*.test.ts",
+    "!**/*.test-d.ts",
+    "!**/AGENTS.md"
+  ],
   "publishConfig": {
     "access": "public",
     "exports": {
@@ -101,8 +115,12 @@
     "vite": "^8.0.16"
   },
   "peerDependenciesMeta": {
-    "typescript": { "optional": true },
-    "vite": { "optional": true }
+    "typescript": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "effect": "4.0.0-beta.78",
