@@ -18,6 +18,13 @@ PR publishes only that package).
 > the release — a title that doesn't match logs `Bad pull request title`
 > and skips tagging/publishing. Any title change must go through
 > `pull-request-title-pattern` in `release-please-config.json`.
+>
+> One wrinkle: a pattern change does **not** propagate to an already-open
+> Release PR — with no new user-facing commits, release-please logs
+> `PR … remained the same` and skips the update, leaving a title the *new*
+> pattern can't parse. The one sanctioned hand-edit: retitle the open PR
+> to exactly what the new pattern generates (it self-corrects anyway on
+> the next release-relevant push to `main`).
 
 - **A commit bumps a package by the path of the files it changes, not by the
   commit scope** (the invariant also stated in the root
