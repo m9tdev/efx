@@ -254,13 +254,14 @@ Signs an AGENTS.md needs updating:
 The root `CLAUDE.md` is a symlink to `AGENTS.md` — no need to maintain both.
 
 Claude Code does not auto-load nested `AGENTS.md` files (only the root,
-via the symlink). Each node therefore has a path-scoped pointer rule in
-[`.claude/rules/`](./.claude/rules/) that fires when files under the
-node's directory are touched and instructs the agent to Read the node.
-**If you add a new node, add its mapping rule in the same change.**
-Keep the rules as pointers — an `@`-import there loads the node into
-*every* session eagerly, defeating the lazy hierarchy (verified
-empirically; see `docs/intent-layer.md` § File Naming).
+via the symlink). The checked-in PostToolUse hook
+[`.claude/hooks/inject-intent-node.sh`](./.claude/hooks/inject-intent-node.sh)
+closes that gap: after any file Read/Edit/Write it finds the nearest
+`AGENTS.md` above the touched file and injects it into context, once per
+node per session. It is fully generic — **a new node anywhere is picked
+up automatically, no registration needed** (see
+`docs/intent-layer.md` § File Naming for the verified behavior and the
+approaches that were rejected).
 
 ## Anti-patterns at the root
 

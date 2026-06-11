@@ -4,7 +4,9 @@ dist/
 *.log
 .DS_Store
 /refs
-# .claude is transient (worktrees, local settings) EXCEPT rules/, which maps
-# the AGENTS.md intent nodes into Claude Code's lazy per-directory loading.
+# .claude is transient (worktrees, local settings) EXCEPT the checked-in
+# project settings + hooks, which wire the AGENTS.md intent nodes into
+# Claude Code's per-directory lazy loading.
 .claude/*
-!.claude/rules/
+!.claude/settings.json
+!.claude/hooks/

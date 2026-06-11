@@ -187,27 +187,26 @@ creates drift.
 ### Claude Code specifics (what this repo does)
 
 Claude Code auto-loads nested `CLAUDE.md` files on demand but does **not**
-read nested `AGENTS.md` — only a root-level symlink covers the root node.
-Instead of per-directory symlinks, this repo maps each node with a
-path-scoped **pointer rule** in `.claude/rules/`:
+read nested `AGENTS.md` — only the root-level `CLAUDE.md → AGENTS.md`
+symlink covers the root node. This repo closes the gap with a generic
+**PostToolUse hook** (`.claude/hooks/inject-intent-node.sh`, wired in
+`.claude/settings.json`): after any file Read/Edit/Write it walks up from
+the touched file to the nearest `AGENTS.md` and injects that node into
+context, deduplicated per node per session. Zero per-node maintenance —
+new nodes are discovered automatically.
 
-```markdown
----
-paths:
-  - "packages/core/src/runtime/**"
----
+Approaches tested and rejected (2026-06, fresh-session experiments):
+- **Per-directory `CLAUDE.md` symlinks** — works natively but litters the
+  tree with nine symlinks.
+- **`.claude/rules/` with `@`-imports** — imports expand **eagerly** at
+  session start regardless of `paths` scoping, loading the entire node
+  tree (~36k tokens) into every session.
+- **`.claude/rules/` pointer instructions** — lazy and correct, but needs
+  a mapping rule per node (brittle parallel structure), and relies on the
+  agent following the instruction rather than mechanical injection.
 
-INTENT-NODE core-runtime: before reading or changing code under
-`packages/core/src/runtime/`, Read `packages/core/src/runtime/AGENTS.md`
-once this session.
-```
-
-Two behaviors verified empirically (2026-06):
-- A pointer rule is **lazy**: nothing loads until a file matching `paths`
-  is touched; then the instruction injects and the agent Reads the node.
-- An `@`-import inside a rule is **eager**: the imported file's content
-  enters every session at startup regardless of `paths` — which would
-  load the whole tree always. Don't use imports in these rules.
+The hook's injection behavior (PostToolUse `additionalContext`) was
+verified end-to-end in a live session.
 
 ## Naive vs. Effective Implementation
 
