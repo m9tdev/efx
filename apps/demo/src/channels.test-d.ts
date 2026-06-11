@@ -296,6 +296,55 @@ mount(Catch(OpenInTree, (_cause) => h("p", {}, "failed")), root)
 // Tag-map form discharges it too, narrowing to View<never>.
 mount(Catch(OpenInTree, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
 
+// ─── Async tag-map failure arm: per-tag leaf handling, residual rides ───
+//     `failure` as a `_tag → handler` map mirrors Catch's tag-selective form:
+//     matched tags are handled at the leaf (the fetch loop stays live), the
+//     residual rides the live channel by `Exclude<E, { _tag }>` and must still
+//     meet a `Catch` before `mount`.
+
+declare const getUserTwo: () => Effect.Effect<User, HttpError | ParseError, Http>
+
+// Handle one tag → its handler gets the unwrapped error; the residual stays
+// on the live channel: View<ParseError>.
+const TagMapAsync = Async(getUserTwo, {
+  success: (u) => h("p", {}, u.name),
+  failure: {
+    HttpError: (e) => {
+      const _status: number = e.status
+      void _status
+      return h("p", {}, "http error")
+    },
+  },
+})
+assertEquals<typeof TagMapAsync, Effect.Effect<View<ParseError>, never, Http | Scope.Scope>>()
+
+// @ts-expect-error — "Nope" is not one of the thunk's error tags
+Async(getUserTwo, { success: (u) => h("p", {}, u.name), failure: { Nope: () => h("p", {}, "x") } })
+
+// @ts-expect-error — ParseError still rides the live channel; mount rejects it, naming it
+mount(TagMapAsync, root)
+
+// A boundary discharges the residual → mountable.
+mount(Catch(TagMapAsync, { ParseError: (e) => h("p", {}, e.message) }), root)
+
+// A tag map needs an E with at least one tagged member: with TagsOf<E> = never
+// the Handlers constraint collapses to `never` (not the empty mapped type, which
+// would accept ANY map as a silently-dead handler set).
+declare const getUntagged: () => Effect.Effect<string, string, never>
+// @ts-expect-error — E = string has no tags; the tag-map overload is rejected
+Async(getUntagged, { success: (s) => h("p", {}, s), failure: { Oops: () => h("p", {}, "x") } })
+
+// Handle every tag at the leaf → View<never>, mountable with no boundary.
+const TagMapAll = Async(getUserTwo, {
+  success: (u) => h("p", {}, u.name),
+  failure: {
+    HttpError: (e) => h("p", {}, `${e.status}`),
+    ParseError: (e) => h("p", {}, e.message),
+  },
+})
+assertEquals<typeof TagMapAll, Effect.Effect<View, never, Http | Scope.Scope>>()
+mount(TagMapAll, root)
+
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
 // The `@ts-expect-error` assertions above prove props are type-checked at

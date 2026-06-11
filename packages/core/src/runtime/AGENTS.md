@@ -189,13 +189,40 @@ Solid's Resource — **not** React Suspense). Two exports, both in `index.ts`:
   object passed through `h(Async, props)` defeats inference (`success`'s value
   collapses to `unknown`), the same reason `list` is positional.
 
-**The `failure` arm is an overload pair — it picks the error's home.** Two
-public overloads (the with-`failure` one declared first, the open form's arms
-typed `failure?: never` so resolution can't fall through):
+**The `failure` arm picks the error's home — function, tag map, or absent.**
+Three public overloads (catch-all function first, tag map second, the open
+form's arms typed `failure?: never` so resolution can't fall through),
+mirroring `Catch`'s function-vs-object convention:
 
-- **provide `failure`** → the failure is handled at the leaf, rendered by the
-  arm: `Effect<View<never>, never, R | Scope>` — discharged, nothing for a
+- **`failure` as a function** → catch-all: every failure is handled at the
+  leaf, rendered by the arm (which gets the full `Cause<E>`):
+  `Effect<View<never>, never, R | Scope>` — discharged, nothing for a
   boundary to see.
+- **`failure` as a tag map** — `failure: { NotFound: (e) => … }` → a matched
+  tag is handled at the leaf (the handler gets the unwrapped error) while the
+  **fetch loop stays live**: a dep change still refetches, so the view
+  recovers with no boundary `reset`. That semantic is why this isn't sugar
+  for `Catch(Async(open), tagMap)` — a leaf `Catch` that accepts a failure
+  swaps the subtree and closes its build scope, tearing down the `asyncRef`
+  supervisor. The residual rides the live channel:
+  `Effect<View<Exclude<E, { _tag }>>, never, R | Scope>`. Dispatch is shared
+  with `Catch` (`taggedMatch`: own function-valued key, routed on the cause's
+  *first* error when it is tagged; the helper returns the matched
+  `{ handler, error }` pair so dispatch tag and handler argument can't drift)
+  and inherits its caveats: a typo'd key mixed with ≥1 valid key is silently
+  dead (its tag stays on the channel — for *inline literals* the type never
+  lies; a typo as the only key is a compile error), and a tag map on an `E`
+  with no tagged members is rejected outright (the overload's constraint
+  collapses to `never`, not the accept-anything empty mapped type). Known
+  type/runtime gaps — pre-built/widened maps, prototype-keyed objects,
+  explicit-`undefined` slots without `exactOptionalPropertyTypes` — can
+  over-discharge and are tracked in #91; both tag-map surfaces share them.
+  The handler-map shape itself is the shared `TagHandlers<E, Extra>` alias
+  (Catch instantiates `Extra = [reset]`), so the planned Async retry callback
+  (TODO — `Catch`'s `reset` is the boundary-side analog) is a one-place
+  change. Pinned by `testing/async-tagmap.test.ts` (incl. the
+  recover-without-reset semantic and nullish-arm degradation) and the tag-map
+  `Async` section of `apps/demo/src/channels.test-d.ts`.
 - **omit `failure`** → the failure **rides the live channel**:
   `Effect<View<E>, never, R | Scope>`. This is the leaf primitive that stamps
   `View<E≠never>`. Both an initial-fetch failure and a refetch failure route to

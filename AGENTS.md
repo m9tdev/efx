@@ -13,11 +13,15 @@ produce ride the `View<E>` success — one `Catch` boundary discharges both.
 **Honest scope today:** the *construction* channel is fully type-tracked —
 a forgotten boundary on a failing build is a compile error. The *live*
 channel is only partially tracked: exactly one leaf primitive stamps
-`View<E≠never>` — `Async` *without* a `failure` arm, typed
+`View<E≠never>` — `Async` *without* a `failure` arm (or with a *partial* tag
+map, whose residual rides), typed
 `Effect<View<E>, never, R | Scope>`. Its failures (initial fetch or refetch)
 ride `View<E>` to the nearest `Catch`, and `mount`'s `View<never>` gate makes
-a missing boundary a compile error naming `E` (with the arm, the failure is
-handled at the leaf and discharges to `View<never>`). Everything else that
+a missing boundary a compile error naming `E`. The `failure` arm mirrors
+`Catch`'s two forms: a function handles everything at the leaf
+(`View<never>`); a tag map handles matched tags at the leaf — keeping the
+fetch loop live, so a dep change can recover the view — while the residual
+rides `View<Exclude<E, { _tag }>>`. Everything else that
 can fail live — event handlers, reactive re-renders — is still erased to
 `(e) => void` / `unknown` and caught only at *runtime* by `Catch`'s sink, not
 tracked by the type. Closing that (typed event handlers, #72) is the
