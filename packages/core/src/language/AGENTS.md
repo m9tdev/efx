@@ -203,33 +203,6 @@ picked by `options.onTransformError`:
 Pinned by `language-plugin.test.ts` (last-good service, per-file
 isolation, recompile-on-fix, empty-module fallback, throw mode).
 
-### Why read from Volar's context, not a threaded cache
-
-Earlier versions threaded a `VirtualCodeRegistry` (a
-`Map<string, VerrexVirtualCode>`) through the factory so consumers could
-look compiled files back up. But that registry was a *second index of
-the very objects Volar already owns* — `@verrex/core/check` constructed one
-and never read it (pure write-only ceremony), and picking the wrong
-instance silently yielded stale `jsxRanges` with no compile-time
-guard. Resolving through `language.scripts.get(id).generated.root`
-(the idiom Vue's `typescript-plugin` uses) deletes the second index,
-the per-consumer lifetime question, and the stale-instance bug class
-in one move — and shrinks the factory to a transform from host
-identity + source to a Volar plugin, with `asFileName` as its only
-parameter.
-
-### Parameter properties are deliberately avoided
-
-`VerrexVirtualCode`'s constructor does NOT use TypeScript parameter
-properties (the `constructor(readonly x: T)` form). Fields are
-declared and assigned manually instead, because Node's
-`--experimental-strip-types` mode — used by `@verrex/core/check`'s CLI
-and its integration test, both of which load the package's `.ts`
-sources directly — rejects parameter properties as non-type
-syntax. The class still uses readonly field declarations, just
-not the shorthand. Don't "tidy" this back to parameter properties
-without arranging for a build step.
-
 ## Coupling to other packages
 
 - **`@verrex/core/compiler`** — required at runtime. `createVirtualCode`
@@ -265,8 +238,9 @@ without arranging for a build step.
 - Don't switch `VerrexVirtualCode`'s constructor to parameter
   properties (`constructor(readonly source: string, ...)`). They
   desugar into field assignments and break Node's
-  `--experimental-strip-types` mode — see the "Parameter properties
-  are deliberately avoided" note above.
+  `--experimental-strip-types` mode, which `@verrex/core/check`'s CLI
+  and integration test rely on (they load this package's `.ts`
+  sources directly). Don't "tidy" without arranging a build step.
 - Don't import this package from `verrex` or `@verrex/core/compiler`.
   The dependency direction is one-way: `language` consumes
   `compiler`. Reversing it would create a cycle.

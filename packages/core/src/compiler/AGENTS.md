@@ -117,10 +117,8 @@ Every JSX expression `{...}` triggers up to three local rewrites:
 `a && b`, `!x` positions are **not** rewritten. Users must write
 `.value` explicitly — that keeps the types honest
 (`ref.value: boolean`, not `AtomRef<boolean>`) and avoids surprising
-reads where none looked syntactically present. An earlier version of
-the compiler emitted `h.peek(...)` for bare test-position identifiers;
-that was removed because the implicit unwrap diverged from the type
-TS would assign at the source site.
+reads where none looked syntactically present: an implicit unwrap would
+diverge from the type TS assigns at the source site.
 
 ## Whole-body `.value` reads
 
@@ -231,8 +229,7 @@ space. Pure-whitespace nodes drop.
 
 The subtlety that bit us: a newline *between two words* must collapse to
 one space, not to nothing — otherwise multi-line prose renders
-`whosepoint`. The earlier `replace(/\s*\n\s*/g, "")` deleted that space;
-the port restores it. Whitespace adjacent to an element/expression
+`whosepoint`. Whitespace adjacent to an element/expression
 boundary still trims to nothing, so — exactly as in React — a tag on its
 own line concatenates with neighbouring text unless the source adds an
 explicit `{" "}`.
@@ -325,11 +322,10 @@ in five steps:
      highlight every `h` identifier).
    - Otherwise → `"user"` (full features).
 
-The lengths-on-both-sides design is **load-bearing**: a regression
-where only source lengths were tracked caused inlay-hint positions
-to drift one column to the left (`( : numbern)` instead of
-`(n: number)`). See `source-map.test.ts` — that test asserts
-the exact `(source: 2, generated: 1)` shape for the PR #12 case.
+The lengths-on-both-sides design is **load-bearing**: tracking only
+source lengths makes inlay-hint positions drift one column left
+(`( : numbern)` instead of `(n: number)`). `source-map.test.ts` pins
+the exact `(source: 2, generated: 1)` shape.
 
 `@verrex/core/language` uses `mappings` directly and never re-decodes the
 Babel source map. The bidirectional length asymmetry is captured

@@ -23,16 +23,10 @@ Three hooks, each load-bearing:
 
 ## Why we own the whole transform (Vite 8 / Oxc)
 
-Earlier versions did **not** strip types themselves. They set
-`config().esbuild.include = [/\.vx$/, …]` so `.vx` rode Vite's
-built-in esbuild TS-stripping step. That coupled the plugin to Vite's
-internal transformer — and broke in Vite 8, which swapped esbuild+Rollup
-for **Rolldown+Oxc**: the `esbuild` config option is deprecated, and
-Rolldown's `builtin:vite-transform` errors with *"Failed to detect the
-lang of …/main.vx"* because it infers a module's language from its
-extension and `.vx` is unknown.
-
-The fix is to do the type-strip *in the plugin* and return plain JS:
+The plugin type-strips in-house and returns plain JS rather than riding
+Vite's built-in transformer — that coupling is fragile (it snapped in
+Vite 8's esbuild → Oxc swap), and Rolldown infers a module's language
+from its extension, which fails on the unknown `.vx`:
 
 - `transformWithOxc(tsCode, id, { lang: "ts" }, babelMap)` — Vite 8's
   exported Oxc transform. `lang: "ts"` tells Oxc the post-Babel code is
@@ -42,10 +36,8 @@ The fix is to do the type-strip *in the plugin* and return plain JS:
 - `moduleType: "js"` on the result tells Rolldown the output is plain
   JavaScript, so it never runs lang-detection on the `.vx` id.
 
-This keeps the plugin **bundler-agnostic** — it no longer depends on
-whatever transformer Vite ships, which is exactly the coupling that
-snapped across the esbuild → Oxc swap. The same `transform` runs in dev
-and build, so both paths fixed at once.
+This keeps the plugin **bundler-agnostic**, and the same `transform`
+runs in dev and build.
 
 ### Build vs. editor error policy
 
@@ -70,25 +62,14 @@ pipeline** where the `transform` hook fires, the result is
 JavaScript, and `Content-Type: text/javascript` is set
 correctly. Strict-MIME accepts that.
 
-The middleware replaced an earlier HTML-rewrite approach, which
-broke for two distinct reasons that both surfaced in practice:
-
-1. **HMR cache-bust re-fetches.** After an edit, Vite re-fetches
-   modules with a `?t=<ts>` query (`Counter.vx?t=1700000000`).
-   The HTML rewrite only touched initial `<script src>` URLs, so
-   re-fetches landed on the static-asset middleware again with
-   empty Content-Type and broke HMR.
-2. **ES-module subgraph fetches.** When an already-loaded module
-   does `import "./Counter.vx"`, the browser fetches that URL
-   directly — never goes through HTML. HTML rewriting can't help.
-
-The middleware solves both at once: every `.vx` URL gets `?import`
-appended (preserving any existing query), so every request — first
-load, HMR re-fetch, subgraph fetch — goes through the module path.
-
-If you find yourself "fixing" this by removing the middleware,
-test HMR after an edit AND test from a non-localhost origin before
-declaring it unnecessary.
+Every `.vx` URL gets `?import` appended (preserving any existing
+query), so every request — first load, HMR cache-bust re-fetch
+(`?t=<ts>`), ES-module subgraph fetch (`import "./Counter.vx"` from an
+already-loaded module) — goes through the module path. The latter two
+never touch HTML, which is why HTML rewriting can't do this job (see
+Anti-patterns). If you find yourself "fixing" this by removing the
+middleware, test HMR after an edit AND test from a non-localhost
+origin before declaring it unnecessary.
 
 ## Regex notes
 
