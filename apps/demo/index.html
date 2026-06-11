@@ -210,6 +210,17 @@
         white-space: pre-wrap; word-break: break-word; max-height: 8rem; overflow: auto;
       }
 
+      /* Async failure homes (step 08): the leaf-handled fallback is deliberately
+         softer than .boundary-fallback — content stays mounted, only the card
+         swapped. */
+      .async-escalate .controls { display: flex; gap: 0.5rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }
+      .leaf-fallback {
+        border: 1px dashed #5a4a3a; background: rgba(224, 178, 138, 0.06);
+        border-radius: 8px; padding: 0.6rem 0.8rem;
+      }
+      .leaf-fallback .leaf-msg { margin: 0 0 0.5rem; color: #e0b28a; font-size: 0.85rem; }
+      .boundary-fallback .rate-msg { margin: 0 0 0.7rem; font-size: 0.85rem; color: var(--muted); }
+
       /* ─── Small screens & touch ────────────────────────────── */
       /* No double-tap-to-zoom (the demo buttons invite rapid taps);
          pinch-zoom still works, unlike viewport user-scalable=no. */
@@ -223,7 +234,7 @@
       }
       @media (pointer: coarse) {
         .counter button, .controls button, .catch-demo button,
-        .boundary-fallback button {
+        .boundary-fallback button, .leaf-fallback button {
           padding: 0.5rem 0.9rem;
         }
         .todos li .toggle, .todos li .remove {

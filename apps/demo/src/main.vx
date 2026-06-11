@@ -298,36 +298,31 @@ const App = (
     <section class="tour">
       {copy({
         step: "08",
-        title: "Async escalation (failure rides the live channel)",
+        title: "Failure homes: leaf, page, or split by tag",
         concept:
-          "The same Async as step 03 — minus the failure arm. Omitting it puts the error on the View<E> live channel instead of handling it at the leaf: the result is Effect<View<HttpError>, …>, and the failure — initial fetch or auto-tracked refetch — routes to the nearest Catch. mount requires View<never>, so deleting the boundary is a compile error naming HttpError. Click \"Bad id\" after content renders: the refetch fails and the page-level banner swaps in. reset re-runs construction with the current id — pick a good one and retry to recover. Handle-at-the-leaf (step 03) vs escalate-to-the-page is now a per-call-site choice.",
+          "The failure arm picks where each error lives. Omit it and EVERY failure rides the View<E> live channel to the nearest Catch — mount requires View<never>, so a forgotten boundary is a compile error naming the tag. Provide a tag map and the choice is per tag, live below: HttpError is handled at the leaf — the fetch loop stays live, so picking another id recovers with no boundary involved, and the handler's retry re-runs the same fetch. RateLimited isn't in the map, so it rides the residual — the type is View<Exclude<…>>, literally View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfter is typed). Deleting that Catch is a compile error naming RateLimited, and only RateLimited: the type knows HttpError was already handled.",
         type: "Effect<View, never, Http | Scope>",
-        code: `export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* () {
-  const userId = AtomRef.make("42")
-  const http = yield* Http
+        code: `// fetchUser: (id: string) => Effect<User, HttpError | RateLimited>
 
-  return yield* (
-    <div>
-      <button onclick={() => userId.set("999")}>Bad id</button>
-
-      {Catch(
-        <section>
-          {/* no failure arm → HttpError rides View<E> to the Catch */}
-          {Async(() => http.getUser(userId.value), {
-            initial: <span>loading…</span>,
-            success: user => <strong>{user.name}</strong>,
-          })}
-        </section>,
-        (cause, reset) => (
-          <div class="banner">
-            <pre>{Cause.pretty(cause)}</pre>
-            <button onclick={reset}>retry</button>
-          </div>
-        ),
-      )}
-    </div>
-  )
-})`,
+{Catch(
+  <section>
+    {Async(() => fetchUser(userId.value), {
+      initial: <span>loading…</span>,
+      failure: {
+        // handled at the leaf — fetch loop stays live
+        HttpError: (e, retry) =>
+          <p>404 <button onclick={retry}>retry</button></p>,
+        // omit the arm entirely → EVERY failure escalates
+      },
+      success: user => <strong>{user.name}</strong>,
+    })}
+  </section>,
+  {
+    // the residual: View<RateLimited> — unwrapped + typed here
+    RateLimited: (e, reset) =>
+      <p>retry in {e.retryAfter}s <button onclick={reset}>retry</button></p>,
+  },
+)}`,
         file: "AsyncEscalate.vx",
       })}
       {demoSlot("escalate")}

@@ -7,6 +7,7 @@
 import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
 import { Async, Catch, h, mount, type View } from "@verrex/core"
+import { AsyncEscalate } from "./AsyncEscalate.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
 import { LiveUser } from "./LiveUser.vx"
@@ -30,6 +31,13 @@ assertEquals<UserPageType, Effect.Effect<View, HttpError, Http | Theme>>()
 
 type AsyncUserPageType = ReturnType<typeof AsyncUserPage>
 assertEquals<AsyncUserPageType, Effect.Effect<View, never, Http | Scope.Scope>>()
+
+// ─── AsyncEscalate: tag-map failure arm handles HttpError at the leaf; the
+//     RateLimited residual rides View<RateLimited> to a page Catch tag map.
+//     Fully discharged end-to-end → View<never>/E never, Http folds.
+
+type AsyncEscalateType = ReturnType<typeof AsyncEscalate>
+assertEquals<AsyncEscalateType, Effect.Effect<View, never, Http | Scope.Scope>>()
 
 // ─── Counter is pure (no E or R from the component itself; AtomRegistry
 //     is added at mount) ──────────────────────────────────────────────────

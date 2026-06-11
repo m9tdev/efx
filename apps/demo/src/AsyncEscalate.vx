@@ -1,30 +1,47 @@
-import { Cause, Effect } from "effect"
+import { Data, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { Async, Catch } from "@verrex/core"
-import { Http } from "./services.ts"
+import { Http, HttpError, type User } from "./services.ts"
 
 /**
- * `Async`, open form — **omit the `failure` arm and the failure escalates**.
+ * Demo-local second error tag: the per-tag choice of error home needs ≥2 tags
+ * so one can be handled at the leaf while the other rides the residual.
+ */
+class RateLimited extends Data.TaggedError("RateLimited")<{
+  readonly retryAfter: number
+}> {}
+
+/**
+ * `Async` failure homes (step 08) — **the `failure` arm picks where each
+ * error lives, per call site and per tag**.
  *
- * Without a `failure` arm the failure is not handled at the leaf: it rides the
- * `View<E>` live channel to the nearest `Catch` — here, a page-level boundary
- * wrapping the content section. Both phases route there: the initial fetch and
- * any auto-tracked refetch (the thunk reads `userId.value`, so "Bad id"
- * triggers a failing refetch *after* content already rendered). The boundary's
- * `reset` re-runs construction → a fresh fetch with the current id.
+ * The thunk can fail with `HttpError | RateLimited`. Three choices exist:
+ * provide a *function* and everything is handled at the leaf (step 03); omit
+ * the arm and everything rides the `View<E>` live channel to the nearest
+ * `Catch`; or — live below — provide a *tag map* and split per tag:
  *
- * Deleting the `Catch` below is a compile error at the demo's mount, naming
- * `HttpError` — `mount` requires `View<never>`, and the open `Async` is the
- * leaf primitive that stamps `View<E≠never>`.
+ * - `HttpError` is handled **at the leaf**: the 404 banner renders in place
+ *   and the fetch loop STAYS LIVE — picking another id refetches and recovers
+ *   with no boundary involved, and the handler's `retry` re-runs the same
+ *   fetch (the leaf analog of `Catch`'s `reset`).
+ * - `RateLimited` is *not* in the map, so it rides the residual —
+ *   `View<Exclude<HttpError | RateLimited, { _tag: "HttpError" }>>` =
+ *   `View<RateLimited>` — to the page-level `Catch`, whose own tag map
+ *   unwraps it (`e.retryAfter` is typed). Escalation swaps the whole section
+ *   for the fallback; the boundary's `reset` re-runs construction.
  *
- * The id buttons live *outside* the boundary so they survive the fallback swap
- * (pick a good id, then retry, to recover).
+ * Deleting the page `Catch` is a compile error at the demo's mount naming
+ * `RateLimited` — and only `RateLimited`: the type already knows `HttpError`
+ * was handled. The id buttons live *outside* the boundary so they survive
+ * the fallback swap.
  *
  * Inferred type: `Effect<View, never, Http | Scope>`
  */
 export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = {}) {
   const userId = AtomRef.make("42")
   const http = yield* Http
+  const fetchUser = (id: string): Effect.Effect<User, HttpError | RateLimited> =>
+    id === "503" ? Effect.fail(new RateLimited({ retryAfter: 30 })) : http.getUser(id)
 
   return yield* (
     <div class="async-escalate">
@@ -32,11 +49,22 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
         <button onclick={() => userId.set("42")}>Ada (42)</button>
         <button onclick={() => userId.set("7")}>Grace (7)</button>
         <button onclick={() => userId.set("999")}>Bad id</button>
+        <button onclick={() => userId.set("503")}>Rate limited</button>
       </div>
       {Catch(
         <section class="content">
-          {Async(() => http.getUser(userId.value), {
-            initial: <span class="loading">  loading…</span>,
+          {Async(() => fetchUser(userId.value), {
+            initial: <span class="loading">loading…</span>,
+            failure: {
+              // Handled at the leaf: the asyncRef stays live, so another id
+              // recovers without any reset; `retry` re-runs the same fetch.
+              HttpError: (e, retry) => (
+                <div class="leaf-fallback">
+                  <p class="leaf-msg">handled at the leaf — HttpError {e.status}: {e.message}</p>
+                  <button class="leaf-retry" onclick={retry}>retry</button>
+                </div>
+              ),
+            },
             success: (user) => (
               <div class="user-card">
                 <strong>{user.name}</strong>
@@ -45,13 +73,16 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
             ),
           })}
         </section>,
-        (cause, reset) => (
-          <div class="boundary-fallback">
-            <p class="caught">page boundary caught:</p>
-            <pre class="cause">{Cause.pretty(cause)}</pre>
-            <button class="retry" onclick={reset}>retry</button>
-          </div>
-        ),
+        {
+          // The residual — View<RateLimited> — lands here, unwrapped + typed.
+          RateLimited: (e, reset) => (
+            <div class="boundary-fallback">
+              <p class="caught">page boundary caught: RateLimited</p>
+              <p class="rate-msg">rate limited — retry in {e.retryAfter}s</p>
+              <button class="retry" onclick={reset}>retry</button>
+            </div>
+          ),
+        },
       )}
     </div>
   )
