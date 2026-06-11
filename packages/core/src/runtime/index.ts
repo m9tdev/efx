@@ -131,6 +131,37 @@ export const asyncRef = <A, E, R>(
     return state as AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>
   })
 
+// ─── Tagged-error dispatch (shared by Async's tag-map `failure` arm and Catch) ─
+
+type Tagged = { readonly _tag: string }
+type TagsOf<E> = E extends Tagged ? E["_tag"] : never
+type WithoutTag<E, Tag extends string> = Exclude<E, { readonly _tag: Tag }>
+
+/** The `_tag` of a cause's first error, if it's a tagged error. */
+const errorTagOf = (cause: Cause.Cause<unknown>): string | undefined => {
+  const err = Option.getOrUndefined(Cause.findErrorOption(cause))
+  return typeof err === "object" && err !== null && "_tag" in err
+    ? (err as Tagged)._tag
+    : undefined
+}
+
+/**
+ * The OWN, function-valued handler for the cause's first tagged error (not a
+ * prototype-chain hit, not an explicit `undefined` slot). Dispatches on the
+ * FIRST tagged error of the cause (`Cause.findErrorOption`); the design assumes
+ * a single tagged failure per cause — a multi-tagged cause routes on its first
+ * error. One lookup for both tag-map surfaces so their dispatch can't drift.
+ */
+const taggedHandlerFor = (
+  handlers: Record<string, unknown>,
+  cause: Cause.Cause<unknown>,
+): ((error: any, ...rest: Array<any>) => unknown) | undefined => {
+  const t = errorTagOf(cause)
+  if (t === undefined || !Object.hasOwn(handlers, t)) return undefined
+  const fn = handlers[t]
+  return typeof fn === "function" ? (fn as (error: any, ...rest: Array<any>) => unknown) : undefined
+}
+
 /**
  * The arms for `Async` / `<Async>`. Each maps to an `AsyncResult` variant.
  * Channels are accepted permissively (`any`) — the arms render at the node scope
@@ -170,12 +201,23 @@ interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
  *
  * Sugar over `asyncRef` + `AsyncResult.match`: `from` runs on the mount fiber so
  * its `R` folds into the component (forgotten Layer = compile error). The
- * `failure` arm is a per-call-site choice between the two error homes:
+ * `failure` arm picks the error's home, per call site (mirroring `Catch`'s
+ * function-vs-object forms):
  *
- *  - **provide it** → the failure is handled here as a value (rendered by the
- *    arm) and the result is `Effect<View<never>, never, R | Scope>` — fully
- *    discharged, nothing for a boundary to see.
- *  - **omit it** → the failure **rides the live channel**: the result is
+ *  - **function** — catch-all: every failure is handled here as a value (the
+ *    arm gets the full `Cause<E>`) and the result is
+ *    `Effect<View<never>, never, R | Scope>` — fully discharged, nothing for a
+ *    boundary to see.
+ *  - **tag map** — `failure: { NotFound: (e) => … }`: a matched tag is handled
+ *    here (the handler gets the unwrapped error) and the fetch loop STAYS
+ *    LIVE — a dep change still refetches, so the view can recover with no
+ *    boundary `reset`. The residual rides the live channel:
+ *    `Effect<View<Exclude<E, { _tag }>>, never, R | Scope>`. Dispatch is
+ *    `Catch`'s tag-map dispatch (first tagged error; own, function-valued
+ *    keys; a typo'd key mixed with ≥1 valid key is silently dead — its tag
+ *    stays on the channel, nothing is wrongly discharged). Handlers get no
+ *    retry callback yet (TODO; `Catch`'s `reset` is the boundary-side analog).
+ *  - **omitted** — the failure **rides the live channel**: the result is
  *    `Effect<View<E>, never, R | Scope>`, the failure (initial fetch *or* any
  *    refetch) routes to the nearest enclosing `Catch`, and `mount`'s
  *    `View<never>` gate makes a missing boundary a compile error naming `E`.
@@ -185,6 +227,19 @@ export function Async<A, E, R>(
   from: () => Effect.Effect<A, E, R>,
   arms: AsyncArmsHandled<A, E>,
 ): Effect.Effect<View, never, R | Scope.Scope>
+export function Async<
+  A,
+  E,
+  R,
+  Handlers extends {
+    readonly [K in TagsOf<E>]?: (
+      error: Extract<E, { readonly _tag: K }>,
+    ) => View | Effect.Effect<View, any, any>
+  },
+>(
+  from: () => Effect.Effect<A, E, R>,
+  arms: AsyncArmsBase<A> & { readonly failure: Handlers },
+): Effect.Effect<View<WithoutTag<E, keyof Handlers & string>>, never, R | Scope.Scope>
 export function Async<A, E, R>(
   from: () => Effect.Effect<A, E, R>,
   arms: AsyncArmsOpen<A>,
@@ -192,7 +247,9 @@ export function Async<A, E, R>(
 export function Async<A, E, R>(
   from: () => Effect.Effect<A, E, R>,
   arms: AsyncArmsBase<A> & {
-    readonly failure?: (cause: Cause.Cause<E>) => View | Effect.Effect<View, any, any>
+    readonly failure?:
+      | ((cause: Cause.Cause<E>) => View | Effect.Effect<View, any, any>)
+      | Record<string, (error: any) => View | Effect.Effect<View, any, any>>
   },
 ): Effect.Effect<View<E>, never, R | Scope.Scope> {
   return asyncRef(from).pipe(
@@ -201,13 +258,22 @@ export function Async<A, E, R>(
         source: state.map((r) =>
           AsyncResult.match(r, {
             onInitial: () => arms.initial ?? null,
-            // No failure arm: emit the cause as a failing Effect. The Reactive
-            // render path (`coerceSync`) runs it, routes the cause to the
-            // subtree's error sink — the nearest `Catch`'s `report` — and
-            // renders nothing. The interrupt-only guard already ran in
-            // `asyncRef` (teardown never reaches the Failure state).
-            onFailure: (f) =>
-              arms.failure ? arms.failure(f.cause) : Effect.failCause(f.cause),
+            // Function arm: catch-all, renders the full Cause. Tag map: a
+            // matched tag renders locally — the asyncRef stays live, so a dep
+            // change still refetches and can recover. Unmatched/absent: emit
+            // the cause as a failing Effect; the Reactive render path
+            // (`coerceSync`) runs it, routes the cause to the subtree's error
+            // sink — the nearest `Catch`'s `report` — and renders nothing. The
+            // interrupt-only guard already ran in `asyncRef` (teardown never
+            // reaches the Failure state).
+            onFailure: (f) => {
+              const { failure } = arms
+              if (typeof failure === "function") return failure(f.cause)
+              const handler = failure === undefined ? undefined : taggedHandlerFor(failure, f.cause)
+              return handler !== undefined
+                ? handler(Option.getOrUndefined(Cause.findErrorOption(f.cause)))
+                : Effect.failCause(f.cause)
+            },
             onSuccess: (s) => arms.success(s.value),
           }),
         ) as AtomRef.ReadonlyRef<unknown>,
@@ -217,18 +283,6 @@ export function Async<A, E, R>(
 }
 
 // ─── Error boundary (Catch) ────────────────
-
-type Tagged = { readonly _tag: string }
-type TagsOf<E> = E extends Tagged ? E["_tag"] : never
-type WithoutTag<E, Tag extends string> = Exclude<E, { readonly _tag: Tag }>
-
-/** The `_tag` of a cause's first error, if it's a tagged error. */
-const errorTagOf = (cause: Cause.Cause<unknown>): string | undefined => {
-  const err = Option.getOrUndefined(Cause.findErrorOption(cause))
-  return typeof err === "object" && err !== null && "_tag" in err
-    ? (err as Tagged)._tag
-    : undefined
-}
 
 /**
  * Shared boundary machinery for `Catch` (both forms). `accepts`
@@ -424,20 +478,12 @@ export function Catch(
     return makeBoundary(child, () => true, handlerOrMap)
   }
   const handlers = handlerOrMap
-  // `accepts` checks for an OWN function-valued handler (not a prototype-chain hit,
-  // not an explicit `undefined` slot). `accepts` dispatches on the FIRST tagged
-  // error of the cause (`Cause.findErrorOption`); the design assumes a single
-  // tagged failure per cause — a multi-tagged cause routes on its first error.
-  const handlerFor = (cause: Cause.Cause<unknown>): ((e: any, r: () => void) => unknown) | undefined => {
-    const t = errorTagOf(cause)
-    if (t === undefined || !Object.hasOwn(handlers, t)) return undefined
-    const fn = handlers[t]
-    return typeof fn === "function" ? fn : undefined
-  }
+  // Dispatch rules (own function-valued key, first tagged error) live in
+  // `taggedHandlerFor`, shared with Async's tag-map `failure` arm.
   return makeBoundary(
     child,
-    (cause) => handlerFor(cause) !== undefined,
-    (cause, reset) => handlerFor(cause)!(Option.getOrUndefined(Cause.findErrorOption(cause)), reset),
+    (cause) => taggedHandlerFor(handlers, cause) !== undefined,
+    (cause, reset) => taggedHandlerFor(handlers, cause)!(Option.getOrUndefined(Cause.findErrorOption(cause)), reset),
   )
 }
 
