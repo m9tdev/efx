@@ -151,6 +151,50 @@ h("button", { onclick: () => {} })
 // Arbitrary attributes still pass through (intersection with index signature)
 h("div", { "data-id": "x", "aria-hidden": "true", customX: 42 })
 
+// ─── Typed event handlers: the live channel is born at the leaf (#72) ────
+//     Handlers are where most live errors are born — the element is already
+//     rendered when one runs, so its failure can only ride the LIVE channel.
+//     An Effect-returning handler stamps its `E` on the element's `View<E>`
+//     (dischargeable by `Catch`, gated by `mount`) and folds its `R` into
+//     the element's requirements (a forgotten Layer is a compile error at
+//     the root). The runtime always routed these (sink + captured context);
+//     now the types track them.
+
+declare const failingSave: Effect.Effect<void, HttpError, never>
+declare const auditedLog: Effect.Effect<void, never, Http>
+
+// The handler's E lands on the LIVE channel — construction stays `never`
+// (the element builds fine; only a click can fail).
+const SaveButton = h("button", { onclick: () => failingSave }, "save")
+assertEquals<typeof SaveButton, Effect.Effect<View<HttpError>, never, never>>()
+
+// @ts-expect-error — the unhandled failing onclick is undischarged: mount's
+// View<never> gate rejects the app, naming HttpError. Forgot a boundary.
+mount(SaveButton, root)
+
+// A Catch discharges it — catch-all, or tag-selective with the unwrapped error.
+mount(Catch(SaveButton, (_cause) => h("p", {}, "save failed")), root)
+mount(Catch(SaveButton, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
+
+// The handler's R folds into the element's requirements, exactly like a
+// construction R — the root must provide Http or the app doesn't compile.
+const AuditButton = h("button", { onclick: () => auditedLog }, "audit")
+assertEquals<typeof AuditButton, Effect.Effect<View, never, Http>>()
+
+// Handler channels fold through composition like any other channel: the live
+// E and the R both survive an enclosing element.
+const Toolbar = h("div", {}, SaveButton, AuditButton, Counter())
+assertEquals<typeof Toolbar, Effect.Effect<View<HttpError>, never, Http>>()
+
+// A void/imperative handler beside an Effect-returning one contributes nothing.
+const MixedHandlers = h("button", { onclick: () => failingSave, onblur: () => {} })
+assertEquals<typeof MixedHandlers, Effect.Effect<View<HttpError>, never, never>>()
+
+// A non-`on*` function-valued attr is inert (the runtime stringifies it,
+// never runs it) — it must not contribute channels the runtime can't fire.
+const InertFn = h("div", { format: () => failingSave })
+assertEquals<typeof InertFn, Effect.Effect<View, never, never>>()
+
 // ─── Props are type-checked against the component's declared shape ───────
 
 // (the direct-call lowering means these errors point at UserPage's own
