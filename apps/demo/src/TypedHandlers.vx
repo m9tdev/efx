@@ -16,12 +16,11 @@ import { Http } from "./services.ts"
 const Loader = Component.make(function* () {
   const loaded = AtomRef.make("nobody yet")
 
-  const load = (id: string) =>
-    Effect.gen(function* () {
-      const http = yield* Http // the handler's R — folds into the element
-      const user = yield* http.getUser(id) // may 404 → HttpError, live
-      loaded.set(user.name)
-    })
+  const load = Effect.fn("TypedHandlers.load")(function* (id: string) {
+    const http = yield* Http // the handler's R — folds into the element
+    const user = yield* http.getUser(id) // may 404 → HttpError, live
+    loaded.set(user.name)
+  })
 
   return yield* (
     <div class="typed-handlers">
