@@ -19,6 +19,7 @@ Public surface (from `index.ts`):
 - `VerrexLive` — base Layer providing `AtomRegistry`
 - Types: `View<E>`, `Props`, `FoldE`/`FoldLiveE`/`FoldR` (the `Tag*`
   families died with #71 — component channels are ordinary child folds),
+  `FoldPropsLiveE`/`FoldPropsR` (the props fold, #72),
   `IntrinsicProps`, `HtmlEventHandlers`
 
 This is where the **channel propagation contract lives** —
@@ -29,7 +30,15 @@ subtree can still produce (`FoldLiveE`) ride the `View<E>` success.
 `R` unifies (`FoldR`). A component tag is not a fold case of its own:
 the compiler lowers `<MyComp/>` to the direct call `MyComp({...})`, so a
 component's channels surface as an ordinary Effect child of the
-surrounding `h()`. `mount` requires both error channels `never`;
+surrounding `h()`. **Props fold too** (#72): `h`'s `_props` parameter is
+generic (constrained by `IntrinsicProps`, which is what contextually types
+the event argument), and an `on*` handler returning `Effect<_, E, R>`
+contributes `E` to the element's LIVE channel (`FoldPropsLiveE` — the
+element is already rendered when a handler runs, so live is the only honest
+home) and `R` to its requirements (`FoldPropsR`). Only `on*`-keyed function
+props fold — runtime parity: `applyProp` runs returned Effects only for
+those; any other function-valued attr is stringified, never invoked.
+`mount` requires both error channels `never`;
 `Catch` discharges them. A forgotten boundary is a compile error that
 names the error — the runtime counterpart of a forgotten Layer naming a
 service. See [`types/Fold.ts`](./types/Fold.ts).
@@ -56,8 +65,8 @@ the editor margin. If you rename them, update the regex.
 | `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`, `VerrexLive` |
 | `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
 | `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality; index updates on shift) |
-| `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls) |
-| `types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics |
+| `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls). Plus the props fold (#72): `FoldPropsLiveE`/`FoldPropsR` — an `on*` handler's `Effect` return contributes live `E` + `R` |
+| `types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics. Handlers return `unknown` (the honest `applyProp` contract: an `Effect` return is run, anything else ignored); the precise `E`/`R` are read off the *inferred* props type by the props fold, not off this constraint |
 | `types/Fold.test-d.ts` | `assertEquals` matrix — every channel-fold shape |
 
 ## `Component.make` — the canonical component constructor
@@ -512,7 +521,11 @@ teardown, not an error, and is dropped. The root sink (`mount`) logs via
 `Effect.logError` on the captured context; a `Catch` boundary replaces the
 sink per-subtree (`buildDom` swaps in the boundary's `report` for the child — see
 "`Catch`"). A handler that returns a non-Effect value runs as a plain
-imperative callback, unchanged.
+imperative callback, unchanged. Since #72 producer (2) is also *typed*: the
+handler's `E` rides the element's `View<E>` (the props fold), so an
+unboundaried failing handler is a compile error at `mount` — the sink is
+the runtime mechanism, no longer the only line of defense. The reactive
+re-render producer (1) remains runtime-only.
 
 **`subscribeRefScoped` / `subscribeAtomScoped`** are the only two
 ways to subscribe to a reactive source from inside `mount.ts`.
@@ -665,8 +678,12 @@ The caveat: a **tracked attr** still erases. An attr value containing a
 `.value` read gets wrapped in `h.track(() => …)`, whose return type is
 `unknown` — so `<Row item={ref.value}/>` passes `item: unknown`. Static
 attrs pass through untouched (the empty-deps early return in `h.track`
-is what preserves them). Same trade-off as before #71, now scoped to
-reactive attrs only.
+is what preserves them), and since #72 so do **function-valued attrs**
+(handlers, callbacks): a whole-expression function can't read deps while
+being tracked, so the compiler skips the wrap even when the function
+*body* reads `.value` — which is what lets a handler's `E`/`R` reach the
+props fold. The erasure is now scoped to non-function reactive attrs
+(`item={ref.value}`, `onclick={cond.value ? a : b}`).
 
 Don't "fix" anything here by widening `h()`'s signature — `h` is
 intrinsic-only since #71 and the narrow signature is what makes child

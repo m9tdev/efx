@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { coerceAsync, isAtomRef, recordDep, trackDeps } from "./coerce.ts"
-import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
+import type { FoldE, FoldLiveE, FoldPropsLiveE, FoldPropsR, FoldR } from "./types/Fold.ts"
 import type { IntrinsicProps } from "./types/Html.ts"
 import { type Props, View } from "./View.ts"
 
@@ -103,11 +103,23 @@ const _h = (
 // LIVE errors (`FoldLiveE`) on the `View<E>` success (errors the
 // rendered subtree can still produce). `mount` requires both `never`;
 // `Catch` discharges both. The position encodes the phase.
-type HFn = <Cs extends readonly unknown[]>(
+//
+// Props fold too (#72): `_props` is generic so an Effect-returning event
+// handler's channels survive — its `E` joins the LIVE channel (the handler
+// runs after the element is built; `View<E>` is the only honest home) and
+// its `R` joins the element's requirements. The `IntrinsicProps` constraint
+// is what contextually types the event parameter (`onclick: (e) => …` gets
+// `e: MouseEvent`); the fold reads the *inferred* `P`, so a handler's
+// precise `Effect<_, E, R>` return is what lands in the channels.
+type HFn = <P extends IntrinsicProps, Cs extends readonly unknown[]>(
   _tag: string,
-  _props: IntrinsicProps,
+  _props: P,
   ..._children: Cs
-) => Effect.Effect<View<FoldLiveE<Cs>>, FoldE<Cs>, FoldR<Cs>>
+) => Effect.Effect<
+  View<FoldLiveE<Cs> | FoldPropsLiveE<P>>,
+  FoldE<Cs>,
+  FoldR<Cs> | FoldPropsR<P>
+>
 
 /**
  * The view factory, plus two helper methods the compiler calls into:

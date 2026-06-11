@@ -10,9 +10,17 @@
  * Intersected with `Record<string, unknown>` so arbitrary HTML
  * attributes (`data-*`, `aria-*`, custom) still pass through unchecked.
  * Tag-specific narrowing of `e.target` is a future improvement.
+ *
+ * The `unknown` return is the honest runtime contract (`applyProp` in
+ * `mount.ts`): a returned `Effect` is run on the mount-captured context —
+ * its failure routes to the nearest boundary sink — and any other return
+ * value is ignored. The handler's `E`/`R` are not read from this constraint;
+ * `h()` infers the actual props type and folds them via
+ * `FoldPropsLiveE`/`FoldPropsR` (see `Fold.ts`): `E` onto the element's
+ * live channel (`View<E>`), `R` into the element's requirements.
  */
 
-type EventHandler<E extends Event> = (event: E) => void
+type EventHandler<E extends Event> = (event: E) => unknown
 
 export interface HtmlEventHandlers {
   // Pointer / mouse

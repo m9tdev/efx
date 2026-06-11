@@ -16,6 +16,8 @@ export type {
   ChildR,
   FoldE,
   FoldLiveE,
+  FoldPropsLiveE,
+  FoldPropsR,
   FoldR,
 } from "./types/Fold.ts"
 export type { HtmlEventHandlers, IntrinsicProps } from "./types/Html.ts"

@@ -141,12 +141,19 @@ const isSelfTrackingCall = (expr: t.Expression): boolean =>
  * return is `unknown`, which would otherwise destroy the typing of component
  * props (`<Row item={item} />`, the prop's `item` type).
  *
- * Two rewrites are deliberately NOT wrapped, because they self-subscribe and
- * wrapping would erase their channels:
+ * Three rewrites are deliberately NOT wrapped, because wrapping would erase
+ * their channels (h.track's `unknown`) without buying any reactivity:
  *   - `.value.map(arrow → JSX)` → `list(...)` (flips `state.wroteList` for the
  *     `list` auto-import; subscribes inside `mount`).
  *   - `Async(() => …, arms)` and `Catch(child, …)` calls — these
  *     self-track (see `isSelfTrackingCall`).
+ *   - a whole-expression function value (`onclick={() => count.value + 1}`,
+ *     a `render={…}` callback) — evaluating a function expression executes
+ *     no reads, so the tracker's dep set is provably always empty and the
+ *     wrap is a runtime no-op; but its `unknown` would erase the handler's
+ *     `E`/`R` from the props fold (#72). The inner `h.read` rewrites are
+ *     kept: they run at call time, where no tracker is active, as plain
+ *     `.value` reads.
  */
 const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
   const { expr: rewritten, rewroteRead } = rewriteTrackedExpression(expr, state)
@@ -155,6 +162,9 @@ const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
   // Async / Catch self-track; the `.value`→`h.read` rewrite inside them is
   // kept, but the outer `h.track` wrap is skipped so their channels survive the fold.
   if (isSelfTrackingCall(rewritten)) return rewritten
+  // A top-level function value can't read deps while being tracked — skip the
+  // dead wrap so the function's type (an event handler's channels) survives.
+  if (t.isArrowFunctionExpression(rewritten) || t.isFunctionExpression(rewritten)) return rewritten
   return t.callExpression(
     t.memberExpression(t.identifier("h"), t.identifier("track")),
     [t.arrowFunctionExpression([], rewritten)],

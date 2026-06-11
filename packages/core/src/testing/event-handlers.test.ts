@@ -100,10 +100,19 @@ describe("event handlers — Effect-returning", () => {
 
     const Mixed = Effect.fn("Mixed")(function* (_props: {} = {}) {
       const count = AtomRef.make(0)
+      // The cast models an UNTRACKED live failure — a handler that lies about
+      // its channels. Since #72 a typed failing handler stamps `View<E>` and
+      // can't reach `render`/`mount` at all (pinned in channels.test-d.ts);
+      // the runtime containment below must hold regardless of what the types
+      // claimed, so this test deliberately drops the `E` on the floor.
       return yield* h(
         "div",
         {},
-        h("button", { class: "bad", onClick: () => Effect.fail("boom-marker") }, "fail"),
+        h(
+          "button",
+          { class: "bad", onClick: () => Effect.fail("boom-marker") as unknown as Effect.Effect<void> },
+          "fail",
+        ),
         h(
           "button",
           { class: "good", onClick: () => Effect.sync(() => count.set(count.value + 1)) },

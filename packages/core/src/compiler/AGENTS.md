@@ -53,7 +53,15 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    (#3) also does **not** trigger a wrap — `list()` subscribes inside
    `mount`, so wrapping in `h.track` would be a redundant layer. Same
    for `Async(...)` and `Catch(...)` calls (`isSelfTrackingCall`):
-   they self-track and must reach the `h()` fold un-erased.
+   they self-track and must reach the `h()` fold un-erased. And same
+   for a **whole-expression function value**
+   (`onclick={() => count.value + 1}`): evaluating a function expression
+   executes no reads, so the wrap's dep set is provably always empty — a
+   runtime no-op whose `unknown` would erase the handler's `E`/`R` from
+   the props fold (#72). The inner `h.read` rewrites are kept; they run
+   at call time with no tracker active, i.e. as plain `.value` reads. A
+   `.value` read *outside* the function (`onclick={cond.value ? a : b}`)
+   still wraps — handler *selection* is real reactivity.
 
 2. **`x.value` → `h.read(x)`** inside the wrapped expression. Tracks
    AtomRef reads. (The *same* read rewrite also runs over the whole

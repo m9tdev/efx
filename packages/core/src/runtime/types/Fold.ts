@@ -107,3 +107,44 @@ export type FoldLiveE<Cs extends readonly unknown[]> = ChildLiveE<Cs[number]>
 
 /** Fold a tuple of children to the union of their `R` channels. */
 export type FoldR<Cs extends readonly unknown[]> = ChildR<Cs[number]>
+
+// ─── Props fold: typed event handlers (#72) ────────────────────────────────
+//
+// An event handler is where most LIVE errors are born: the element is already
+// rendered when the handler runs, so its failure has no construction channel
+// to ride. The runtime side has always existed (`applyProp` runs a returned
+// Effect on the mount context and routes its failure to the boundary sink) —
+// these types make it visible: a handler returning `Effect<_, E, R>`
+// contributes `E` to the element's live channel (`View<E>`, dischargeable by
+// `Catch`, gated by `mount`) and `R` to the element's requirements (a missing
+// Layer is a compile error at `mount`).
+//
+// Only `on*`-keyed props fold. That mirrors the runtime exactly: `applyProp`
+// attaches a listener (and runs returned Effects) only for `on*` function
+// props; any other function-valued attr is stringified into an attribute and
+// never invoked — folding it would make the type claim an `E` that can never
+// fire. (The same parity rule as `Child` ↔ `coerceAsync`.)
+
+/**
+ * The live `E` of one handler prop: a function returning `Effect<_, E, _>`
+ * contributes `E`; a void/imperative handler, a non-function value, or a
+ * tracked-`unknown` attr contributes nothing.
+ */
+type HandlerLiveE<H> = H extends (...args: ReadonlyArray<any>) => infer Ret
+  ? Ret extends Effect.Effect<any, infer E, any> ? E : never
+  : never
+
+/** The `R` of one handler prop — same shape as `HandlerLiveE`, R channel. */
+type HandlerR<H> = H extends (...args: ReadonlyArray<any>) => infer Ret
+  ? Ret extends Effect.Effect<any, any, infer R> ? R : never
+  : never
+
+/** Fold a props object to the union of its `on*` handlers' live `E` channels. */
+export type FoldPropsLiveE<P> = {
+  [K in keyof P]-?: K extends `on${string}` ? HandlerLiveE<P[K]> : never
+}[keyof P]
+
+/** Fold a props object to the union of its `on*` handlers' `R` channels. */
+export type FoldPropsR<P> = {
+  [K in keyof P]-?: K extends `on${string}` ? HandlerR<P[K]> : never
+}[keyof P]

@@ -140,6 +140,36 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
       .not.toContain(`h.track`)
   })
 
+  it("function-valued attrs with `.value` reads keep h.read but are NOT h.track-wrapped", () => {
+    // Evaluating a function expression executes no reads, so the wrap's dep
+    // set is provably always empty — a runtime no-op whose `unknown` type
+    // would erase the handler's E/R from the props fold (#72). The inner
+    // h.read runs at call time (no tracker active → plain `.value`).
+    const out = compile(`
+      const x = <button onclick={() => count.set(count.value + 1)}>+</button>
+    `)
+    expect(out).toContain(`h.read(count)`)
+    expect(out).not.toContain(`h.track`)
+  })
+
+  it("classic function expressions in attrs are also left unwrapped", () => {
+    const out = compile(`
+      const x = <button onclick={function () { return count.value }}>+</button>
+    `)
+    expect(out).toContain(`h.read(count)`)
+    expect(out).not.toContain(`h.track`)
+  })
+
+  it("a `.value` read OUTSIDE the function value still wraps (handler selection is reactive)", () => {
+    // `cond.value ? a : b` reads during tracking — the chosen handler must
+    // re-bind when `cond` flips, so the wrap is real reactivity here.
+    const out = compile(`
+      const x = <button onclick={cond.value ? incr : decr}>+</button>
+    `)
+    expect(out).toContain(`h.read(cond)`)
+    expect(out).toContain(`h.track(() =>`)
+  })
+
   it("`.value` assignment (LHS) is NOT rewritten as a read", () => {
     // We only intercept reads — `obj.value = …` stays as a real assignment.
     expect(compile(`
