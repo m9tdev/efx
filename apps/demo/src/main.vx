@@ -3,6 +3,7 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import { VerrexLive, Catch, mount, type View } from "@verrex/core"
 import { Counter } from "./Counter.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
+import { AsyncEscalate } from "./AsyncEscalate.vx"
 import { CatchDemo } from "./CatchDemo.vx"
 import { flashOnUpdate } from "./flash.ts"
 import { highlight } from "./highlight.ts"
@@ -294,6 +295,44 @@ const App = (
       {demoSlot("boundary")}
     </section>
 
+    <section class="tour">
+      {copy({
+        step: "08",
+        title: "Async escalation (failure rides the live channel)",
+        concept:
+          "The same Async as step 03 — minus the failure arm. Omitting it puts the error on the View<E> live channel instead of handling it at the leaf: the result is Effect<View<HttpError>, …>, and the failure — initial fetch or auto-tracked refetch — routes to the nearest Catch. mount requires View<never>, so deleting the boundary is a compile error naming HttpError. Click \"Bad id\" after content renders: the refetch fails and the page-level banner swaps in. reset re-runs construction with the current id — pick a good one and retry to recover. Handle-at-the-leaf (step 03) vs escalate-to-the-page is now a per-call-site choice.",
+        type: "Effect<View, never, Http | Scope>",
+        code: `export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* () {
+  const userId = AtomRef.make("42")
+  const http = yield* Http
+
+  return yield* (
+    <div>
+      <button onclick={() => userId.set("999")}>Bad id</button>
+
+      {Catch(
+        <section>
+          {/* no failure arm → HttpError rides View<E> to the Catch */}
+          {Async(() => http.getUser(userId.value), {
+            initial: <span>loading…</span>,
+            success: user => <strong>{user.name}</strong>,
+          })}
+        </section>,
+        (cause, reset) => (
+          <div class="banner">
+            <pre>{Cause.pretty(cause)}</pre>
+            <button onclick={reset}>retry</button>
+          </div>
+        ),
+      )}
+    </div>
+  )
+})`,
+        file: "AsyncEscalate.vx",
+      })}
+      {demoSlot("escalate")}
+    </section>
+
     <footer class="site-footer">
       <p>
         verrex is an experimental proof-of-concept.{" "}
@@ -378,6 +417,7 @@ const program = Effect.gen(function* () {
     setupDemo("todos", () => Todos())
     setupDemo("lifecycle", () => Lifecycle())
     setupDemo("boundary", () => CatchDemo())
+    setupDemo("escalate", () => AsyncEscalate())
   })
   // Start the reactivity flash once the initial mounts settle (incl. the
   // simulated fetch latency), so only interactions and resets flash — not page

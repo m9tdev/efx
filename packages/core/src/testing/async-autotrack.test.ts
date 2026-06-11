@@ -20,11 +20,12 @@ const UsersLive = Layer.succeed(Users, {
 })
 const read = (h as unknown as { read: (r: unknown) => string }).read
 
-// folding: a thunk whose effect has no R → Async is Effect<View, never, Scope>.
+// folding: a thunk whose effect has no R → Async is Effect<View<E>, never, Scope>;
+// with no failure arm, GetErr rides the live channel instead of being discharged.
 const _folds = (userId: AtomRef.AtomRef<string>, get: (id: string) => Effect.Effect<string, GetErr>) =>
   Async(() => get(read(userId)), {
     success: (n) => h("span", {}, n),
-  }) satisfies Effect.Effect<View, never, Scope.Scope>
+  }) satisfies Effect.Effect<View<GetErr>, never, Scope.Scope>
 void _folds
 
 const Page = (userId: AtomRef.AtomRef<string>) =>

@@ -1,7 +1,7 @@
 // Probe for step 07 — the `Catch` boundary demo (both forms).
 // Verifies the tag-map caught a typed HttpError on load, and the catch-all
 // catches a live event-handler failure on click + recovers on reset.
-import { runProbe } from "./probe-harness.mjs"
+import { runProbe, waitForText as waitForTextIn } from "./probe-harness.mjs"
 
 const errors = []
 
@@ -17,15 +17,7 @@ await runProbe({
     const sel = '[data-demo="boundary"]'
     const demo = page.locator(sel)
     await demo.waitFor({ state: "attached" })
-    // Poll for content rather than fixed sleeps (a cold dev server compiles .vx on
-    // first request, so timings vary). Case-insensitive — the fallback label is
-    // upper-cased by CSS (text-transform), which `innerText` reflects.
-    const waitForText = (re) =>
-      page.waitForFunction(
-        ({ s, src, fl }) => new RegExp(src, fl).test(document.querySelector(s)?.innerText ?? ""),
-        { s: sel, src: re.source, fl: re.flags },
-        { timeout: 5000 },
-      )
+    const waitForText = (re) => waitForTextIn(page, sel, re)
     const demoText = async () => (await demo.innerText()).replace(/\s+/g, " ").trim()
 
     // 1) tag-map (object form): the flaky request ~50% fails at construction with a

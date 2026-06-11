@@ -11,13 +11,17 @@ errors ride the Effect `E`; live errors a rendered subtree can still
 produce ride the `View<E>` success — one `Catch` boundary discharges both.
 
 **Honest scope today:** the *construction* channel is fully type-tracked —
-a forgotten boundary on a failing build is a compile error. The `View<E>`
-machinery for *live* errors is built and gated by `mount`, but no leaf
-primitive yet stamps `View<E≠never>` (`Async` discharges to `View<never>`;
-event-handler/reactive errors are erased to `(e) => void` / `unknown`), so
-in compiled `.vx` the live channel is effectively `never` — live failures
-are caught at *runtime* by `Catch`'s sink, not tracked by the type. Closing
-that (a primitive that types live errors) is the remaining thesis work.
+a forgotten boundary on a failing build is a compile error. The *live*
+channel is only partially tracked: exactly one leaf primitive stamps
+`View<E≠never>` — `Async` *without* a `failure` arm, typed
+`Effect<View<E>, never, R | Scope>`. Its failures (initial fetch or refetch)
+ride `View<E>` to the nearest `Catch`, and `mount`'s `View<never>` gate makes
+a missing boundary a compile error naming `E` (with the arm, the failure is
+handled at the leaf and discharges to `View<never>`). Everything else that
+can fail live — event handlers, reactive re-renders — is still erased to
+`(e) => void` / `unknown` and caught only at *runtime* by `Catch`'s sink, not
+tracked by the type. Closing that (typed event handlers, #72) is the
+remaining thesis work.
 
 **The name** is built from the channels of an `Effect<View, E, R>`:
 **V** (View — the `A`, always the `View` here), **E** (Error), **R**
