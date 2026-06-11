@@ -222,7 +222,7 @@ Solid's Resource — **not** React Suspense). Two exports, both in `index.ts`:
 
 - **`asyncRef(() => effect)`** — the primitive. Runs the effect and returns an
   **`AsyncHandle<A, E>`**: a reactive `state:
-  AtomRef.ReadonlyRef<AsyncResult<A, E>>` plus a manual `refetch: () => void`
+  AtomRef.ReadonlyRef<AsyncResult<A, E>>` plus a manual `refetch: () => boolean`
   (the same `schedule` a dep change triggers — fresh dep snapshot, stale run
   interrupted; a no-op once the creating scope closes). Handle the state with
   Effect's own `AsyncResult.match`. (`refetch` returns `boolean` — `false`

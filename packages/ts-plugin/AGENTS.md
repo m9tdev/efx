@@ -237,7 +237,7 @@ index sees usages across files. No sibling `.ts` shim is involved.
   decided at `createVirtualCode` time per range; that's how Volar
   caches mappings.
 - Don't add a fourth CodeInformation profile without checking
-  Vue's docs and Volar source — the four flags
+  Vue's docs and Volar source — the six flags
   (`verification`/`completion`/`semantic`/`navigation`/`structure`/`format`)
   interact in non-obvious ways.
 - Don't switch `extraFileExtensions.scriptKind` /

@@ -193,7 +193,7 @@ Service plugins only by bare package name.
 ## Tooling at a glance
 
 - pnpm workspace, 2 packages (`@verrex/core` + `@verrex/ts-plugin`) + demo + workspace root.
-- Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.71`).
+- Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.78`).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.
 - Babel as the `.vx` parser (parser + traverse + generate

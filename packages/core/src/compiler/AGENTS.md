@@ -364,11 +364,18 @@ code for the file → tsserver returns the project's *global scope*
 (999 entries — every DOM ambient declaration) for completion
 requests instead of the member list the user expects.
 
-With recovery, Babel emits a partial AST and attaches parse errors
-to `ast.errors`. We don't read that array — downstream `tsc` will
-surface real errors as diagnostics. Recovery isn't omnipotent: some
-mid-edit states inside JSX expressions (`<div>{x.}</div>`) still
-throw. The common case — typing a `.` in plain user code — works.
+With recovery, Babel emits a partial AST for *recoverable* errors and
+attaches them to `ast.errors`. We don't read that array — downstream
+`tsc` will surface real errors as diagnostics. But recovery is **not a
+no-throw guarantee**: Babel still hard-throws on fatal states, including
+the most common mid-edit ones — `count.` at EOF, an unterminated tag
+("Unexpected token"), `<div>{x.}</div>`. Recovery only helps when a
+following token exists to recover *into* (`x.` followed by `return` parses
+as `x.return`). Callers that must survive the hard-throws wrap this call:
+the language plugin degrades to the file's last good compile
+(`onTransformError: "recover"`, #102). The build path passes
+`errorRecovery: false` so a genuine syntax error throws loudly instead of
+shipping a recovered/garbage module.
 
 ## Anti-patterns
 

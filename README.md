@@ -122,7 +122,7 @@ Effect.runFork(program)
 
 ```
 packages/
-  verrex/             one package, subpath exports:
+  core/               one package (`@verrex/core`), subpath exports:
     src/runtime/        export `@verrex/core`     — View IR, h(), mount(), Async(), list()
     src/compiler/       export `@verrex/core/compiler` — .vx → plain TypeScript (Babel)
     src/language/       export `@verrex/core/language` — Volar language plugin
@@ -131,14 +131,14 @@ packages/
     src/testing/        export `@verrex/core/testing`
   ts-plugin/   publishes as `@verrex/ts-plugin` — TS Language Service plugin (editor)
 apps/
-  demo/               Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle
+  demo/               Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle, CatchDemo, AsyncEscalate
 ```
 
 ## The primitives
 
 | You import from      | What you get                                                                              |
 |----------------------|-------------------------------------------------------------------------------------------|
-| `@verrex/core`      | `h`, `mount`, `Async`, `asyncRef`, `AsyncHandle`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive`                             |
+| `@verrex/core`      | `h`, `mount`, `Component`, `Async`, `asyncRef`, `AsyncHandle`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive`                             |
 | `effect`             | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …  |
 | `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                  |
 
@@ -162,14 +162,15 @@ JSX expression is automatically wrapped in a tracking scope.
 
 | Asset                 | Raw      | Gzipped  |
 |-----------------------|----------|----------|
-| `dist/index.html`     |  8.09 kB |  2.24 kB |
-| `dist/assets/index-*.js` | 103.99 kB | **35.17 kB** |
+| `dist/index.html`     | 11.66 kB |  3.06 kB |
+| `dist/assets/index-*.js` | 117.45 kB | **39.64 kB** |
 
-The JS bundle contains: `effect@4.0.0-beta.71` runtime (~6 kB gzipped per
+The JS bundle contains: `effect@4.0.0-beta.78` runtime (~6 kB gzipped per
 upstream docs), `effect/unstable/reactivity` (`AtomRef`, `Atom`,
 `AtomRegistry`, `AsyncResult`), the `verrex` runtime (~600 LOC,
-contributes single-digit kB), plus all seven demo components (`Counter`,
-`UserPage`, `AsyncUserPage`, `LiveUser`, `Todos`, `Lifecycle`, `CatchDemo`), the guided-tour
+contributes single-digit kB), plus all eight demo components (`Counter`,
+`UserPage`, `AsyncUserPage`, `LiveUser`, `Todos`, `Lifecycle`, `CatchDemo`,
+`AsyncEscalate`), the guided-tour
 shell (a small dependency-free TSX highlighter + reactivity-flash visualizer),
 and their mock services. Verified interactive after build — Counter increments,
 the `Async` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's
