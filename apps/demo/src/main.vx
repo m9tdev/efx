@@ -348,16 +348,25 @@ const tagUser = yield* asyncRef(() => fetchUser(userId.value))
         concept:
           "Handlers are where most live errors are born — the element is already rendered when one runs, so a failure has no construction E to ride. An onclick returning Effect<_, E, R> stamps E on the element's LIVE channel (View<E>) and folds R into its requirements. This component never yields Http in its body: the handler alone puts Http in R (drop HttpLive from the root Layer and the build names Http), and load #999's 404 rides View<HttpError> — delete the Catch and mount stops compiling, naming HttpError. reset re-runs construction, so the card comes back fresh.",
         type: "Effect<View<HttpError>, never, Http>",
-        code: `// no \`yield* Http\` in the body — the HANDLER carries the channels
-const load = Effect.fn("TypedHandlers.load")(function* (id: string) {
-  const http = yield* Http              // handler R → element R
-  const user = yield* http.getUser(id)  // may 404 → HttpError, LIVE
-  loaded.set(user.name)
-})
+        code: `const Loader = Component.make(function* () {
+  const loaded = AtomRef.make("nobody yet")
 
-<button onclick={() => load("42")}>load Ada</button>
-<button onclick={() => load("999")}>load #999</button>
-// element: Effect<View<HttpError>, never, Http> — the failing click
+  // no \`yield* Http\` in the body — the HANDLER carries the channels
+  const load = Effect.fn("TypedHandlers.load")(function* (id: string) {
+    const http = yield* Http              // handler R → element R
+    const user = yield* http.getUser(id)  // may 404 → HttpError, LIVE
+    loaded.set(user.name)
+  })
+
+  return yield* (
+    <div>
+      <p>loaded: <strong>{loaded}</strong></p>
+      <button onclick={() => load("42")}>load Ada</button>
+      <button onclick={() => load("999")}>load #999</button>
+    </div>
+  )
+})
+// Loader: Effect<View<HttpError>, never, Http> — the failing click
 // must meet a Catch before mount, which names it otherwise:
 
 {Catch(<Loader />, {
