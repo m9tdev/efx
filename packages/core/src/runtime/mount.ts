@@ -71,9 +71,10 @@ const applyProp = (
   ctx: BuildCtx,
   scope: Scope.Scope,
 ): void => {
-  // Reactive prop: AtomRef → subscribe and re-apply on changes.
-  if (isAtomRef(value)) {
-    const ref = value as AtomRef.ReadonlyRef<unknown>
+  // Reactive prop: Atom or AtomRef → subscribe and re-apply on changes.
+  // Same dispatch order as the Reactive child case (Atom first); an Atom is
+  // read + subscribed through the registry, an AtomRef through itself.
+  if (Atom.isAtom(value) || isAtomRef(value)) {
     let lastChildScope: Scope.Closeable | null = null
     const apply = (v: unknown) => {
       if (lastChildScope) {
@@ -83,8 +84,15 @@ const applyProp = (
       lastChildScope = Scope.forkUnsafe(scope, "sequential")
       applyProp(el, key, v, ctx, lastChildScope)
     }
-    apply(ref.value)
-    subscribeRefScoped(ref, apply, scope)
+    if (Atom.isAtom(value)) {
+      const atom = value as Atom.Atom<unknown>
+      apply(ctx.registry.get(atom))
+      subscribeAtomScoped(ctx.registry, atom, apply, scope)
+    } else {
+      const ref = value as AtomRef.ReadonlyRef<unknown>
+      apply(ref.value)
+      subscribeRefScoped(ref, apply, scope)
+    }
     return
   }
 

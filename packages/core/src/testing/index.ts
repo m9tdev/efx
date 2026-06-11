@@ -90,9 +90,18 @@ const renderImpl = async (
   // defect, so a component that fails to build (with no boundary) rejects the
   // `render(...)` promise loudly — exactly the failure a test wants to see.
   const discharged = Effect.catchCause(app, (cause) => Effect.die(Cause.squash(cause)))
+  // Build the layers INTO the held-open scope (not `Effect.provide`, whose
+  // build scope closes when the mount effect returns — disposing the
+  // AtomRegistry while the component is still live; any post-mount registry
+  // use, e.g. an Atom-driven attr or child, would then throw "registry is
+  // disposed"). Finalizers land on `scope`, so services live until unmount().
   await Effect.runPromise(
     Scope.provide(
-      mount(discharged, container).pipe(Effect.provide(layer), Effect.provide(VerrexLive)),
+      Layer.build(Layer.mergeAll(layer, VerrexLive)).pipe(
+        Effect.flatMap((services) =>
+          Effect.provideContext(mount(discharged, container), services),
+        ),
+      ),
       scope,
     ),
   )

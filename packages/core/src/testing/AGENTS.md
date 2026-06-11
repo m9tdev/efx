@@ -72,6 +72,13 @@ in `unmount()` — so a test can assert that finalizers fire on teardown
 `Effect.scoped` would close the scope as soon as `mount` returned, tearing
 the component down before you could drive it.
 
+The layers (caller `layer` + `VerrexLive`) are built with `Layer.build`
+INTO that same scope — not `Effect.provide`-d onto the mount effect, whose build
+scope closes when `mount` returns, disposing the `AtomRegistry` while the
+component is still live (any post-mount registry use — an Atom-driven attr
+or child — would throw "registry is disposed"). Service finalizers
+therefore fire on `unmount()`, alongside the component's.
+
 ## Shared fixtures (`fixtures.ts`)
 
 Test-only scaffolds for the Async/asyncRef suites (#98) — **not** exported

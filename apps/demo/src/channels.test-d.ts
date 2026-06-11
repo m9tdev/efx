@@ -4,8 +4,9 @@
  * Each assertion either holds or produces a type error naming the
  * mismatched channel — this *is* the demonstration.
  */
-import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
-import type { AtomRegistry } from "effect/unstable/reactivity"
+import type { Cause, Chunk, Option, Result, Scope } from "effect"
+import { Effect, Stream } from "effect"
+import { Atom, type AtomRegistry } from "effect/unstable/reactivity"
 import { Async, type AsyncHandle, Catch, h, mount, type View } from "@verrex/core"
 import { AsyncEscalate } from "./AsyncEscalate.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
@@ -220,6 +221,20 @@ mount(Caught, root)
 
 // A pure component needs no boundary — it's already `View<never>`, `never`.
 mount(Counter(), root)
+
+// ─── Atom carriers: the COMPONENT owns the requirements ──────────────────
+//     The service instance is extracted in the component body (`yield* Http`
+//     is what puts Http in R), and the Atom's stream source is built from
+//     that instance — so the source itself is context-free, `Atom.runtime`
+//     (which would bake the Layer and discharge R) never appears, and a
+//     forgotten HttpLive is still a compile error at mount.
+
+const AtomCarrier = Effect.gen(function* () {
+  const http = yield* Http // Http rides the component's R
+  const user = Atom.make(Stream.fromEffect(http.getUser("42")))
+  return yield* h("p", { "data-user": user }, "·")
+})
+assertEquals<typeof AtomCarrier, Effect.Effect<View, never, Http>>()
 
 // ─── Catch tag-map form narrows the error channel by tag ────────────────
 //     Handle specific tags; the rest stay on the channel and must still be
