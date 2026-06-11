@@ -1,9 +1,12 @@
 name: Release
 
 # Driven by conventional commits. On every push to main, release-please
-# opens/updates a "Release PR" (per-package version bumps + CHANGELOGs derived
-# from the commit history). Merging that PR tags the releases, and the publish
-# job below pushes `verrex` and `@verrex/ts-plugin` to npm with provenance.
+# opens/updates one Release PR per package (version bump + CHANGELOG derived
+# from the commit history, titled `chore: release <component> <version>`).
+# Merging a Release PR tags that release, and the publish job below pushes
+# the package to npm with provenance (`pnpm -r publish` skips packages whose
+# version is already on the registry, so per-package merges publish only the
+# merged package).
 on:
   push:
     branches: [main]
@@ -17,12 +20,12 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # create the Release PR + tags
-      pull-requests: write # open/update the Release PR
+      contents: write # create the Release PRs + tags
+      pull-requests: write # open/update the Release PRs
     outputs:
       releases_created: ${{ steps.rp.outputs.releases_created }}
       prs_created: ${{ steps.rp.outputs.prs_created }}
-      pr: ${{ steps.rp.outputs.pr }}
+      prs: ${{ steps.rp.outputs.prs }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -37,10 +40,10 @@ jobs:
           # below mirrors main's CI result onto it instead of re-running CI.
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  # Show the status of main on the Release PR: wait for the CI run of the same
-  # push that updated the PR, then post its conclusion onto the PR head as a
-  # check run named `ci` — the same context branch protection requires, which
-  # the Release PR can't get any other way (GITHUB_TOKEN pushes never trigger
+  # Show the status of main on the Release PRs: wait for the CI run of the
+  # same push that updated them, then post its conclusion onto each PR head as
+  # a check run named `ci` — the same context branch protection requires, which
+  # a Release PR can't get any other way (GITHUB_TOKEN pushes never trigger
   # the pull_request CI workflow). Until it's posted, the required check shows
   # as "Expected — waiting", which doubles as the pending state.
   release-pr-status:
@@ -49,32 +52,38 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read # read the CI run for this push
-      checks: write # post the mirrored `ci` check on the Release PR head
+      checks: write # post the mirrored `ci` check on the Release PR heads
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Repo context for `gh run list` — this job has no checkout.
       GH_REPO: ${{ github.repository }}
-      PR_JSON: ${{ needs.release-please.outputs.pr }}
+      PRS_JSON: ${{ needs.release-please.outputs.prs }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
-      - name: Mirror main CI status onto the Release PR
+      - name: Mirror main CI status onto the Release PRs
         run: |
           set -euo pipefail
-          pr_number=$(jq -r '.number' <<<"$PR_JSON")
-          head_sha=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" --jq '.head.sha')
           short=${GITHUB_SHA:0:7}
+
+          # With separate-pull-requests there can be one PR per package.
+          head_shas=()
+          for pr_number in $(jq -r '.[].number' <<<"$PRS_JSON"); do
+            head_shas+=("$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" --jq '.head.sha')")
+          done
 
           # GITHUB_TOKEN is an Actions-app installation token, so this check
           # run satisfies the app-pinned `ci` required status check.
           post() { # conclusion title details_url
-            gh api "repos/$GITHUB_REPOSITORY/check-runs" \
-              -f name='ci' -f head_sha="$head_sha" \
-              -f status=completed -f conclusion="$1" \
-              -f "output[title]=$2" -f "output[summary]=$2" \
-              -f details_url="$3" >/dev/null
+            for head_sha in "${head_shas[@]}"; do
+              gh api "repos/$GITHUB_REPOSITORY/check-runs" \
+                -f name='ci' -f head_sha="$head_sha" \
+                -f status=completed -f conclusion="$1" \
+                -f "output[title]=$2" -f "output[summary]=$2" \
+                -f details_url="$3" >/dev/null
+            done
           }
 
           for _ in $(seq 1 60); do # up to ~30 min
