@@ -8,19 +8,12 @@
  * documented composition is `() => { handle.refetch(); reset() }`.
  */
 import { describe, it, expect } from "vitest"
-import { Context, Effect, Layer, type Scope } from "effect"
+import { Effect, type Scope } from "effect"
 import { Async, asyncRef, h, Catch, type AsyncHandle, type View } from "@verrex/core"
 import { render } from "./index.ts"
+import { makeUsersFixture, NotFound, type UsersError } from "./fixtures.ts"
 
-class Users extends Context.Service<Users, {
-  readonly get: (id: string) => Effect.Effect<string, NotFound>
-}>()("handle/Users") {}
-class NotFound {
-  readonly _tag = "NotFound"
-  constructor(readonly id: string) {}
-}
-const usersWith = (get: (id: string) => Effect.Effect<string, NotFound>) =>
-  Layer.succeed(Users, { get })
+const { Users, usersWith } = makeUsersFixture("handle")
 
 describe("AsyncHandle", () => {
   it("Async accepts a handle: renders its state, arms' retry is the handle's refetch", async () => {
@@ -39,7 +32,7 @@ describe("AsyncHandle", () => {
       )
     })()
     const ui = await render(Page, usersWith((id) =>
-      recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound(id))))
+      recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound({ id }))))
     try {
       await ui.waitFor(".retry")
       recovered = true
@@ -122,7 +115,7 @@ describe("AsyncHandle", () => {
       )
     })()
     const ui = await render(Page, usersWith((id) =>
-      recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound(id))))
+      recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound({ id }))))
     try {
       await ui.waitFor(".boundary-retry") // open form escalated to the boundary
       recovered = true
@@ -134,7 +127,7 @@ describe("AsyncHandle", () => {
   })
 
   it("refetch after the creating scope closed is a silent no-op returning false", async () => {
-    let captured!: AsyncHandle<string, NotFound>
+    let captured!: AsyncHandle<string, UsersError>
     let thunkRuns = 0
     const Page = Effect.fn(function* () {
       const client = yield* Users

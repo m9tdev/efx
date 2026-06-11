@@ -10,21 +10,14 @@
  * pinned by the gated test below.
  */
 import { describe, it, expect } from "vitest"
-import { Context, Effect, Layer } from "effect"
+import { Effect } from "effect"
 import { Async, h } from "@verrex/core"
 import { render } from "./index.ts"
+import { makeUsersFixture, NotFound } from "./fixtures.ts"
 
-class Users extends Context.Service<Users, {
-  readonly get: (id: string) => Effect.Effect<string, NotFound>
-}>()("retry/Users") {}
-class NotFound {
-  readonly _tag = "NotFound"
-  constructor(readonly id: string) {}
-}
-// Each test builds its own layer over test-local state — nothing shared to
-// leak between tests.
-const usersWith = (get: (id: string) => Effect.Effect<string, NotFound>) =>
-  Layer.succeed(Users, { get })
+// Each test builds its own layer (usersWith) over test-local state — nothing
+// shared to leak between tests.
+const { Users, usersWith } = makeUsersFixture("retry")
 
 // Catch-all page, shared by tests 1 and 3.
 const CatchAllPage = Effect.fn(function* () {
@@ -44,7 +37,7 @@ describe("Async failure retry", () => {
     let recovered = false
     const ui = await render(
       CatchAllPage(),
-      usersWith((id) => (recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound(id)))),
+      usersWith((id) => (recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound({ id })))),
     )
     try {
       await ui.waitFor(".retry")
@@ -67,13 +60,15 @@ describe("Async failure retry", () => {
           failure: {
             NotFound: (e, retry) =>
               h("button", { class: "retry", onclick: () => retry() }, `missing ${e.id}`),
+            // Never fires here — present to fully discharge the fixture's error union.
+            Timeout: () => h("span", {}, "timed out"),
           },
         }),
       )
     })()
     const ui = await render(
       Page,
-      usersWith((id) => (recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound(id)))),
+      usersWith((id) => (recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound({ id })))),
     )
     try {
       expect((await ui.waitFor(".retry")).textContent?.trim()).toBe("missing 9")
@@ -101,7 +96,7 @@ describe("Async failure retry", () => {
         Effect.gen(function* () {
           attempts++
           if (attempts > 1) yield* Effect.promise(() => gate)
-          return yield* Effect.fail(new NotFound(id))
+          return yield* Effect.fail(new NotFound({ id }))
         }),
       ),
     )

@@ -7,23 +7,13 @@
  * (The handled form — `failure` provided — is covered by async-boundary.test.ts.)
  */
 import { describe, it, expect } from "vitest"
-import { Cause, Context, Effect, Layer, type Scope } from "effect"
+import { Cause, Effect, type Scope } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { Async, Catch, h, type View } from "@verrex/core"
 import { render } from "./index.ts"
+import { makeUsersFixture, NotFound } from "./fixtures.ts"
 
-class Users extends Context.Service<Users, {
-  readonly get: (id: string) => Effect.Effect<string, FetchError>
-}>()("esc/Users") {}
-class FetchError {
-  readonly _tag = "FetchError"
-  constructor(readonly id: string) {}
-}
-const db: Record<string, string> = { "42": "Ada", "7": "Grace" }
-const UsersLive = Layer.succeed(Users, {
-  get: (id) => (db[id] ? Effect.succeed(db[id]) : Effect.fail(new FetchError(id))),
-})
-const read = (h as unknown as { read: (r: unknown) => string }).read
+const { Users, UsersLive } = makeUsersFixture("esc")
 
 // A page-level catch-all boundary around content that fetches via the open
 // form. The id-switching button lives OUTSIDE the boundary so it survives the
@@ -35,7 +25,7 @@ const Page = (userId: AtomRef.AtomRef<string>) =>
       h("button", { class: "bad", onclick: () => userId.set("999") }, "bad"),
       yield* Catch(
         h("section", { class: "content" },
-          Async(() => client.get(read(userId)), {
+          Async(() => client.get(h.read(userId)), {
             initial: h("span", { class: "loading" }, "…"),
             success: (n) => h("span", { class: "ok" }, n),
           }),
@@ -53,7 +43,7 @@ describe("Async without failure arm → nearest Catch", () => {
   it("routes an initial-fetch failure to the boundary fallback (cause included)", async () => {
     const ui = await render(Page(AtomRef.make("999")), UsersLive)
     const fallback = await ui.waitFor(".fallback")
-    expect(fallback.querySelector(".caught")?.textContent).toContain("FetchError")
+    expect(fallback.querySelector(".caught")?.textContent).toContain("NotFound")
     expect(ui.query(".ok")).toBeNull()
     await ui.unmount()
   })
@@ -89,7 +79,9 @@ describe("Async without failure arm → nearest Catch", () => {
           }),
         ),
         {
-          FetchError: (e, _reset) => h("p", { class: "tagged" }, `missing user ${e.id}`),
+          NotFound: (e, _reset) => h("p", { class: "tagged" }, `missing user ${e.id}`),
+          // Never fires here — present to fully discharge the fixture's error union.
+          Timeout: () => h("p", { class: "tagged" }, "timed out"),
         },
       )
     })()
@@ -101,11 +93,11 @@ describe("Async without failure arm → nearest Catch", () => {
   it("the open form still types R (service folds) and stamps View<E>", () => {
     // Compile-time pin, kept next to the runtime proof: omitting `failure`
     // stamps E on the View channel; providing it discharges to View<never>.
-    const open = (get: (id: string) => Effect.Effect<string, FetchError>) =>
+    const open = (get: (id: string) => Effect.Effect<string, NotFound>) =>
       Async(() => get("42"), {
         success: (n) => h("span", {}, n),
-      }) satisfies Effect.Effect<View<FetchError>, never, Scope.Scope>
-    const handled = (get: (id: string) => Effect.Effect<string, FetchError>) =>
+      }) satisfies Effect.Effect<View<NotFound>, never, Scope.Scope>
+    const handled = (get: (id: string) => Effect.Effect<string, NotFound>) =>
       Async(() => get("42"), {
         success: (n) => h("span", {}, n),
         failure: () => h("span", {}, "nope"),

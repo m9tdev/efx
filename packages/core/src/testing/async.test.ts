@@ -1,24 +1,20 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest"
-import { Context, Data, Effect, Layer } from "effect"
+import { Effect } from "effect"
 import { AsyncResult, AtomRef } from "effect/unstable/reactivity"
 import { asyncRef, h } from "@verrex/core"
 import { render } from "./index.ts"
+import { makeUsersFixture, NotFound } from "./fixtures.ts"
 
-class NotFound extends Data.TaggedError("NotFound")<{ readonly id: string }> {}
+const { Users: Api, usersWith } = makeUsersFixture("async")
 
-class Api extends Context.Service<Api, {
-  readonly get: (id: string) => Effect.Effect<string, NotFound>
-}>()("test/Api") {}
-
-const ApiLive = Layer.succeed(Api, {
-  get: (id) =>
-    Effect.gen(function* () {
-      yield* Effect.sleep("1 milli") // ensure a visible loading window
-      if (id === "bad") return yield* new NotFound({ id })
-      return `user-${id}`
-    }),
-})
+const ApiLive = usersWith((id) =>
+  Effect.gen(function* () {
+    yield* Effect.sleep("1 milli") // ensure a visible loading window
+    if (id === "bad") return yield* new NotFound({ id })
+    return `user-${id}`
+  }),
+)
 
 // Build with raw h(): `data.state.map(AsyncResult.match(...))` is a ReadonlyRef<string>
 // → coerces to a reactive node. No compiler needed.

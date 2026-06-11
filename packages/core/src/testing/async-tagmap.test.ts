@@ -9,31 +9,13 @@
  * (async-escalate.test.ts).
  */
 import { describe, it, expect } from "vitest"
-import { Context, Effect, Layer, type Scope } from "effect"
+import { Effect, type Scope } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { Async, Catch, h, type View } from "@verrex/core"
 import { render } from "./index.ts"
+import { makeUsersFixture, NotFound, Timeout } from "./fixtures.ts"
 
-class Users extends Context.Service<Users, {
-  readonly get: (id: string) => Effect.Effect<string, NotFound | Timeout>
-}>()("tagmap/Users") {}
-class NotFound {
-  readonly _tag = "NotFound"
-  constructor(readonly id: string) {}
-}
-class Timeout {
-  readonly _tag = "Timeout"
-}
-const db: Record<string, string> = { "42": "Ada", "7": "Grace" }
-const UsersLive = Layer.succeed(Users, {
-  get: (id) =>
-    id === "slow"
-      ? Effect.fail(new Timeout())
-      : db[id]
-        ? Effect.succeed(db[id])
-        : Effect.fail(new NotFound(id)),
-})
-const read = (h as unknown as { read: (r: unknown) => string }).read
+const { Users, UsersLive } = makeUsersFixture("tagmap")
 
 // NotFound is handled at the leaf; Timeout is not — it escalates to the
 // page-level catch-all.
@@ -43,7 +25,7 @@ const Page = (userId: AtomRef.AtomRef<string>) =>
     return yield* h("div", { class: "page" },
       yield* Catch(
         h("section", { class: "content" },
-          Async(() => client.get(read(userId)), {
+          Async(() => client.get(h.read(userId)), {
             initial: h("span", { class: "loading" }, "…"),
             success: (n) => h("span", { class: "ok" }, n),
             failure: {
