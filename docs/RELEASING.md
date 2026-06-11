@@ -6,7 +6,9 @@ driven by conventional commits via release-please
 `.github/workflows/release.yml`). On every push to `main`, release-please
 opens/updates one **Release PR per package** (`separate-pull-requests`),
 titled with the version it releases
-(`pull-request-title-pattern: "chore: release ${component} ${version}"`);
+(`pull-request-title-pattern: "chore: release${component} ${version}"` —
+no space before `${component}`: release-please expands it with a leading
+space built in, mirroring its default pattern `release${component}`);
 merging one tags that release and the publish job pushes it to npm
 (`pnpm -r publish` skips versions already on the registry, so merging one
 PR publishes only that package).
