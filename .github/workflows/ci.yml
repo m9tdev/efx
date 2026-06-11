@@ -17,7 +17,7 @@ jobs:
   ci:
     # Release PRs only carry version bumps + CHANGELOGs for code that already
     # passed CI on main — skip the full run; release.yml mirrors main's CI
-    # result onto the Release PR as the `main-branch-ci` status instead.
+    # result onto the Release PR head as a check run named `ci` instead.
     if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:

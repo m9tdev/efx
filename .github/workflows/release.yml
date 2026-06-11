@@ -38,17 +38,22 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   # Show the status of main on the Release PR: wait for the CI run of the same
-  # push that updated the PR, then post its conclusion as a `main-branch-ci`
-  # commit status on the PR head.
+  # push that updated the PR, then post its conclusion onto the PR head as a
+  # check run named `ci` — the same context branch protection requires, which
+  # the Release PR can't get any other way (GITHUB_TOKEN pushes never trigger
+  # the pull_request CI workflow). Until it's posted, the required check shows
+  # as "Expected — waiting", which doubles as the pending state.
   release-pr-status:
     needs: release-please
     if: ${{ needs.release-please.outputs.prs_created == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       actions: read # read the CI run for this push
-      statuses: write # post the mirrored status on the Release PR head
+      checks: write # post the mirrored `ci` check on the Release PR head
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Repo context for `gh run list` — this job has no checkout.
+      GH_REPO: ${{ github.repository }}
       PR_JSON: ${{ needs.release-please.outputs.pr }}
     steps:
       - name: Harden runner
@@ -62,14 +67,15 @@ jobs:
           head_sha=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" --jq '.head.sha')
           short=${GITHUB_SHA:0:7}
 
-          post() { # state description target_url
-            gh api "repos/$GITHUB_REPOSITORY/statuses/$head_sha" \
-              -f state="$1" -f context='main-branch-ci' \
-              -f description="$2" -f target_url="$3" >/dev/null
+          # GITHUB_TOKEN is an Actions-app installation token, so this check
+          # run satisfies the app-pinned `ci` required status check.
+          post() { # conclusion title details_url
+            gh api "repos/$GITHUB_REPOSITORY/check-runs" \
+              -f name='ci' -f head_sha="$head_sha" \
+              -f status=completed -f conclusion="$1" \
+              -f "output[title]=$2" -f "output[summary]=$2" \
+              -f details_url="$3" >/dev/null
           }
-
-          post pending "Waiting for CI on main @ $short" \
-            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commits/main"
 
           for _ in $(seq 1 60); do # up to ~30 min
             run=$(gh run list --workflow ci.yml --branch main --commit "$GITHUB_SHA" \
@@ -87,7 +93,7 @@ jobs:
             fi
             sleep 30
           done
-          post error "Timed out waiting for CI on main @ $short" \
+          post failure "Timed out waiting for CI on main @ $short" \
             "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions"
           exit 1
 
