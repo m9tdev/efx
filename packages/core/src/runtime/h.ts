@@ -78,14 +78,25 @@ const _h = (
   tag: string,
   props: Props,
   ...children: ReadonlyArray<unknown>
-): Effect.Effect<View<any>, any, any> =>
-  Effect.gen(function* () {
+): Effect.Effect<View<any>, any, any> => {
+  // Stale pre-#71 compiled output (a bundler cache, a version-skewed
+  // artifact) still calls h(Component, props). Without this guard it builds
+  // View.Element({ tag: fn }) and dies much later in mount with a cryptic
+  // createElement DOMException — fail loud at the call instead.
+  if (typeof (tag as unknown) === "function") {
+    throw new TypeError(
+      "h() takes intrinsic tag names only — component tags compile to direct calls since #71. " +
+        "A function tag means stale compiled output: clear the bundler cache and recompile the .vx sources.",
+    )
+  }
+  return Effect.gen(function* () {
     const out: View<any>[] = []
     for (const c of children) {
       out.push(yield* coerceAsync(c))
     }
     return View.Element({ tag, props, children: out })
   })
+}
 
 // Errors split by phase across the two channels: CONSTRUCTION errors
 // (`FoldE`) on the Effect `E` (a child's build failing fails this build),

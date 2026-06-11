@@ -170,8 +170,8 @@ Service plugins only by bare package name.
   single-prop signature is what makes `<Counter />`
   compile (h's tag-as-function path calls `tag(props)`); a propless
   component takes **no parameter at all** — the old
-  `_props: {} = {}` boilerplate is gone (a zero-param tag still
-  satisfies `h`, and `TagProps` folds it to the empty object;
+  `_props: {} = {}` boilerplate is gone (the compiler emits the
+  zero-arg call `Counter()` for an attr-less, child-less tag;
   pinned in `Component.test-d.ts`). A *generic* component uses the
   Effect-returning form
   (`Component.make(<T,>(props: { item: T }) => Effect.gen(…))`),

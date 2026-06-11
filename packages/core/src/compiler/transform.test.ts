@@ -864,4 +864,9 @@ describe("component-tag lowering (direct calls, #71)", () => {
   it("namespaced tags stay string-tagged through h", () => {
     expect(compile(`const x = <svg:rect width="1" />`)).toContain(`h("svg:rect", { width: "1" })`)
   })
+
+  it("a spread child expands into the children array (component) and the call args (intrinsic)", () => {
+    expect(compile(`const x = <Foo>{...items}</Foo>`)).toContain(`Foo({ children: [...items] })`)
+    expect(compile(`const y = <div>{...items}</div>`)).toContain(`h("div", {}, ...items)`)
+  })
 })

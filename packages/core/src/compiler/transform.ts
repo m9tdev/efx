@@ -381,6 +381,14 @@ const copyLoc = <T extends t.Node>(target: T, source: t.Node): T => {
   return target
 }
 
+/**
+ * The single source of truth for the tag-dispatch rule: a lowercase first
+ * letter means intrinsic element. Used by `tagExpression` (string literal vs
+ * identifier) and `isComponentTag` (h() vs direct call) — keep it one
+ * predicate so the two can't drift.
+ */
+const isIntrinsicName = (name: string): boolean => /^[a-z]/.test(name)
+
 /** Decide the tag expression: lowercase → string literal, otherwise identifier. */
 const tagExpression = (name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName): t.Expression => {
   if (t.isJSXNamespacedName(name)) {
@@ -391,7 +399,7 @@ const tagExpression = (name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXName
     return jsxMemberToMember(name)
   }
   // JSXIdentifier - preserve location for go-to-definition
-  const lower = /^[a-z]/.test(name.name)
+  const lower = isIntrinsicName(name.name)
   const expr = lower ? t.stringLiteral(name.name) : t.identifier(name.name)
   return copyLoc(expr, name)
 }
@@ -437,7 +445,7 @@ const cleanJsxText = (value: string): string => {
 const transformChild = (
   child: t.JSXElement["children"][number],
   state: RewriteState,
-): t.Expression | null => {
+): t.Expression | t.SpreadElement | null => {
   if (t.isJSXText(child)) {
     const text = cleanJsxText(child.value)
     if (text === "") return null
@@ -449,8 +457,12 @@ const transformChild = (
       : wrapTracked(child.expression, state)
   }
   if (t.isJSXSpreadChild(child)) {
-    // Rare; treat as a passthrough spread.
-    return child.expression
+    // `{...items}` expands as individual children (JSX semantics): emit a
+    // real SpreadElement — valid both as an `h(...)` call argument and as a
+    // `children: [...]` array element. A bare passthrough would land the
+    // whole array as ONE child and pick up a redundant Fragment wrapper
+    // from coerceAsync's array peel.
+    return copyLoc(t.spreadElement(child.expression), child)
   }
   return transformJsxNode(child, state)
 }
@@ -549,7 +561,7 @@ const collectJsxRange = (node: t.JSXElement | t.JSXFragment): JsxRange => {
 const isComponentTag = (
   name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName,
 ): boolean =>
-  t.isJSXMemberExpression(name) || (t.isJSXIdentifier(name) && !/^[a-z]/.test(name.name))
+  t.isJSXMemberExpression(name) || (t.isJSXIdentifier(name) && !isIntrinsicName(name.name))
 
 /**
  * Transform a JSX element or fragment node into its compiled call:
@@ -572,7 +584,7 @@ const transformJsxNode = (
   node: t.JSXElement | t.JSXFragment,
   state: RewriteState,
 ): t.CallExpression => {
-  const childArgs: t.Expression[] = []
+  const childArgs: Array<t.Expression | t.SpreadElement> = []
   for (const child of node.children) {
     const transformed = transformChild(child, state)
     if (transformed) childArgs.push(transformed)
@@ -710,13 +722,11 @@ export const transformVerrex = (
   // missing names there; otherwise prepends a new import. Keeps the user's
   // imports untouched and avoids duplicate specifiers. `h` is needed if the
   // JSX pass emitted `h(...)` OR pass 3 emitted any `h.read(...)`.
-  if (state.usedH || usedHRead || state.usedFragment || state.wroteList) {
-    const wanted = new Set<string>()
-    if (state.usedH || usedHRead) wanted.add("h")
-    if (state.usedFragment) wanted.add("Fragment")
-    if (state.wroteList) wanted.add("list")
-    ensureRuntimeImports(ast.program, wanted)
-  }
+  const wanted = new Set<string>()
+  if (state.usedH || usedHRead) wanted.add("h")
+  if (state.usedFragment) wanted.add("Fragment")
+  if (state.wroteList) wanted.add("list")
+  if (wanted.size > 0) ensureRuntimeImports(ast.program, wanted)
 
   const result = generate(
     ast,
