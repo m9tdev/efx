@@ -52,6 +52,26 @@ describe("createVerrexLanguagePlugin transform-error recovery", () => {
     expect(code.source).toBe(BROKEN)
   })
 
+  it("degrades fallback mappings to completion-only", () => {
+    const p = plugin()
+    const good = compile(p, "/a.vx", GOOD) as VerrexVirtualCode
+    expect(good.mappings.length).toBeGreaterThan(0)
+    const fallback = compile(p, "/a.vx", BROKEN) as VerrexVirtualCode
+    expect(fallback.mappings.length).toBe(good.mappings.length)
+    for (const mapping of fallback.mappings) {
+      // Stale offsets must not decorate (inlay hints, diagnostics) or write
+      // (rename, format); completions stay on — they're the point of
+      // surviving mid-edit states.
+      expect(mapping.data.completion).toBe(true)
+      expect(mapping.data.semantic).toBe(false)
+      expect(mapping.data.verification).toBe(false)
+      expect(mapping.data.navigation).toBe(false)
+      expect(mapping.data.format).toBe(false)
+    }
+    // The good compile's own mappings are untouched (no shared mutation).
+    expect(good.mappings.some((mapping) => mapping.data.semantic !== false)).toBe(true)
+  })
+
   it("recompiles fresh once the source parses again", () => {
     const p = plugin()
     compile(p, "/a.vx", GOOD)

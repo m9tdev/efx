@@ -1,8 +1,28 @@
-import type { LanguagePlugin, VirtualCode } from "@volar/language-core"
+import type { CodeInformation, LanguagePlugin, VirtualCode } from "@volar/language-core"
 import type * as ts from "typescript"
 import { transformVerrex } from "@verrex/core/compiler"
 import { convertSourceMap } from "./source-map.ts"
 import { VerrexVirtualCode } from "./virtual-code.ts"
+
+// The capability profile for last-good fallback mappings. They refer to the
+// PREVIOUS source text, so every offset is suspect by the edit delta:
+// - completion stays on — completions/signature help are the whole point of
+//   keeping a language service alive mid-edit, are cursor-anchored, and a
+//   slightly-off result is transient UI;
+// - semantic (inlay hints, hover, semantic tokens) and verification
+//   (diagnostics) are off — they DECORATE positions, and a shifted hint
+//   renders inside the wrong token (a `: HttpError` hint chopping an
+//   identifier apart);
+// - navigation (rename!) and format are off — they WRITE at mapped offsets,
+//   and a stale offset would edit the wrong code.
+const FALLBACK_DATA: CodeInformation = {
+  verification: false,
+  completion: true,
+  semantic: false,
+  navigation: false,
+  structure: false,
+  format: false,
+}
 
 // Volar's typescript property type isn't in the public LanguagePlugin interface
 // but is expected by createLanguageServicePlugin
@@ -29,9 +49,9 @@ export interface VerrexLanguagePluginOptions {
    * just made (surfaced as `-32603 ... SyntaxError` noise in the editor).
    *
    * - `"recover"` (default — editor hosts): degrade to the file's last good
-   *   compile, so cross-file types stay stable and in-file features go
-   *   slightly stale until the source parses again; an empty module if the
-   *   file has never compiled.
+   *   compile served with completion-only mappings (see `FALLBACK_DATA`), so
+   *   cross-file types stay stable and completions keep working until the
+   *   source parses again; an empty module if the file has never compiled.
    * - `"throw"` (batch hosts: verrex-check): propagate, keeping failures
    *   loud — a checker must never silently report against stale output.
    */
@@ -89,10 +109,12 @@ export function createVerrexLanguagePlugin<T>(
         if (onTransformError === "throw") throw error
         const cached = lastGood.get(fileName)
         if (cached) {
-          // The cached mappings refer to the previous source text; mid-edit
-          // they're off by at most the edit delta, and Volar drops lookups
-          // that fall outside a mapped span — degraded, never corrupt.
-          return new VerrexVirtualCode(source, cached.compiled, [...cached.mappings], cached.jsxRanges)
+          // The cached mappings refer to the previous source text, so they're
+          // served with FALLBACK_DATA: completion-only (see above) — features
+          // that decorate or write at mapped positions stay off until the
+          // source parses again.
+          const mappings = cached.mappings.map((mapping) => ({ ...mapping, data: FALLBACK_DATA }))
+          return new VerrexVirtualCode(source, cached.compiled, mappings, cached.jsxRanges)
         }
         // Never compiled successfully (file created mid-edit): an empty
         // module keeps the script in the project with no false claims.

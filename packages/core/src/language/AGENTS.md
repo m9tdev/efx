@@ -175,13 +175,17 @@ picked by `options.onTransformError`:
 
 - **`"recover"`** (default — editor hosts, `@verrex/ts-plugin`): serve
   the file's **last good compile** with the current source text.
-  Cross-file types stay stable (exports don't flicker in dependents);
-  in-file features go slightly stale — the cached mappings refer to
-  the previous source, off by at most the edit delta, and Volar drops
-  lookups outside a mapped span (degraded, never corrupt). A file
-  that has never compiled falls back to an empty module
-  (`export {}`), keeping the script in the project with no false
-  claims.
+  Cross-file types stay stable (exports don't flicker in dependents).
+  The cached mappings refer to the *previous* source — every offset is
+  suspect by the edit delta — so they're served **completion-only**
+  (`FALLBACK_DATA`): completions/signature help stay live (the point
+  of surviving mid-edit states; cursor-anchored, transient UI), while
+  features that *decorate* positions (inlay hints, hover, semantic
+  tokens, diagnostics) or *write* at them (rename, format) are off —
+  a shifted hint renders inside the wrong token, a shifted rename
+  edits the wrong code. A file that has never compiled falls back to
+  an empty module (`export {}`), keeping the script in the project
+  with no false claims.
 - **`"throw"`** (batch hosts — `@verrex/core/check` passes this): a
   checker must fail loudly, never report against a stale compile.
   The check watch loop catches per-pass and keeps the session alive.
