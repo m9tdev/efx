@@ -157,7 +157,12 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
   // owns the virtual-code lifetime per linter instance; we hold no
   // side-channel state of our own.
   const buildLinter = () => {
-    const languagePlugin = createVerrexLanguagePlugin<URI>((uri) => uri.fsPath)
+    // "throw" (not the editor default "recover"): a checker must fail loudly
+    // on unparseable source, never report against a stale last-good compile.
+    // The watch loop catches per-pass and keeps running.
+    const languagePlugin = createVerrexLanguagePlugin<URI>((uri) => uri.fsPath, {
+      onTransformError: "throw",
+    })
     const tsServices = createTypeScriptServices(ts)
     return kit.createTypeScriptChecker([trackingPlugin, languagePlugin], tsServices, tsconfigPath)
   }

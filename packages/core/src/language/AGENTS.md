@@ -17,7 +17,7 @@ certainly want to depend on this package rather than copy it.
 
 | File | Purpose |
 |---|---|
-| `language-plugin.ts` | `createVerrexLanguagePlugin<T>(asFileName)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns each per-`.vx` `VerrexVirtualCode` to Volar, which owns and indexes it. Returns `LanguagePlugin<T, VerrexVirtualCode>` so consumers can rely on the concrete class type at the boundary. |
+| `language-plugin.ts` | `createVerrexLanguagePlugin<T>(asFileName, options?)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns each per-`.vx` `VerrexVirtualCode` to Volar, which owns and indexes it. Returns `LanguagePlugin<T, VerrexVirtualCode>` so consumers can rely on the concrete class type at the boundary. `options.onTransformError` picks the parse-failure policy (see below). |
 | `source-map.ts` | `convertSourceMap` — thin translator from `@verrex/core/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
 | `virtual-code.ts` | `VerrexVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.vx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`. |
 | `source-map.test.ts` | Vitest suite pinning `convertSourceMap`'s span-length passthrough and the user/h-call/punctuation profile assignments. |
@@ -155,7 +155,53 @@ Lifetime is Volar's concern: each tsserver session and each
 so two in-process `runCheck` calls never see each other's virtual
 codes. Re-compilation on edits, eviction of deleted files, and
 staleness are all handled by Volar's script lifecycle — this package
-holds no state that could drift.
+holds no *authoritative* state that could drift. (The one piece of
+plugin-internal state is the `lastGood` fallback cache described in
+the next section: per-file compile *outputs* used only when the
+current source won't parse, never an index of live objects.)
+
+## Transform errors: recover in editors, throw in batch
+
+`transformVerrex` hard-throws on source Babel can't parse — and
+despite `errorRecovery: true`, that includes the most common mid-edit
+states (`count.` at EOF, an unterminated tag → "Unexpected token").
+An editor host recompiles on every keystroke, so an escaping throw
+fails the tsserver request the user just made (surfaced by vtsls/
+VS Code as `-32603 ... SyntaxError` noise on every inlay-hint/
+completion call while the buffer is mid-edit).
+
+`createVirtualCode` therefore wraps the transform, with the policy
+picked by `options.onTransformError`:
+
+- **`"recover"`** (default — editor hosts, `@verrex/ts-plugin`): serve
+  the file's **last good compile** with the current source text.
+  Cross-file types stay stable (exports don't flicker in dependents).
+  The cached mappings refer to the *previous* source — every offset is
+  suspect by the edit delta — so they're served **completion-only**
+  (`FALLBACK_DATA`): completions/signature help stay live (the point
+  of surviving mid-edit states; cursor-anchored, transient UI), while
+  features that *decorate* positions (inlay hints, hover, semantic
+  tokens, diagnostics) or *write* at them (rename, format) are off —
+  a shifted hint renders inside the wrong token, a shifted rename
+  edits the wrong code. `jsxRanges` are **dropped, not served stale**:
+  `@verrex/ts-plugin` consumes them directly off the instance
+  (tag-pair highlights), bypassing the mapping gates entirely, so the
+  only safe stale value is none. Residual accepted risk: completion
+  is itself a write path (auto-import edits) — see `FALLBACK_DATA`'s
+  comment for why it stays on anyway. A file that has never compiled
+  falls back to an empty module (`export {}`), keeping the script in
+  the project with no false claims. The `lastGood` entry is evicted
+  via `disposeVirtualCode` when Volar drops the script, so a deleted
+  file's exports can't be resurrected for a recreated path. In
+  `"throw"` mode the error is rethrown with the file named — Babel's
+  message carries only line:col, and `verrex-check --watch` prints it
+  verbatim.
+- **`"throw"`** (batch hosts — `@verrex/core/check` passes this): a
+  checker must fail loudly, never report against a stale compile.
+  The check watch loop catches per-pass and keeps the session alive.
+
+Pinned by `language-plugin.test.ts` (last-good service, per-file
+isolation, recompile-on-fix, empty-module fallback, throw mode).
 
 ### Why read from Volar's context, not a threaded cache
 
