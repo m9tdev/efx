@@ -92,8 +92,7 @@ if it grows past these, it's grown too much:
 
 Runtime: `Effect.fn` accepts both body shapes (it checks
 `isEffect(body(...))` before iterating), so one implementation serves both
-overloads. (Direct-call lowering deliberately has no runtime brand —
-don't add one.)
+overloads.
 
 The body takes **at most one** props object. A propless component takes no
 parameter at all — `function* ()`: a zero-param tag still satisfies `h`
