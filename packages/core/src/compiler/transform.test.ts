@@ -160,6 +160,34 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
     expect(out).not.toContain(`h.track`)
   })
 
+  it("MANUAL list() calls are not h.track-wrapped (self-subscribing, channel-carrying)", () => {
+    // The `.value.map → list` rewrite was always unwrapped; a hand-written
+    // list() with `.value` reads in its row arrow must get the same treatment
+    // — its return type carries the folded row channels since #72, and the
+    // wrap's `unknown` would erase them (rows with service-using handlers
+    // would compile without their Layer and die at runtime).
+    const out = compile(`
+      const x = <ul>{list(todos, (item) => <li>{item.value.title}</li>)}</ul>
+    `)
+    expect(out).toContain(`h.read(item)`)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
+  })
+
+  it("cast-wrapped Async / Catch / list calls keep the skip (peel before the check)", () => {
+    // `{Async(…) satisfies Effect<View<E>, …>}` is exactly how a user pins a
+    // boundary's channel — the wrap would erase the channel being pinned.
+    const out = compile(`
+      const x = <div>{Async(() => http.get(id.value), { success: (u) => <p>{u}</p> }) as A}</div>
+    `)
+    expect(out).toContain(`h.read(id)`)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Async\(/)
+
+    const sat = compile(`
+      const y = <div>{Catch(child, () => <p>{ref.value}</p>) satisfies C}</div>
+    `)
+    expect(sat).not.toMatch(/h\.track\(\(\)\s*=>\s*Catch\(/)
+  })
+
   it("cast-wrapped function attrs are still recognized (as / satisfies / non-null)", () => {
     // `(arrow) as EventHandler<…>` evaluates to the function unchanged — the
     // wrap would be just as dead, and would erase exactly the annotation the

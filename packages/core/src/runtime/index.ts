@@ -575,7 +575,13 @@ const makeBoundary = <R>(
       }),
     )
 
-    return View.Boundary({ state, handler, reset, report, setAmbient })
+    // Capture the construction context for the FALLBACK arm: the ok content
+    // is (re)built by the drain fiber above, which inherits this context, but
+    // the fallback renders through mount's coerceSync and would otherwise run
+    // on the ambient (root) context — the one dynamic-render path the
+    // per-node capture sweep would miss (see ViewBoundary.context).
+    const context = yield* Effect.context<never>()
+    return View.Boundary({ state, handler, reset, report, setAmbient, context })
   })
 
 /**

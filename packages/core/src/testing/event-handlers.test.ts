@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { Cause, Context, Effect, Layer, Logger } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { h, list } from "@verrex/core"
+import { Catch, h, list } from "@verrex/core"
 import { render, untracked } from "./index.ts"
 
 // One Step service for every context test below — each test builds its own
@@ -15,6 +15,25 @@ const stepClick = (count: AtomRef.AtomRef<number>) => () =>
     const step = yield* Step
     count.set(count.value + step.by)
   })
+
+// Shared rows fixture for the two list-context tests below: identical UI —
+// the tests differ ONLY in where the Step layer is applied (mid-tree
+// Effect.provide vs render's root layer).
+const makeRows = (coll: AtomRef.Collection<string>, count: AtomRef.AtomRef<number>) =>
+  h(
+    "ul",
+    {},
+    list(coll, (item) =>
+      Effect.gen(function* () {
+        yield* Step // construction-time read — must resolve in rows
+        return yield* h(
+          "li",
+          {},
+          h("button", { class: "row-btn", onClick: stepClick(count) }, item),
+        )
+      })),
+    h("span", { class: "total" }, "total: ", count),
+  )
 
 // PR1 fix: an event handler that returns an Effect used to be added as a raw DOM
 // listener and the returned Effect was DROPPED unexecuted. Now applyProp detects
@@ -116,21 +135,7 @@ describe("event handlers — Effect-returning", () => {
     const coll = AtomRef.collection<string>(["a"])
     const Provided = Effect.fn("ProvidedRows")(function* (_props: {} = {}) {
       const count = AtomRef.make(0)
-      const rows = h(
-        "ul",
-        {},
-        list(coll, (item) =>
-          Effect.gen(function* () {
-            yield* Step // construction-time read — must resolve in rows too
-            return yield* h(
-              "li",
-              {},
-              h("button", { class: "row-btn", onClick: stepClick(count) }, item),
-            )
-          })),
-        h("span", { class: "total" }, "total: ", count),
-      )
-      return yield* h("div", {}, Effect.provide(rows, stepLayer(3)))
+      return yield* h("div", {}, Effect.provide(makeRows(coll, count), stepLayer(3)))
     })
 
     const ui = await render(Provided())
@@ -179,6 +184,35 @@ describe("event handlers — Effect-returning", () => {
     await ui.unmount()
   })
 
+  it("a mid-tree Effect.provide reaches CATCH FALLBACKS (#110 round 3)", async () => {
+    // The boundary captures its construction context (ViewBoundary.context)
+    // and the fallback builds on it — without the capture, the fallback's
+    // handler ran on mount's root context and died with ServiceNotFound,
+    // while the same handler in the ok content (or an Async arm) worked.
+    const count = AtomRef.make(0)
+    const Failing = Effect.fn("Failing")(function* (_props: {} = {}) {
+      return yield* Effect.fail(new Error("construction boom"))
+    })
+
+    const Provided = Effect.fn("ProvidedFallback")(function* (_props: {} = {}) {
+      const guarded = Catch(Failing(), (_cause, _reset) =>
+        h("button", { class: "retry", onClick: stepClick(count) }, "retry"))
+      return yield* h(
+        "div",
+        {},
+        Effect.provide(guarded, stepLayer(9)),
+        h("span", { class: "total" }, "total: ", count),
+      )
+    })
+
+    const ui = await render(Provided())
+    await ui.tick() // boundary renders the fallback
+    ui.click(".retry")
+    await ui.tick()
+    expect(ui.text(".total")).toBe("total: 9")
+    await ui.unmount()
+  })
+
   it("a handler's acquireRelease releases when the element is removed (#110 round 2)", async () => {
     // runHandlerEffect provides the element's DOM scope INTO the handler
     // effect (mirroring coerceSync), so Effect.addFinalizer/acquireRelease
@@ -218,30 +252,15 @@ describe("event handlers — Effect-returning", () => {
   })
 
   it("list rows see the app context — a row handler's service resolves (construction too)", async () => {
-    // Rows are built post-mount via coerceSync on the list's captured context
-    // (root-provided here): a row's construction `yield* Step` resolves, and
-    // the h() inside captures a real context for its handler.
-    const Rows = (coll: AtomRef.Collection<string>) =>
-      Effect.gen(function* () {
-        const count = AtomRef.make(0)
-        return yield* h(
-          "ul",
-          {},
-          list(coll, (item) =>
-            Effect.gen(function* () {
-              yield* Step // construction-time service read inside a row
-              return yield* h(
-                "li",
-                {},
-                h("button", { class: "row-btn", onClick: stepClick(count) }, item),
-              )
-            })),
-          h("span", { class: "total" }, "total: ", count),
-        )
-      })
-
+    // Same fixture as the mid-tree test above; here the Step layer comes from
+    // render's ROOT instead — the capture must be equivalent in both homes.
     const coll = AtomRef.collection<string>(["a"])
-    const ui = await render(Rows(coll), stepLayer(5))
+    const count = AtomRef.make(0)
+    const Rows = () => Effect.gen(function* () {
+      return yield* makeRows(coll, count)
+    })
+
+    const ui = await render(Rows(), stepLayer(5))
     ui.click(".row-btn")
     await ui.tick()
     expect(ui.text(".total")).toBe("total: 5")

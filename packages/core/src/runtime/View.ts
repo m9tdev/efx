@@ -120,6 +120,12 @@ export interface ViewBoundary {
   // so a tag-selective `Catch` (object form) can escalate a cause it
   // doesn't handle to the next boundary outward. A catch-all never escalates.
   readonly setAmbient: (sink: (cause: Cause.Cause<unknown>) => void) => void
+  /**
+   * Construction-captured context — the FALLBACK builds on it (the ok-content
+   * subtree needs no capture: it is built by the boundary's drain fiber, which
+   * inherits the construction context). See ViewReactive.context.
+   */
+  readonly context?: Context.Context<never>
 }
 
 /** The phantom-free runtime IR — the shape `mount` switches on and the

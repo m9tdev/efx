@@ -122,12 +122,16 @@ describe("coerceAsync — reactive sources", () => {
       expect((view as View & { _tag: "Reactive" }).context).toBeDefined()
     }))
 
-  it.effect("Atom → View.Reactive carrying the atom", () =>
+  it.effect("Atom → View.Reactive carrying the atom (and the context capture)", () =>
     Effect.gen(function* () {
       const atom = Atom.make("hello")
       const view = yield* coerceAsync(atom)
       expect(view._tag).toBe("Reactive")
       expect((view as View & { _tag: "Reactive" }).source).toBe(atom)
+      // Pin the capture on the Atom branch too — dropping it would pass the
+      // rest of the suite (the mid-tree rebuild test uses an AtomRef slot)
+      // while Atom-sourced subtrees silently rebuilt on the root context.
+      expect((view as View & { _tag: "Reactive" }).context).toBeDefined()
     }))
 })
 

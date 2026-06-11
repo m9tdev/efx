@@ -85,13 +85,9 @@ export function coerceAsync(v: unknown): Effect.Effect<View, any, any> {
   // Reactive nodes capture the construction context so their re-renders run
   // on it — a mid-tree Effect.provide reaches every rebuild, not just the
   // first paint (see ViewReactive.context).
-  if (Atom.isAtom(v)) {
+  if (Atom.isAtom(v) || isAtomRef(v)) {
     return Effect.map(Effect.context<never>(), (context) =>
-      View.Reactive({ source: v as Atom.Atom<View>, context }))
-  }
-  if (isAtomRef(v)) {
-    return Effect.map(Effect.context<never>(), (context) =>
-      View.Reactive({ source: v as AtomRef.ReadonlyRef<View>, context }))
+      View.Reactive({ source: v as Atom.Atom<View> | AtomRef.ReadonlyRef<View>, context }))
   }
   return Effect.succeed(View.Text({ value: String(v) }))
 }
@@ -150,24 +146,18 @@ export const coerceSync = (
   if (isView(v)) return v
   if (Effect.isEffect(v)) {
     // An already-resolved Effect (an Exit — e.g. Effect.succeed) needs no
-    // scope, no context, and no fiber: unwrap it directly. Wrapping it in
-    // provideService first would defeat effect's own Exit fast path and spin
-    // a full fiber per re-render just to read a constant.
-    if (Exit.isExit(v)) {
-      return Exit.match(v as Exit.Exit<unknown, unknown>, {
-        onSuccess: (val) => coerceSync(val, scope, sink, run),
-        onFailure: (cause) => {
-          if (!Cause.hasInterruptsOnly(cause)) sink(cause)
-          return Empty
-        },
-      })
-    }
-    const provided = Effect.provideService(
-      v as Effect.Effect<unknown, unknown, Scope.Scope>,
-      Scope.Scope,
-      scope,
-    )
-    const exit = run(provided)
+    // scope, no context, and no fiber: feed it straight to Exit.match.
+    // Wrapping it in provideService first would defeat effect's own Exit fast
+    // path and spin a full fiber per re-render just to read a constant.
+    const exit = Exit.isExit(v)
+      ? (v as Exit.Exit<unknown, unknown>)
+      : run(
+        Effect.provideService(
+          v as Effect.Effect<unknown, unknown, Scope.Scope>,
+          Scope.Scope,
+          scope,
+        ),
+      )
     return Exit.match(exit, {
       onSuccess: (val) => coerceSync(val, scope, sink, run),
       onFailure: (cause) => {

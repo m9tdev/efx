@@ -129,27 +129,33 @@ interface RewriteState {
  * Import these unaliased.
  */
 /**
- * Strip expression wrappers that change only the TYPE (or grouping) of their
- * operand, never its runtime value: `x as T`, `x satisfies T`, `x!`, `<T>x`,
- * `(x)`. Used by `wrapTracked`'s function-skip so a cast-wrapped handler
- * (`onclick={(e => …) as EventHandler<…>}`) is recognized as the function it
- * is at runtime.
+ * Strip expression wrappers that change only the TYPE of their operand, never
+ * its runtime value: `x as T`, `x satisfies T`, `x!`. Used by `wrapTracked`'s
+ * skip checks so a cast-wrapped handler (`onclick={(e => …) as
+ * EventHandler<…>}`) or boundary (`{Async(…) satisfies …}`) is recognized for
+ * what it is at runtime. (No `<T>x` branch — the jsx parser plugin makes
+ * angle-bracket assertions unparseable; no ParenthesizedExpression — Babel
+ * only emits those under `createParenthesizedExpressions`, which we don't
+ * set: parens arrive as the bare inner node.)
  */
 const peelTypeWrappers = (expr: t.Expression): t.Expression => {
   let cur = expr
   while (
     t.isTSAsExpression(cur) ||
     t.isTSSatisfiesExpression(cur) ||
-    t.isTSNonNullExpression(cur) ||
-    t.isTSTypeAssertion(cur) ||
-    t.isParenthesizedExpression(cur)
+    t.isTSNonNullExpression(cur)
   ) {
     cur = cur.expression
   }
   return cur
 }
 
-const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set(["Async", "Catch"])
+// `list` belongs here too: a MANUAL `list(coll, row)` call (not just the
+// `.value.map` rewrite) self-subscribes inside mount, and since #72 its
+// return type carries the folded row channels — an `h.track` wrap would
+// erase them, recreating at the type level exactly the rows-die-at-runtime
+// lie the per-node capture work closed.
+const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set(["Async", "Catch", "list"])
 const isSelfTrackingCall = (expr: t.Expression): boolean =>
   t.isCallExpression(expr) &&
   t.isIdentifier(expr.callee) &&
@@ -165,7 +171,9 @@ const isSelfTrackingCall = (expr: t.Expression): boolean =>
  * Three rewrites are deliberately NOT wrapped, because wrapping would erase
  * their channels (h.track's `unknown`) without buying any reactivity:
  *   - `.value.map(arrow → JSX)` → `list(...)` (flips `state.wroteList` for the
- *     `list` auto-import; subscribes inside `mount`).
+ *     `list` auto-import) AND manual `list(coll, row)` calls — list
+ *     self-subscribes inside `mount`, and its return carries the folded row
+ *     channels (#72).
  *   - `Async(() => …, arms)` and `Catch(child, …)` calls — these
  *     self-track (see `isSelfTrackingCall`).
  *   - a whole-expression function value (`onclick={() => count.value + 1}`,
@@ -175,21 +183,25 @@ const isSelfTrackingCall = (expr: t.Expression): boolean =>
  *     `E`/`R` from the props fold (#72). The inner `h.read` rewrites are
  *     kept: they run at call time, where no tracker is active, as plain
  *     `.value` reads.
+ * All skip checks look through type-only wrappers (`as` / `satisfies` / `!`,
+ * see `peelTypeWrappers`).
  */
 const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
   const { expr: rewritten, rewroteRead } = rewriteTrackedExpression(expr, state)
   if (!rewroteRead) return rewritten
   state.usedH = true // the rewrite emitted h.read (and below, possibly h.track)
-  // Async / Catch self-track; the `.value`→`h.read` rewrite inside them is
-  // kept, but the outer `h.track` wrap is skipped so their channels survive the fold.
-  if (isSelfTrackingCall(rewritten)) return rewritten
+  // Both skip checks look through type-only wrappers: `{Async(…) satisfies X}`
+  // and `onclick={(arrow) as EventHandler<…>}` evaluate to the bare call /
+  // function at runtime, and wrapping them would erase exactly the channels
+  // (or the annotation) the user wrote the assertion to pin.
+  const peeled = peelTypeWrappers(rewritten)
+  // Async / Catch / manual list self-track (or self-subscribe); the
+  // `.value`→`h.read` rewrite inside them is kept, but the outer `h.track`
+  // wrap is skipped so their channels survive the fold.
+  if (isSelfTrackingCall(peeled)) return rewritten
   // A top-level function value can't read deps while being tracked — skip the
   // dead wrap so the function's type (an event handler's channels) survives.
-  // Peel type-level wrappers first: `(arrow) as EventHandler<…>`, `satisfies`,
-  // `!`, parens — they evaluate to the function unchanged, so the wrap is just
-  // as dead, and wrapping would erase exactly the annotation the docs
-  // recommend (`as EventHandler<Ev, E, R>`).
-  if (t.isFunction(peelTypeWrappers(rewritten))) return rewritten
+  if (t.isFunction(peeled)) return rewritten
   return t.callExpression(
     t.memberExpression(t.identifier("h"), t.identifier("track")),
     [t.arrowFunctionExpression([], rewritten)],

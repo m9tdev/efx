@@ -20,13 +20,24 @@ interface BuildCtx {
 }
 
 // Derive a node-scoped BuildCtx for an IR node that captured its construction
-// context (Element handlers, Reactive re-renders, List rows). Reference-equal
-// captures (same fiber, no mid-tree provide) keep the parent ctx — no
-// allocation on the common path.
-const withContext = (ctx: BuildCtx, context: Context.Context<never> | undefined): BuildCtx =>
-  context === undefined || context === ctx.context
-    ? ctx
-    : { ...ctx, context, runSyncExit: Effect.runSyncExitWith(context) }
+// context (Element handlers, Reactive re-renders, List rows, Boundary
+// fallbacks). Reference-equal captures (same fiber, no mid-tree provide) keep
+// the parent ctx — no allocation on that path. The runner is a LAZY memoized
+// getter: the Element path consumes only `context`/`sink` (handlers), so it
+// must not pay for a runner it never calls; the Reactive/List/Boundary paths
+// force it on their first coerceSync and reuse it after.
+const withContext = (ctx: BuildCtx, context: Context.Context<never> | undefined): BuildCtx => {
+  if (context === undefined || context === ctx.context) return ctx
+  let run: SyncRunner | undefined
+  return {
+    registry: ctx.registry,
+    sink: ctx.sink,
+    context,
+    get runSyncExit() {
+      return (run ??= Effect.runSyncExitWith(context))
+    },
+  }
+}
 
 // The per-dispatch runner a listener uses for handler Effects: built once at
 // listener-attach time (see applyProp) over the element's captured context.
@@ -119,13 +130,16 @@ const applyProp = (
   if (isHandlerKey(key) && typeof value === "function") {
     const event = key.slice(2).toLowerCase()
     const userHandler = value as (event: Event) => unknown
-    // Partially applied once per listener — the context is fixed for the
-    // listener's lifetime; re-applying the curried runner per dispatch would
-    // allocate on every event (mousemove, input…).
-    const runFork: ForkRunner = Effect.runForkWith(ctx.context)
+    // Built on the FIRST Effect-returning dispatch, then reused — the context
+    // is fixed for the listener's lifetime, but most handlers are imperative
+    // (never return an Effect), so paying the curried-runner allocation at
+    // attach time would waste every void-handler listener; paying it per
+    // dispatch would waste every event (mousemove, input…).
+    let runFork: ForkRunner | undefined
     const listener: EventListener = (e) => {
       const result = userHandler(e)
       if (Effect.isEffect(result)) {
+        runFork ??= Effect.runForkWith(ctx.context)
         runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, runFork, ctx.sink, scope)
       }
     }
@@ -363,6 +377,11 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       // Same build-NEW → swap → close-OLD ordering as Reactive.
       view.setAmbient(ctx.sink)
       const childCtx: BuildCtx = { ...ctx, sink: view.report }
+      // The fallback builds on the boundary's construction context (the ok
+      // content needs no swap — it was built by the boundary's drain fiber,
+      // which inherits that context) while keeping the AMBIENT sink, so a
+      // failure in the fallback still bubbles outward.
+      const fallbackCtx = withContext(ctx, view.context)
       let currentNode: Node = document.createComment("boundary-pending")
       let contentScope: Scope.Closeable | null = null
 
@@ -370,7 +389,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
         const built =
           st._tag === "ok"
             ? buildScopedChild(st.view, scope, childCtx)
-            : buildScopedChild(view.handler(st.cause, view.reset), scope, ctx)
+            : buildScopedChild(view.handler(st.cause, view.reset), scope, fallbackCtx)
         if (currentNode.parentNode) {
           currentNode.parentNode.replaceChild(built.node, currentNode)
         }
