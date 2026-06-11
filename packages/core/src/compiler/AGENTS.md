@@ -133,11 +133,11 @@ tracking: it now tracks identically to the inline form.
 Why this is safe **without** any compile-time "is `obj` an AtomRef?"
 analysis — the key design decision:
 
-- `h.read` is a **faithful, transparent wrapper** for `.value`. For any
-  non-AtomRef it is byte-for-byte `obj.value` (it throws on null exactly
-  as `.value` would — there is no `?.` swallow; see `readImpl` in
-  `verrex`). For a branded AtomRef it *additionally* records a dep
-  iff a tracker is active. So emitting `h.read` for *every* `.value` read
+- `h.read` is a **faithful, transparent wrapper** for `.value`: for any
+  non-AtomRef it is byte-for-byte `obj.value`; for a branded AtomRef it
+  *additionally* records a dep iff a tracker is active (exact wrapper
+  semantics live in [runtime AGENTS.md](../runtime/AGENTS.md)).
+  So emitting `h.read` for *every* `.value` read
   is sound; the runtime `isAtomRef` brand check is the only gate, and
   it's **exact** — it handles aliased imports, extracted refs,
   service-returned refs, and dynamic indirection that no syntactic

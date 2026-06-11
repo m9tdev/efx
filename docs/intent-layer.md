@@ -193,7 +193,10 @@ symlink covers the root node. This repo closes the gap with a generic
 `.claude/settings.json`): after any file Read/Edit/Write it walks up from
 the touched file to the nearest `AGENTS.md` and injects that node into
 context, deduplicated per node per session. Zero per-node maintenance —
-new nodes are discovered automatically.
+new nodes are discovered automatically. (Nearest-node injection plus the
+always-loaded root equals the full ancestor chain here, since the tree
+has no intermediate nodes; if one is ever added between root and a leaf,
+extend the hook to inject every node on the walk up.)
 
 Approaches tested and rejected (2026-06, fresh-session experiments):
 - **Per-directory `CLAUDE.md` symlinks** — works natively but litters the

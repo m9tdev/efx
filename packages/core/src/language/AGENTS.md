@@ -68,12 +68,11 @@ Two things matter here, both copied from the Vue/Astro pattern:
 
 - **`scriptKind: Deferred` (7)** signals that the actual script
   content/kind is described by the LanguagePlugin via
-  `getServiceScript`, not inferable from the extension. Earlier
-  versions used `ScriptKind.TS` (3) here; that "works" for the
-  tsserver path because Volar's `createLanguageServicePlugin`
-  injects files via `getExternalFiles` rather than relying on
-  config-file globs, but it breaks kit's standalone enumeration.
-  Use `Deferred` to make both code paths work.
+  `getServiceScript`, not inferable from the extension.
+  `ScriptKind.TS` (3) here "works" for the tsserver path — Volar's
+  `createLanguageServicePlugin` injects files via `getExternalFiles`
+  rather than relying on config-file globs — but breaks kit's
+  standalone enumeration. `Deferred` makes both code paths work.
 
 `getServiceScript` still returns `{ extension: ".ts", scriptKind:
 ScriptKind.TS }` — that describes the *virtual code's* content,

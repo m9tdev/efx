@@ -85,3 +85,11 @@ The harness's `finally` only closes the browser.
   smoke. Reactivity *logic* belongs in `packages/core/src/runtime`'s test
   suite.
 - Don't `git add` `/tmp/verrex-verify/` screenshots. They're throwaway.
+
+## Related context
+
+- [`apps/demo`](../apps/demo/AGENTS.md) — the app every probe drives;
+  its table says which component each probe exercises.
+- [`@verrex/core/testing`](../packages/core/src/testing/AGENTS.md) — the
+  in-process harness; prefer it for anything that doesn't need a real
+  browser (HMR, production bundles, real-DOM teardown stay here).
