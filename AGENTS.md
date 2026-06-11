@@ -220,8 +220,9 @@ re-render."
 ## Releasing
 
 Two packages publish to npm (`@verrex/core`, `@verrex/ts-plugin`) via
-release-please: pushes to `main` update a combined Release PR; merging
-it tags and publishes (tokenless OIDC + provenance). The one rule that
+release-please: pushes to `main` update one Release PR per package,
+titled `chore: release <component> <version>`; merging one tags and
+publishes that package (tokenless OIDC + provenance). The one rule that
 matters in every commit: **a commit bumps a package by the path of the
 files it changes, not by the commit scope** — keep a commit's edits
 inside one package dir to bump just that one; commits touching neither
