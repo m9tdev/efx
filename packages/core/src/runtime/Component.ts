@@ -42,9 +42,9 @@ type GenR<Eff> = [Eff] extends [never] ? never
  * left out until that issue proves the need.)
  *
  * The body takes at most one props object. A propless component takes no
- * parameter at all (`function* ()`): a zero-param function still satisfies
- * `h`'s tag position, and `TagProps` folds it to the empty object — no
- * `_props: {} = {}` boilerplate.
+ * parameter at all (`function* ()`): the compiler emits the zero-arg call
+ * `Counter()` for an attr-less, child-less tag — no `_props: {} = {}`
+ * boilerplate.
  *
  * ```tsx
  * export const Counter = Component.make(function* () {

@@ -53,8 +53,8 @@ const el = (container: HTMLElement, selector: string): HTMLElement => {
 /**
  * Mount a component into an in-process DOM and return a handle to drive it.
  *
- * `app` is a component result — `Component(props)` or `h(Component, props)` —
- * i.e. an `Effect<View, E, R>`. Provide a `layer` covering every service the
+ * `app` is a component result — `Component(props)`, what a component tag
+ * compiles to since #71 — i.e. an `Effect<View, E, R>`. Provide a `layer` covering every service the
  * component needs (the harness adds `AtomRegistry` + `Scope`); omit it only
  * when the component requires nothing else. A missing service is a compile
  * error, exactly as it would be at a real `mount`.

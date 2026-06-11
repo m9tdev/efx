@@ -1,7 +1,6 @@
 import type { Chunk, Effect, Option, Result } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { View } from "../View.ts"
-import type { IntrinsicProps } from "./Html.ts"
 
 /**
  * Documentation-only type listing the leaf shapes a child can take. The
@@ -33,13 +32,16 @@ export type Child =
   | ReadonlyArray<unknown>
 
 // Errors live in two honest homes by phase, so the fold has two families:
-//  - ChildE / TagE → CONSTRUCTION errors, on the result Effect's `E` channel
+//  - ChildE → CONSTRUCTION errors, on the result Effect's `E` channel
 //    (a child's build Effect failing propagates as the parent build fails).
-//  - ChildLiveE / TagLiveE → LIVE errors, on the result `View<E>` channel
+//  - ChildLiveE → LIVE errors, on the result `View<E>` channel
 //    (errors a rendered subtree can still produce — they ride the child's
 //    `View<E>` success). `R` unifies (one Layer set serves both phases), so
-//    there is a single `ChildR` / `TagR`.
+//    there is a single `ChildR`.
 // A `Catch` boundary discharges both; `mount` requires both `never`.
+// Component tags need no fold family of their own: since #71 the compiler
+// lowers `<MyComp/>` to a direct `MyComp({...})` call, so a component's
+// channels surface as an ordinary Effect CHILD of the surrounding `h()`.
 
 /**
  * Walk a single child's type, extracting the union of every **construction**
@@ -105,38 +107,3 @@ export type FoldLiveE<Cs extends readonly unknown[]> = ChildLiveE<Cs[number]>
 
 /** Fold a tuple of children to the union of their `R` channels. */
 export type FoldR<Cs extends readonly unknown[]> = ChildR<Cs[number]>
-
-/**
- * When the JSX tag is a component function `(props) => Effect<View<EV>, E, R>`,
- * extract its **construction** `E` so `h(Component, ...)` contributes it to the
- * result Effect's `E`. String tags contribute `never`.
- */
-export type TagE<T> = T extends (props: any) => Effect.Effect<any, infer E, any> ? E : never
-
-/**
- * Same, for the tag's **live** `E` — the `EV` riding its `View<EV>` success,
- * contributed to the result `View<E>` channel.
- */
-export type TagLiveE<T> = T extends (props: any) => Effect.Effect<infer A, any, any>
-  ? ChildLiveE<A>
-  : never
-
-/**
- * Same, for the tag's `R` channel.
- */
-export type TagR<T> = T extends (props: any) => Effect.Effect<any, any, infer R> ? R : never
-
-/**
- * The props shape a component tag expects, with `children` stripped (the JSX
- * factory threads children separately).
- *
- * For string tags ("div", "span", …) we fall back to the loose `Props` type;
- * a future improvement could thread `JSX.IntrinsicElements`-style HTML
- * attribute typing here.
- */
-export type TagProps<T> =
-  T extends string
-    ? IntrinsicProps
-    : T extends (props: infer P) => any
-      ? Omit<P, "children">
-      : Readonly<Record<string, unknown>>

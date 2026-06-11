@@ -7,7 +7,7 @@
  */
 import type { Effect } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
-import type { ChildE, ChildLiveE, ChildR, FoldE, FoldLiveE, FoldR, TagE, TagLiveE, TagR } from "./Fold.ts"
+import type { ChildE, ChildLiveE, ChildR, FoldE, FoldLiveE, FoldR } from "./Fold.ts"
 import type { View } from "../View.ts"
 
 // Test fixtures
@@ -87,8 +87,3 @@ assertEquals<FoldLiveE<readonly [ViewErr, EffLive]>, HttpError>()
 assertEquals<ChildLiveE<View>, never>()
 assertEquals<ChildE<View>, never>()
 
-// 14) Component tag: construction E vs live View<E> split, R folds.
-type Comp = (props: {}) => Effect.Effect<View<HttpError>, NotFound, DbService>
-assertEquals<TagE<Comp>, NotFound>()
-assertEquals<TagLiveE<Comp>, HttpError>()
-assertEquals<TagR<Comp>, DbService>()

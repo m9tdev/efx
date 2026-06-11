@@ -101,7 +101,8 @@ Service plugins only by bare package name.
   `mount`, `Async`, `asyncRef` (returning `AsyncHandle`), `list`, `Catch`, the View IR (mount switches on it),
   reactivity wiring, channel-fold types. The thing components import from.
 - **[`src/compiler/`](./packages/core/src/compiler/AGENTS.md)** — export
-  `@verrex/core/compiler`. The Babel transform: JSX → `h()`, `.value` → `h.read()`,
+  `@verrex/core/compiler`. The Babel transform: intrinsic JSX → `h()`,
+  component tags → direct calls (`MyComp({...})`), `.value` → `h.read()`,
   `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`. Smart-skip wrap.
 - **[`src/language/`](./packages/core/src/language/AGENTS.md)** — export
   `@verrex/core/language`. The Volar `LanguagePlugin` describing `.vx` files (file id,
@@ -169,8 +170,8 @@ Service plugins only by bare package name.
   single-prop signature is what makes `<Counter />`
   compile (h's tag-as-function path calls `tag(props)`); a propless
   component takes **no parameter at all** — the old
-  `_props: {} = {}` boilerplate is gone (a zero-param tag still
-  satisfies `h`, and `TagProps` folds it to the empty object;
+  `_props: {} = {}` boilerplate is gone (the compiler emits the
+  zero-arg call `Counter()` for an attr-less, child-less tag;
   pinned in `Component.test-d.ts`). A *generic* component uses the
   Effect-returning form
   (`Component.make(<T,>(props: { item: T }) => Effect.gen(…))`),

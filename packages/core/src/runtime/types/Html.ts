@@ -1,7 +1,7 @@
 /**
  * Typed event handlers for HTML intrinsic elements. Mirrors the common
  * `on*` properties DOM elements expose, with the right event type per
- * handler. Used by `TagProps<string>` (in `Fold.ts`) so that
+ * handler. Used by `h()`'s `_props` parameter (`IntrinsicProps`) so that
  *
  *   <button onclick={(e) => …}>   // e: MouseEvent
  *   <form onsubmit={(e) => …}>    // e: SubmitEvent

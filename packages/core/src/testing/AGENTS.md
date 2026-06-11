@@ -18,8 +18,8 @@ await ui.tick()
 await ui.unmount()
 ```
 
-- `render(app, layer?)` — `app` is a component result (`Component(props)`
-  or `h(Component, props)`), i.e. an `Effect<View, E, R>`. Creates a
+- `render(app, layer?)` — `app` is a component result (`Component(props)`,
+  what a component tag compiles to since #71), i.e. an `Effect<View, E, R>`. Creates a
   container on `document.body`, makes a Closeable `Scope`, and runs
   `mount(app, container)` with `VerrexLive` (AtomRegistry) + that scope
   provided. Returns once the DOM is attached.

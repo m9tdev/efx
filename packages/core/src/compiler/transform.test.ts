@@ -42,18 +42,18 @@ describe("JSX → h() rewrites", () => {
       .toMatch(/h\("div",\s*\{\s*\.\.\.props\s*\}\s*\)/)
   })
 
-  it("capitalized tag becomes identifier (component)", () => {
+  it("capitalized tag becomes a direct call (component lowering)", () => {
     expect(compile(`
       const x = <Foo bar={1} />
     `))
-      .toContain(`h(Foo, { bar: 1 })`)
+      .toContain(`Foo({ bar: 1 })`)
   })
 
   it("fragment <>...</> uses Fragment identifier", () => {
     expect(compile(`
       const x = <><span /><span /></>
     `))
-      .toContain(`h(Fragment, {}, h("span", {}), h("span", {}))`)
+      .toContain(`Fragment({ children: [h("span", {}), h("span", {})] })`)
   })
 
   it("nested JSX is recursively rewritten", () => {
@@ -129,7 +129,7 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
     const out = compile(`
       const x = <Row item={item} />
     `)
-    expect(out).toContain(`h(Row, { item: item })`)
+    expect(out).toContain(`Row({ item: item })`)
     expect(out).not.toContain(`h.track`)
   })
 
@@ -181,7 +181,7 @@ describe(".value.map(arrow → JSX) → list(...) rewrite", () => {
     `,
     )
     expect(out).toContain(`list(coll, item =>`)
-    expect(out).toContain(`h(Row, { item: item })`)
+    expect(out).toContain(`Row({ item: item })`)
   })
 
   it("does NOT wrap the rewritten call in h.track (no redundant reactivity)", () => {
@@ -211,7 +211,7 @@ describe(".value.map(arrow → JSX) → list(...) rewrite", () => {
     `,
     )
     expect(out).toContain(`list(coll,`)
-    expect(out).toContain(`h(Row, { item: item })`)
+    expect(out).toContain(`Row({ item: item })`)
   })
 
   it("supports JSX fragment as arrow body (direct and via block)", () => {
@@ -225,7 +225,7 @@ describe(".value.map(arrow → JSX) → list(...) rewrite", () => {
     `,
     )
     expect(direct).toContain(`list(coll,`)
-    expect(direct).toContain(`h(Fragment,`)
+    expect(direct).toContain(`Fragment({ children:`)
 
     const block = compile(
       `
@@ -233,7 +233,7 @@ describe(".value.map(arrow → JSX) → list(...) rewrite", () => {
     `,
     )
     expect(block).toContain(`list(coll,`)
-    expect(block).toContain(`h(Fragment,`)
+    expect(block).toContain(`Fragment({ children:`)
   })
 
   it("does NOT rewrite when the arrow body is not JSX (preserves Array.map / Collection.map)", () => {
@@ -812,5 +812,61 @@ describe("Component.make name injection", () => {
       const { x } = Component.make(fn)
     `)
     expect(out).toContain(`Component.make(fn)`)
+  })
+})
+
+describe("component-tag lowering (direct calls, #71)", () => {
+  it("no attrs, no children → zero-arg call (propless components stay callable)", () => {
+    expect(compile(`const x = <Counter />`)).toContain(`Counter()`)
+  })
+
+  it("children land as a `children` array prop", () => {
+    const out = compile(`const x = <Layout><span /\>hi</Layout>`)
+    expect(out).toContain(`Layout({ children: [h("span", {}), "hi"] })`)
+  })
+
+  it("attrs and children combine in one props object", () => {
+    const out = compile(`const x = <Layout pad={2}><span /></Layout>`)
+    expect(out).toContain(`Layout({ pad: 2, children: [h("span", {})] })`)
+  })
+
+  it("JSX children override an explicit children attr (React semantics)", () => {
+    const out = compile(`const x = <Layout children={old}><span /></Layout>`)
+    expect(out).not.toContain(`old`)
+    expect(out).toContain(`children: [h("span", {})]`)
+  })
+
+  it("member-expression tags lower to direct calls too", () => {
+    expect(compile(`const x = <UI.Button label="ok" />`)).toContain(`UI.Button({ label: "ok" })`)
+  })
+
+  it("spread attrs pass through into the props object", () => {
+    expect(compile(`const x = <Foo {...rest} />`)).toContain(`Foo({ ...rest })`)
+  })
+
+  it("a component-only file imports no `h` at all", () => {
+    const out = compile(`export const x = <Counter />`)
+    expect(out).not.toContain(`import`)
+  })
+
+  it("a fragment-only file imports Fragment but not h", () => {
+    const out = compile(`const x = <>{Counter()}</>`)
+    expect(out).toMatch(/import \{ Fragment \} from "@verrex\/core"/)
+    expect(out).not.toMatch(/\bh\b[^.]*from/)
+  })
+
+  it("intrinsics still route through h (and import it)", () => {
+    const out = compile(`const x = <div><Counter /></div>`)
+    expect(out).toContain(`h("div", {}, Counter())`)
+    expect(out).toMatch(/import \{ h \} from "@verrex\/core"/)
+  })
+
+  it("namespaced tags stay string-tagged through h", () => {
+    expect(compile(`const x = <svg:rect width="1" />`)).toContain(`h("svg:rect", { width: "1" })`)
+  })
+
+  it("a spread child expands into the children array (component) and the call args (intrinsic)", () => {
+    expect(compile(`const x = <Foo>{...items}</Foo>`)).toContain(`Foo({ children: [...items] })`)
+    expect(compile(`const y = <div>{...items}</div>`)).toContain(`h("div", {}, ...items)`)
   })
 })
