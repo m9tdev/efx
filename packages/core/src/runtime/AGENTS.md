@@ -34,14 +34,18 @@ surrounding `h()`. `mount` requires both error channels `never`;
 names the error — the runtime counterpart of a forgotten Layer naming a
 service. See [`types/Fold.ts`](./types/Fold.ts).
 
-### `h()` parameter naming — coupled to the TS plugin
+### Compiler-slot parameter naming — coupled to the TS plugin
 
-The `HFn` type's parameters are `_tag`, `_props`, `_children`
-(underscore prefix, in `h.ts`). This is **coupled to
+The `HFn` type's parameters are `_tag`, `_props`, `_children` (in
+`h.ts`) and `Component.make`'s name slot is `_name` (in `Component.ts`)
+— underscore prefix marks a compiler-filled slot. This is **coupled to
 [`@verrex/ts-plugin`](../../../ts-plugin/AGENTS.md)** — the plugin's
 inlay-hint filter drops any hint matching
-`/^_?(tag|props|children):?$/i`, so these labels never appear in
-the editor margin. If you rename them, update the regex.
+`/^(?:_?(?:tag|props|children)|_name):?$/i`, so these labels never
+appear in the editor margin (without the filter, the injected name
+argument's `_name:` hint would render after the call's `})`). `_name`
+is matched underscore-only — bare `name:` is a common user parameter
+and keeps its hint. If you rename a slot, update the regex.
 
 ## Files
 
@@ -88,7 +92,8 @@ if it grows past these, it's grown too much:
    no name → no span (the anonymous `Effect.fn` form never calls
    `useSpan`), but failures still carry definition + call-site stack
    frames via `CurrentStackFrame`. In plain `.ts` (tests, harnesses) pass
-   the name explicitly.
+   the name explicitly. The parameter is `_name` — see "Compiler-slot
+   parameter naming" above for the inlay-hint coupling.
 
 Runtime: `Effect.fn` accepts both body shapes (it checks
 `isEffect(body(...))` before iterating), so one implementation serves both
