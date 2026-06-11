@@ -80,6 +80,25 @@ export const list = <T>(
 export const asyncRef = <A, E, R>(
   effect: () => Effect.Effect<A, E, R>,
 ): Effect.Effect<AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>, never, R | Scope.Scope> =>
+  Effect.map(makeAsyncRef(effect), (r) => r.state)
+
+/**
+ * `asyncRef`'s engine, internal: additionally exposes `refetch` — the same
+ * `schedule` a dep change triggers (fresh dep snapshot, stale run
+ * interrupted). `Async` hands it to failure arms as `retry`; the public
+ * `asyncRef` deliberately returns only the state ref (API minimalism — a
+ * manual-refetch primitive is a separate design decision).
+ */
+const makeAsyncRef = <A, E, R>(
+  effect: () => Effect.Effect<A, E, R>,
+): Effect.Effect<
+  {
+    readonly state: AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>
+    readonly refetch: () => void
+  },
+  never,
+  R | Scope.Scope
+> =>
   Effect.gen(function* () {
     const state = AtomRef.make<AsyncResult.AsyncResult<A, E>>(AsyncResult.initial(true))
     const scope = yield* Effect.scope
@@ -128,7 +147,10 @@ export const asyncRef = <A, E, R>(
       }),
     )
 
-    return state as AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>
+    return {
+      state: state as AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>,
+      refetch: schedule,
+    }
   })
 
 // ─── Tagged-error dispatch (shared by Async's tag-map `failure` arm and Catch) ─
@@ -197,7 +219,7 @@ const taggedMatch = (
   handlers: Record<string, unknown>,
   cause: Cause.Cause<unknown>,
 ):
-  | { readonly handler: (error: any, reset?: () => void) => unknown; readonly error: unknown }
+  | { readonly handler: (error: any, extra?: () => void) => unknown; readonly error: unknown }
   | undefined => {
   const err = Option.getOrUndefined(Cause.findErrorOption(cause))
   const t =
@@ -205,7 +227,7 @@ const taggedMatch = (
   if (t === undefined || !Object.hasOwn(handlers, t)) return undefined
   const fn = handlers[t]
   return typeof fn === "function"
-    ? { handler: fn as (error: any, reset?: () => void) => unknown, error: err }
+    ? { handler: fn as (error: any, extra?: () => void) => unknown, error: err }
     : undefined
 }
 
@@ -218,9 +240,14 @@ interface AsyncArmsBase<A> {
   readonly initial?: View | Effect.Effect<View, any, any>
   readonly success: (value: A) => View | Effect.Effect<View, any, any>
 }
-/** Handled form: `failure` renders the failure locally → `E` discharged. */
+/** Handled form: `failure` renders the failure locally → `E` discharged.
+ * `retry` re-runs the thunk (fresh dep snapshot) — the leaf analog of
+ * `Catch`'s `reset`. */
 interface AsyncArmsHandled<A, E> extends AsyncArmsBase<A> {
-  readonly failure: (cause: Cause.Cause<E>) => View | Effect.Effect<View, any, any>
+  readonly failure: (
+    cause: Cause.Cause<E>,
+    retry: () => void,
+  ) => View | Effect.Effect<View, any, any>
 }
 /** Open form: no `failure` arm — the failure rides the live channel (`View<E>`). */
 interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
@@ -252,7 +279,7 @@ interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
  * function-vs-object forms):
  *
  *  - **function** — catch-all: every failure is handled here as a value (the
- *    arm gets the full `Cause<E>`) and the result is
+ *    arm gets the full `Cause<E>` plus `retry`) and the result is
  *    `Effect<View<never>, never, R | Scope>` — fully discharged, nothing for a
  *    boundary to see.
  *  - **tag map** — `failure: { NotFound: (e) => … }`: a matched tag is handled
@@ -264,8 +291,11 @@ interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
  *    function-valued keys — prefer inline literals: pre-built/widened maps
  *    can over-discharge, see #91). A typo'd key mixed with ≥1 valid key is
  *    silently dead — its tag stays on the channel. A tag map on an `E` with
- *    no tagged members is rejected at compile time. Handlers get no retry
- *    callback yet (TODO; `Catch`'s `reset` is the boundary-side analog).
+ *    no tagged members is rejected at compile time.
+ *
+ * Every failure handler (catch-all and tag-map) receives `retry: () => void`
+ * as its last argument — it re-runs the thunk with a fresh dep snapshot, the
+ * leaf analog of `Catch`'s `reset` (which re-runs *construction*).
  *  - **omitted** — the failure **rides the live channel**: the result is
  *    `Effect<View<E>, never, R | Scope>`, the failure (initial fetch *or* any
  *    refetch) routes to the nearest enclosing `Catch`, and `mount`'s
@@ -282,7 +312,7 @@ export function Async<
   R,
   // `never` when E has no tagged members: without it, Types.Tags<E> = never makes
   // the constraint the empty mapped type and ANY map compiles, silently dead.
-  Handlers extends [Types.Tags<E>] extends [never] ? never : TagHandlers<E>,
+  Handlers extends [Types.Tags<E>] extends [never] ? never : TagHandlers<E, [retry: () => void]>,
 >(
   from: () => Effect.Effect<A, E, R>,
   arms: AsyncArmsBase<A> & { readonly failure: Handlers },
@@ -295,7 +325,7 @@ export function Async<A, E, R>(
   from: () => Effect.Effect<A, E, R>,
   arms: AsyncArmsBase<A> & {
     readonly failure?:
-      | ((cause: Cause.Cause<E>) => View | Effect.Effect<View, any, any>)
+      | ((cause: Cause.Cause<E>, retry: () => void) => View | Effect.Effect<View, any, any>)
       | Record<string, unknown>
   },
 ): Effect.Effect<View<E>, never, R | Scope.Scope> {
@@ -303,8 +333,8 @@ export function Async<A, E, R>(
   // Fail fast at the call site: a tag map that can't dispatch is a
   // programming error, not a renderable failure.
   if (failure && typeof failure === "object") assertHandlerMap(failure, "Async")
-  return asyncRef(from).pipe(
-    Effect.map((state) =>
+  return makeAsyncRef(from).pipe(
+    Effect.map(({ refetch, state }) =>
       View.Reactive({
         source: state.map((r) =>
           AsyncResult.match(r, {
@@ -318,12 +348,12 @@ export function Async<A, E, R>(
             // interrupt-only guard already ran in `asyncRef` (teardown never
             // reaches the Failure state).
             onFailure: (f) => {
-              if (typeof failure === "function") return failure(f.cause)
+              if (typeof failure === "function") return failure(f.cause, refetch)
               // Truthiness (not === undefined): a nullish `failure` smuggled
               // past the types degrades to the open form instead of crashing
               // `Object.hasOwn` — matching the pre-tag-map behavior.
               const match = failure ? taggedMatch(failure, f.cause) : undefined
-              return match ? match.handler(match.error) : Effect.failCause(f.cause)
+              return match ? match.handler(match.error, refetch) : Effect.failCause(f.cause)
             },
             onSuccess: (s) => arms.success(s.value),
           }),

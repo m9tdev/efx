@@ -345,6 +345,32 @@ const TagMapAll = Async(getUserTwo, {
 assertEquals<typeof TagMapAll, Effect.Effect<View, never, Http | Scope.Scope>>()
 mount(TagMapAll, root)
 
+// Every failure handler (catch-all and tag-map) receives `retry` last —
+// typed () => void, the leaf analog of Catch's reset.
+const HandledRetry = Async(getUser42, {
+  success: (u) => h("p", {}, u.name),
+  failure: (cause, retry) => {
+    const _c: Cause.Cause<HttpError> = cause
+    const _r: () => void = retry
+    void _c
+    void _r
+    return h("p", {}, "failed")
+  },
+})
+assertEquals<typeof HandledRetry, Effect.Effect<View, never, Http | Scope.Scope>>()
+
+const TagMapRetry = Async(getUserTwo, {
+  success: (u) => h("p", {}, u.name),
+  failure: {
+    HttpError: (e, retry) => {
+      const _r: () => void = retry
+      void _r
+      return h("p", {}, `${e.status}`)
+    },
+  },
+})
+assertEquals<typeof TagMapRetry, Effect.Effect<View<ParseError>, never, Http | Scope.Scope>>()
+
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
 // The `@ts-expect-error` assertions above prove props are type-checked at

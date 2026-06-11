@@ -223,11 +223,17 @@ mirroring `Catch`'s function-vs-object convention:
   runtime (erasure) and stays a documented limitation (#91): prefer inline
   handler literals.
   The handler-map shape itself is the shared `TagHandlers<E, Extra>` alias
-  (Catch instantiates `Extra = [reset]`), so the planned Async retry callback
-  (TODO — `Catch`'s `reset` is the boundary-side analog) is a one-place
-  change. Pinned by `testing/async-tagmap.test.ts` (incl. the
-  recover-without-reset semantic and nullish-arm degradation) and the tag-map
-  `Async` section of `apps/demo/src/channels.test-d.ts`.
+  (Catch instantiates `Extra = [reset]`, Async `[retry]`). Every Async
+  failure handler — catch-all `(cause, retry)` and tag-map `(error, retry)` —
+  receives **`retry`** last: it re-runs the thunk with a fresh dep snapshot
+  (`makeAsyncRef`'s `refetch`, the same `schedule` a dep change triggers),
+  the leaf analog of `Catch`'s `reset` (which re-runs *construction*). The
+  public `asyncRef` still returns only the state ref; `makeAsyncRef` is the
+  internal engine that also exposes `refetch`. Pinned by
+  `testing/async-tagmap.test.ts` (incl. the recover-without-reset semantic
+  and nullish-arm degradation), `testing/async-retry.test.ts` (retry on both
+  arm forms; failed retry stays retryable), and the tag-map `Async` section
+  of `apps/demo/src/channels.test-d.ts`.
 - **omit `failure`** → the failure **rides the live channel**:
   `Effect<View<E>, never, R | Scope>`. This is the leaf primitive that stamps
   `View<E≠never>`. Both an initial-fetch failure and a refetch failure route to
