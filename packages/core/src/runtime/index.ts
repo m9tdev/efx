@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Fiber, Layer, Option, Queue, Scope } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Option, Queue, Scope, type Types } from "effect"
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { type ErrorSink, trackDeps } from "./coerce.ts"
 import { type BoundaryState, type Props, View } from "./View.ts"
@@ -134,8 +134,6 @@ export const asyncRef = <A, E, R>(
 // ─── Tagged-error dispatch (shared by Async's tag-map `failure` arm and Catch) ─
 
 type Tagged = { readonly _tag: string }
-type TagsOf<E> = E extends Tagged ? E["_tag"] : never
-type WithoutTag<E, Tag extends string> = Exclude<E, { readonly _tag: Tag }>
 
 /**
  * Tag-selective handler map over `E`'s tagged members; `Extra` appends the
@@ -150,7 +148,7 @@ type WithoutTag<E, Tag extends string> = Exclude<E, { readonly _tag: Tag }>
  * can over-discharge — the type/runtime gap is tracked in #91.
  */
 type TagHandlers<E, Extra extends ReadonlyArray<unknown> = []> = {
-  readonly [K in TagsOf<E>]?: (
+  readonly [K in Types.Tags<E>]?: (
     error: Extract<E, { readonly _tag: K }>,
     ...rest: Extra
   ) => View | Effect.Effect<View, any, any>
@@ -253,13 +251,13 @@ export function Async<
   A,
   E,
   R,
-  // `never` when E has no tagged members: without it, TagsOf<E> = never makes
+  // `never` when E has no tagged members: without it, Types.Tags<E> = never makes
   // the constraint the empty mapped type and ANY map compiles, silently dead.
-  Handlers extends [TagsOf<E>] extends [never] ? never : TagHandlers<E>,
+  Handlers extends [Types.Tags<E>] extends [never] ? never : TagHandlers<E>,
 >(
   from: () => Effect.Effect<A, E, R>,
   arms: AsyncArmsBase<A> & { readonly failure: Handlers },
-): Effect.Effect<View<WithoutTag<E, keyof Handlers & string>>, never, R | Scope.Scope>
+): Effect.Effect<View<Types.ExcludeTag<E, keyof Handlers & string>>, never, R | Scope.Scope>
 export function Async<A, E, R>(
   from: () => Effect.Effect<A, E, R>,
   arms: AsyncArmsOpen<A>,
@@ -480,8 +478,8 @@ export function Catch<
   child: Effect.Effect<View<EV>, EC, R>,
   handlers: Handlers,
 ): Effect.Effect<
-  View<WithoutTag<EV, keyof Handlers & string>>,
-  WithoutTag<EC, keyof Handlers & string>,
+  View<Types.ExcludeTag<EV, keyof Handlers & string>>,
+  Types.ExcludeTag<EC, keyof Handlers & string>,
   R | Scope.Scope
 >
 export function Catch(
