@@ -133,17 +133,43 @@ describe("AsyncHandle", () => {
     }
   })
 
-  it("types: handle-based Async contributes only Scope to R; E homes work as with a thunk", () => {
-    const open = (user: AsyncHandle<string, NotFound>) =>
-      Async(user, {
-        success: (n) => h("span", {}, n),
-      }) satisfies Effect.Effect<View<NotFound>, never, Scope.Scope>
-    const tagMap = (user: AsyncHandle<string, NotFound>) =>
-      Async(user, {
-        success: (n) => h("span", {}, n),
-        failure: { NotFound: (e, retry) => h("button", { onclick: retry }, e.id) },
-      }) satisfies Effect.Effect<View, never, Scope.Scope>
-    expect(typeof open).toBe("function")
-    expect(typeof tagMap).toBe("function")
+  it("refetch after the creating scope closed is a silent no-op returning false", async () => {
+    let captured!: AsyncHandle<string, NotFound>
+    let thunkRuns = 0
+    const Page = Effect.fn(function* () {
+      const client = yield* Users
+      const user = yield* asyncRef(() => {
+        thunkRuns++
+        return client.get("7")
+      })
+      captured = user
+      return yield* h("div", {},
+        yield* Async(user, {
+          success: (n) => h("span", { class: "ok" }, n),
+          failure: () => h("span", {}, "fail"),
+        }),
+      )
+    })()
+    const ui = await render(Page, usersWith((id) => Effect.succeed(`hi ${id}`)))
+    await ui.waitFor(".ok")
+    expect(captured.refetch()).toBe(true) // alive: scheduled
+    await ui.unmount()
+    const runsAtClose = thunkRuns
+    expect(captured.refetch()).toBe(false) // dead: dropped, signalled
+    expect(thunkRuns).toBe(runsAtClose) // and the thunk did NOT re-run
   })
 })
+
+// Compile-time pins (no runtime component — `satisfies` does the work):
+// handle-based Async contributes only Scope to R; E homes work as with a thunk.
+const _openPin = (user: AsyncHandle<string, NotFound>) =>
+  Async(user, {
+    success: (n) => h("span", {}, n),
+  }) satisfies Effect.Effect<View<NotFound>, never, Scope.Scope>
+const _tagMapPin = (user: AsyncHandle<string, NotFound>) =>
+  Async(user, {
+    success: (n) => h("span", {}, n),
+    failure: { NotFound: (e, retry) => h("button", { onclick: retry }, e.id) },
+  }) satisfies Effect.Effect<View, never, Scope.Scope>
+void _openPin
+void _tagMapPin

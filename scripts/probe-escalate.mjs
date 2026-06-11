@@ -83,15 +83,33 @@ await runProbe({
 
     // 6. Spam never touched the selection: the page banner's refetch+reset
     //    re-fetches the STILL-SELECTED Bad id → 404 → handled at the leaf
-    //    again. A good id then fully recovers.
+    //    again. (Necessary-refetch proof for the page banner: reset alone
+    //    would re-escalate the stale RateLimited, never reach the leaf.)
     await settle()
     await demo.locator(".page-fallback button.retry").click()
     await demo.locator(".content .leaf-fallback").waitFor()
     console.log("PASS: page banner refetch+reset kept the selected id (404 → leaf)")
+
+    // 7. Necessary-refetch proof for the OPEN banner: its handle has been
+    //    failed (404) since step 4 — no dep change recovered it — so reset
+    //    alone would re-escalate instantly with no loading window. The
+    //    refetch flips waiting synchronously, so the rebuild must show the
+    //    loading arm before the re-failure brings the banner back.
+    await settle()
+    await demo.locator(".open-fallback button.retry").click()
+    await demo.locator(".contrast .loading").waitFor()
+    await demo.locator(".open-fallback").waitFor()
+    console.log("PASS: open banner refetch engaged (loading shown), re-escalated on 404")
+
+    // 8. A good id, then the open banner's retry recovers it too — no stale
+    //    banner left at exit.
     await settle()
     await demo.locator("button", { hasText: "Ada (42)" }).click()
     await waitForText(/Ada Lovelace/)
-    console.log("PASS: good id recovered the content")
+    await settle()
+    await demo.locator(".open-fallback button.retry").click()
+    await demo.locator(".open-ok", { hasText: "Ada Lovelace" }).waitFor()
+    console.log("PASS: both blocks recovered (no stale banner at exit)")
 
     if (errors.length > 0) {
       console.error("FAIL: console errors:", errors)

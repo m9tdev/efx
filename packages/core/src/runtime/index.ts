@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Fiber, Layer, Option, Queue, Scope, type Types } from "effect"
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { type ErrorSink, trackDeps } from "./coerce.ts"
+import { type ErrorSink, isAtomRef, trackDeps } from "./coerce.ts"
 import { type BoundaryState, type Props, View } from "./View.ts"
 
 export { h } from "./h.ts"
@@ -59,15 +59,29 @@ export const list = <T>(
 /**
  * What `asyncRef` returns: the reactive result plus a manual `refetch`.
  * `refetch` re-runs the thunk with a fresh dep snapshot — exactly what a
- * tracked-dep change triggers — interrupting the stale run; it is a no-op
- * once the creating scope has closed (a retained handle can't resurrect
- * subscriptions). The handle outlives any view rendering it: an `Async`
- * subtree swapped away by a `Catch` does not stop the fetch loop.
+ * tracked-dep change triggers — interrupting the stale run, and flips the
+ * state to waiting SYNCHRONOUSLY (so a re-render in the same tick observes
+ * it). It returns `false` — a silent no-op, request dropped — once the
+ * creating scope has closed: a retained handle can't resurrect
+ * subscriptions, and the return value is how a caller tells a dead handle
+ * from a scheduled run. The handle outlives any view rendering it: an
+ * `Async` subtree swapped away by a `Catch` does not stop the fetch loop.
  */
 export interface AsyncHandle<A, E> {
   readonly state: AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>
-  readonly refetch: () => void
+  readonly refetch: () => boolean
 }
+
+/**
+ * What `Async` accepts in `from` position: a thunk (creates a
+ * boundary-private handle; `R` folds here) or an existing {@link AsyncHandle}
+ * (data decoupled from the view). The `R = never` default is LOAD-BEARING: a
+ * handle mentions no `R`, so without it inference would fall back to
+ * `unknown` and poison the fold — every `Async` overload must keep the
+ * default. A callable value is ALWAYS treated as a thunk, even if it also
+ * carries handle-shaped properties — don't build callable handle hybrids.
+ */
+type AsyncSource<A, E, R = never> = (() => Effect.Effect<A, E, R>) | AsyncHandle<A, E>
 
 /**
  * The reactive effectful data primitive — the async leaf of the
@@ -107,19 +121,28 @@ export const asyncRef = <A, E, R>(
     let unsubs: Array<() => void> = []
     let closed = false
 
-    const schedule = (): void => {
+    const schedule = (): boolean => {
       // `schedule` escapes this scope as `refetch`/`retry` (handed to failure
       // arms), so a retained reference can fire after teardown — a stashed
       // retry in a setTimeout, a click racing a boundary swap. Once the scope
       // closes this must be a no-op: re-subscribing would register
       // subscriptions the (already-run) finalizer can never clean, and the
-      // queue's only consumer is dead.
-      if (closed) return
+      // queue's only consumer is dead. `false` is the caller's only signal.
+      if (closed) return false
+      // Flip to waiting SYNCHRONOUSLY, before the run is even enqueued: a
+      // rebuild in the same tick — `refetch(); reset()` in either order —
+      // must observe waiting, not re-escalate the stale non-waiting Failure.
+      // (The supervisor's own set on take is a deduped duplicate, and
+      // corrective in the rare interleaving where the prior run completes in
+      // between. At construction the state is already Initial(waiting) — the
+      // set dedups to a no-op.)
+      state.set(AsyncResult.waitingFrom(Option.some(state.value)))
       for (const u of unsubs) u()
       unsubs = []
       const { result: eff, deps } = trackDeps(effect)
       for (const dep of deps) unsubs.push(dep.subscribe(schedule))
       Queue.offerUnsafe(runs, eff)
+      return true
     }
     schedule() // initial run + dep subscriptions
     yield* Scope.addFinalizer(
@@ -330,7 +353,7 @@ interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
  * infinite loop.
  */
 export function Async<A, E, R = never>(
-  from: (() => Effect.Effect<A, E, R>) | AsyncHandle<A, E>,
+  from: AsyncSource<A, E, R>,
   arms: AsyncArmsHandled<A, E>,
 ): Effect.Effect<View, never, R | Scope.Scope>
 export function Async<
@@ -341,15 +364,15 @@ export function Async<
   Handlers extends [Types.Tags<E>] extends [never] ? never : TagHandlers<E, [retry: () => void]>,
   R = never,
 >(
-  from: (() => Effect.Effect<A, E, R>) | AsyncHandle<A, E>,
+  from: AsyncSource<A, E, R>,
   arms: AsyncArmsBase<A> & { readonly failure: Handlers },
 ): Effect.Effect<View<Types.ExcludeTag<E, keyof Handlers & string>>, never, R | Scope.Scope>
 export function Async<A, E, R = never>(
-  from: (() => Effect.Effect<A, E, R>) | AsyncHandle<A, E>,
+  from: AsyncSource<A, E, R>,
   arms: AsyncArmsOpen<A>,
 ): Effect.Effect<View<E>, never, R | Scope.Scope>
 export function Async<A, E, R = never>(
-  from: (() => Effect.Effect<A, E, R>) | AsyncHandle<A, E>,
+  from: AsyncSource<A, E, R>,
   arms: AsyncArmsBase<A> & {
     readonly failure?:
       | ((cause: Cause.Cause<E>, retry: () => void) => View | Effect.Effect<View, any, any>)
@@ -364,9 +387,12 @@ export function Async<A, E, R = never>(
   // subscribed as-is — the data outlives this subtree, so a boundary `reset`
   // re-renders the handle's CURRENT state and does NOT refetch (compose
   // `() => { handle.refetch(); reset() }` when retry should do both).
-  const source: Effect.Effect<AsyncHandle<A, E>, never, R | Scope.Scope> =
-    typeof from === "function" ? asyncRef(from) : Effect.succeed(from)
-  return source.pipe(
+  // Fail fast on a non-handle smuggled past the types (cast, JS) — same
+  // stance as assertHandlerMap.
+  if (typeof from !== "function" && !isAtomRef(from.state)) {
+    throw new TypeError("Async: `from` is neither a thunk nor an AsyncHandle (`state` is not an AtomRef)")
+  }
+  return (typeof from === "function" ? asyncRef(from) : Effect.succeed(from)).pipe(
     Effect.map(({ refetch, state }) =>
       View.Reactive({
         source: state.map((r) =>

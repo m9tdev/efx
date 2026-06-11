@@ -20,7 +20,7 @@ const ApiLive = Layer.succeed(Api, {
     }),
 })
 
-// Build with raw h(): `data.map(AsyncResult.match(...))` is a ReadonlyRef<string>
+// Build with raw h(): `data.state.map(AsyncResult.match(...))` is a ReadonlyRef<string>
 // → coerces to a reactive node. No compiler needed.
 const Widget = (id: AtomRef.AtomRef<string>) =>
   Effect.fn(function* () {

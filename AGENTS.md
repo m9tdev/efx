@@ -98,7 +98,7 @@ editor plugin is the one separate package, because tsserver resolves Language
 Service plugins only by bare package name.
 
 - **[`src/runtime/`](./packages/core/src/runtime/AGENTS.md)** — export `@verrex/core`. `h`,
-  `mount`, `Async`, `asyncRef`, `list`, `Catch`, the View IR (mount switches on it),
+  `mount`, `Async`, `asyncRef` (returning `AsyncHandle`), `list`, `Catch`, the View IR (mount switches on it),
   reactivity wiring, channel-fold types. The thing components import from.
 - **[`src/compiler/`](./packages/core/src/compiler/AGENTS.md)** — export
   `@verrex/core/compiler`. The Babel transform: JSX → `h()`, `.value` → `h.read()`,
