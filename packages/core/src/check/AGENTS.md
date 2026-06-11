@@ -194,8 +194,7 @@ LSP protocol.
   mirror the Astro name and semantics (`astro-check`'s `options.ts`
   in `refs/astro-language-tools`) so future code ports cleanly.
 - Don't reintroduce on-disk sibling `.ts` files. The whole point
-  of `@verrex/core/check` replacing the old `verrex-compile + tsc --noEmit`
-  flow is that no auxiliary on-disk shim is needed — `.vx`
+  of `@verrex/core/check` is that no auxiliary on-disk shim is needed — `.vx`
   enters the program directly through the language plugin's
   virtual code. If you find yourself emitting `.ts` siblings,
   step back; the resolver works via `extraFileExtensions`

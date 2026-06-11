@@ -117,10 +117,8 @@ Every JSX expression `{...}` triggers up to three local rewrites:
 `a && b`, `!x` positions are **not** rewritten. Users must write
 `.value` explicitly — that keeps the types honest
 (`ref.value: boolean`, not `AtomRef<boolean>`) and avoids surprising
-reads where none looked syntactically present. An earlier version of
-the compiler emitted `h.peek(...)` for bare test-position identifiers;
-that was removed because the implicit unwrap diverged from the type
-TS would assign at the source site.
+reads where none looked syntactically present: an implicit unwrap would
+diverge from the type TS assigns at the source site.
 
 ## Whole-body `.value` reads
 
@@ -135,11 +133,11 @@ tracking: it now tracks identically to the inline form.
 Why this is safe **without** any compile-time "is `obj` an AtomRef?"
 analysis — the key design decision:
 
-- `h.read` is a **faithful, transparent wrapper** for `.value`. For any
-  non-AtomRef it is byte-for-byte `obj.value` (it throws on null exactly
-  as `.value` would — there is no `?.` swallow; see `readImpl` in
-  `verrex`). For a branded AtomRef it *additionally* records a dep
-  iff a tracker is active. So emitting `h.read` for *every* `.value` read
+- `h.read` is a **faithful, transparent wrapper** for `.value`: for any
+  non-AtomRef it is byte-for-byte `obj.value`; for a branded AtomRef it
+  *additionally* records a dep iff a tracker is active (exact wrapper
+  semantics live in [runtime AGENTS.md](../runtime/AGENTS.md)).
+  So emitting `h.read` for *every* `.value` read
   is sound; the runtime `isAtomRef` brand check is the only gate, and
   it's **exact** — it handles aliased imports, extracted refs,
   service-returned refs, and dynamic indirection that no syntactic
@@ -231,8 +229,7 @@ space. Pure-whitespace nodes drop.
 
 The subtlety that bit us: a newline *between two words* must collapse to
 one space, not to nothing — otherwise multi-line prose renders
-`whosepoint`. The earlier `replace(/\s*\n\s*/g, "")` deleted that space;
-the port restores it. Whitespace adjacent to an element/expression
+`whosepoint`. Whitespace adjacent to an element/expression
 boundary still trims to nothing, so — exactly as in React — a tag on its
 own line concatenates with neighbouring text unless the source adds an
 explicit `{" "}`.
@@ -325,11 +322,10 @@ in five steps:
      highlight every `h` identifier).
    - Otherwise → `"user"` (full features).
 
-The lengths-on-both-sides design is **load-bearing**: a regression
-where only source lengths were tracked caused inlay-hint positions
-to drift one column to the left (`( : numbern)` instead of
-`(n: number)`). See `source-map.test.ts` — that test asserts
-the exact `(source: 2, generated: 1)` shape for the PR #12 case.
+The lengths-on-both-sides design is **load-bearing**: tracking only
+source lengths makes inlay-hint positions drift one column left
+(`( : numbern)` instead of `(n: number)`). `source-map.test.ts` pins
+the exact `(source: 2, generated: 1)` shape.
 
 `@verrex/core/language` uses `mappings` directly and never re-decodes the
 Babel source map. The bidirectional length asymmetry is captured
@@ -364,11 +360,18 @@ code for the file → tsserver returns the project's *global scope*
 (999 entries — every DOM ambient declaration) for completion
 requests instead of the member list the user expects.
 
-With recovery, Babel emits a partial AST and attaches parse errors
-to `ast.errors`. We don't read that array — downstream `tsc` will
-surface real errors as diagnostics. Recovery isn't omnipotent: some
-mid-edit states inside JSX expressions (`<div>{x.}</div>`) still
-throw. The common case — typing a `.` in plain user code — works.
+With recovery, Babel emits a partial AST for *recoverable* errors and
+attaches them to `ast.errors`. We don't read that array — downstream
+`tsc` will surface real errors as diagnostics. But recovery is **not a
+no-throw guarantee**: Babel still hard-throws on fatal states, including
+the most common mid-edit ones — `count.` at EOF, an unterminated tag
+("Unexpected token"), `<div>{x.}</div>`. Recovery only helps when a
+following token exists to recover *into* (`x.` followed by `return` parses
+as `x.return`). Callers that must survive the hard-throws wrap this call:
+the language plugin degrades to the file's last good compile
+(`onTransformError: "recover"`, #102). The build path passes
+`errorRecovery: false` so a genuine syntax error throws loudly instead of
+shipping a recovered/garbage module.
 
 ## Anti-patterns
 

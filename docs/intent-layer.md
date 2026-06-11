@@ -184,6 +184,33 @@ Survey your team's tools and ensure nodes auto-load everywhere. Options:
 Avoid duplicating content across every filetype—this bloats the layer and
 creates drift.
 
+### Claude Code specifics (what this repo does)
+
+Claude Code auto-loads nested `CLAUDE.md` files on demand but does **not**
+read nested `AGENTS.md` — only the root-level `CLAUDE.md → AGENTS.md`
+symlink covers the root node. This repo closes the gap with a generic
+**PostToolUse hook** (`.claude/hooks/inject-intent-node.sh`, wired in
+`.claude/settings.json`): after any file Read/Edit/Write it walks up from
+the touched file to the nearest `AGENTS.md` and injects that node into
+context, deduplicated per node per session. Zero per-node maintenance —
+new nodes are discovered automatically. (Nearest-node injection plus the
+always-loaded root equals the full ancestor chain here, since the tree
+has no intermediate nodes; if one is ever added between root and a leaf,
+extend the hook to inject every node on the walk up.)
+
+Approaches tested and rejected (2026-06, fresh-session experiments):
+- **Per-directory `CLAUDE.md` symlinks** — works natively but litters the
+  tree with nine symlinks.
+- **`.claude/rules/` with `@`-imports** — imports expand **eagerly** at
+  session start regardless of `paths` scoping, loading the entire node
+  tree (~36k tokens) into every session.
+- **`.claude/rules/` pointer instructions** — lazy and correct, but needs
+  a mapping rule per node (brittle parallel structure), and relies on the
+  agent following the instruction rather than mechanical injection.
+
+The hook's injection behavior (PostToolUse `additionalContext`) was
+verified end-to-end in a live session.
+
 ## Naive vs. Effective Implementation
 
 **Naive approach:**

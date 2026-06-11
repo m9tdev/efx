@@ -62,29 +62,21 @@ live in [`@verrex/core/language`](../core/src/language/AGENTS.md) — shared wit
 
 ## The Volar language plugin
 
-The plugin itself — `getLanguageId`, `createVirtualCode`,
-`typescript.extraFileExtensions`, `typescript.getServiceScript`,
-source-map conversion, the three `CodeInformation` profiles for
-h-call vs. punctuation vs. normal source — lives in
-[`@verrex/core/language`](../core/src/language/AGENTS.md). Read that node for the full
-picture; the short version is:
+The LanguagePlugin itself lives in
+[`@verrex/core/language`](../core/src/language/AGENTS.md); if a bug points
+at file enumeration, virtual-code content, the `VerrexVirtualCode` class,
+or the source-map mappings, the fix is there, not here. This package's
+wiring:
 
 - `service-proxy.ts` calls `createVerrexLanguagePlugin<string>((s) => s)`
   — tsserver identifies scripts by string filenames.
 - The resulting LanguagePlugin gets handed to Volar's
-  `createLanguageServicePlugin` quickstart helper, which is what
-  hooks Volar into tsserver's plugin protocol. We pass a
-  `setup(language)` callback to that helper; it fires synchronously
-  inside `create(info)`, and we stash the session's `Language` so the
-  proxy can resolve compiled `.vx` files from it.
-- Everything in this package after that point is the *proxy
-  wrapper* below — it doesn't touch the language plugin internals,
-  only the LanguageService results it produces.
-
-If a bug points at file enumeration, virtual-code content, the
-`VerrexVirtualCode` class, or the source-map mappings, the fix is in
-`@verrex/core/language`, not here. The proxy wrapper below is this
-package's actual responsibility.
+  `createLanguageServicePlugin` quickstart helper, which hooks Volar
+  into tsserver's plugin protocol. Our `setup(language)` callback fires
+  synchronously inside `create(info)` and stashes the session's
+  `Language` so the proxy can resolve compiled `.vx` files from it.
+- Everything else in this package is the *proxy wrapper* below — it
+  only touches the LanguageService results.
 
 `getVerrexVirtualCode(fileName)` resolves
 `language.scripts.get(fileName).generated.root` and narrows it with
@@ -237,7 +229,7 @@ index sees usages across files. No sibling `.ts` shim is involved.
   decided at `createVirtualCode` time per range; that's how Volar
   caches mappings.
 - Don't add a fourth CodeInformation profile without checking
-  Vue's docs and Volar source — the four flags
+  Vue's docs and Volar source — the six flags
   (`verification`/`completion`/`semantic`/`navigation`/`structure`/`format`)
   interact in non-obvious ways.
 - Don't switch `extraFileExtensions.scriptKind` /

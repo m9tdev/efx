@@ -55,7 +55,7 @@ the editor margin. If you rename them, update the regex.
 | `reconcile.ts` | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops |
 | `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`, `VerrexLive` |
 | `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
-| `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality matches the old single-pass; index updates on shift) |
+| `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality; index updates on shift) |
 | `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls) |
 | `types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics |
 | `types/Fold.test-d.ts` | `assertEquals` matrix — every channel-fold shape |
@@ -72,10 +72,9 @@ if it grows past these, it's grown too much:
    join UI to backend (the `asyncRef` supervisor forked during construction
    inherits the span context, so refetches nest under the component).
    Opt-out: write a plain `Effect.fnUntraced` function — components are
-   just functions; `make` is a seam, not a gate. (A `makeUntraced` twin
-   was tried and removed as premature; note `Effect.fnUntraced` iterates
-   the body's result unconditionally — generator bodies only.) Framework
-   internals stay untraced.
+   just functions; `make` is a seam, not a gate. (Note `Effect.fnUntraced`
+   iterates the body's result unconditionally — generator bodies only.)
+   Framework internals stay untraced.
 2. **Signature-preserving type.** Two overloads: an Effect-returning
    component hits the identity-typed one (`(f: F) => F`), so a
    *generic* component survives with its type parameter intact — which
@@ -93,14 +92,12 @@ if it grows past these, it's grown too much:
 
 Runtime: `Effect.fn` accepts both body shapes (it checks
 `isEffect(body(...))` before iterating), so one implementation serves both
-overloads. (A runtime brand for #71's direct-call lowering was considered
-and deliberately left out until that issue proves the need.)
+overloads.
 
 The body takes **at most one** props object. A propless component takes no
-parameter at all — `function* ()`, not the old `_props: {} = {}`
-boilerplate: a zero-param tag still satisfies `h` (fewer params is
-assignable) and `TagProps` folds it to the empty object. Pinned in
-`Component.test-d.ts`.
+parameter at all — `function* ()`: a zero-param tag still satisfies `h`
+(fewer params is assignable) and `TagProps` folds it to the empty object.
+Pinned in `Component.test-d.ts`.
 
 ## Reactivity model
 
@@ -222,14 +219,13 @@ Solid's Resource — **not** React Suspense). Two exports, both in `index.ts`:
 
 - **`asyncRef(() => effect)`** — the primitive. Runs the effect and returns an
   **`AsyncHandle<A, E>`**: a reactive `state:
-  AtomRef.ReadonlyRef<AsyncResult<A, E>>` plus a manual `refetch: () => void`
+  AtomRef.ReadonlyRef<AsyncResult<A, E>>` plus a manual `refetch: () => boolean`
   (the same `schedule` a dep change triggers — fresh dep snapshot, stale run
   interrupted; a no-op once the creating scope closes). Handle the state with
   Effect's own `AsyncResult.match`. (`refetch` returns `boolean` — `false`
-  means the creating scope closed and the request was dropped. The earlier
-  "state-ref only / refetch is a separate design decision" stance was
-  reversed in #101: refetch was already load-bearing as the arms' `retry`,
-  and the demo needed synthetic-dep workarounds without it.)
+  means the creating scope closed and the request was dropped. Refetch
+  belongs on the handle: it's the same mechanism the arms' `retry` uses
+  (#101) — don't split it back out.)
   ```tsx
   const user = yield* asyncRef(() => http.getUser(userId.value))
   <button onclick={user.refetch}>refresh</button>
@@ -567,10 +563,8 @@ keyed-diff decision lives in [`reconcile.ts`](./reconcile.ts) —
 `plan(prevKeys, nextKeys)` returns `remove`/`insert`/`move`/`keep` ops
 over opaque keys, with zero DOM/`Scope`/`Effect` dependency, so the
 runtime's most bug-prone logic is unit-testable without mounting
-(see `reconcile.test.ts`). The `insert`/`move`/`remove` ops are
-behaviourally equivalent to the old inline single-pass cursor loop —
-each drives exactly one of the same DOM mutations, same nodes, same
-order — so behaviour is unchanged. `mount`'s `List` case interprets the
+(see `reconcile.test.ts`). Each op drives exactly one DOM mutation,
+deterministically — same nodes, same order. `mount`'s `List` case interprets the
 ops against real DOM nodes and per-row scopes: `remove` closes-then-
 detaches, `insert` calls `buildScopedChild`, `move` repositions, `keep`
 is index-only. Don't reintroduce the diff inline in `mount` — the seam
@@ -589,8 +583,8 @@ an `AtomRef.ReadonlyRef<number>`, not a plain number. The planner emits
 the next-order index on every retained row (`move`/`keep`), and the
 interpreter pushes it into the row's index ref (guarded by an equality
 check so unchanged indices don't notify). A moved or shifted row's
-`{index.value}` therefore updates **without re-rendering the row** —
-the old `index: number` left it stale. Reading `index.value` tracks via
+`{index.value}` therefore updates **without re-rendering the row**.
+Reading `index.value` tracks via
 `h.read` like any ref. A reorder/shift never rebuilds a row's DOM; only
 `insert` builds and `remove` tears down.
 
@@ -663,9 +657,8 @@ typically) and keep it alive for the lifetime of the rendered UI.
 
 Component tags lower to direct calls (`<Row item={x}/>` →
 `Row({ item: x })`), so a generic component's `T` infers natively at
-the call site — the old h()-mediated higher-rank erasure is gone, and
-`list()` is no longer a generics workaround (it remains the keyed
-reconciliation primitive; the compiler still rewrites
+the call site. `list()` is the keyed reconciliation primitive only —
+not a generics workaround (the compiler still rewrites
 `{coll.value.map(item => <Row/>)}` into `list(coll, …)`).
 
 The caveat: a **tracked attr** still erases. An attr value containing a

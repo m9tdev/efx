@@ -162,20 +162,16 @@ Service plugins only by bare package name.
   props object.** Write `export const Counter = Component.make(function* () { … })`
   (or `function* (props: { id: string })` when there are props),
   not a bare `Effect.fn` wrap or `(props) => Effect.gen(function* () { … })`.
-  `Component.make` is a thin seam over `Effect.fn` (traced by default —
-  span cost is per-mount, and spans buy component stack traces in a
-  failure `Cause` plus OTel UI↔backend joins); in `.vx` source the
-  compiler injects the span name from the declared name
-  (`Component.make(fn)` → `Component.make(fn, "Counter")`). The
-  single-prop signature is what makes `<Counter />`
-  compile (h's tag-as-function path calls `tag(props)`); a propless
-  component takes **no parameter at all** — the old
-  `_props: {} = {}` boilerplate is gone (the compiler emits the
-  zero-arg call `Counter()` for an attr-less, child-less tag;
-  pinned in `Component.test-d.ts`). A *generic* component uses the
+  The single-prop signature is what makes `<Counter />` compile
+  (component tags lower to direct calls — `Counter(props)`, zero-arg
+  `Counter()` when attr-less and child-less); a propless component
+  takes **no parameter at all**. A *generic* component uses the
   Effect-returning form
   (`Component.make(<T,>(props: { item: T }) => Effect.gen(…))`),
-  whose identity-typed overload preserves the type parameter.
+  whose identity-typed overload preserves the type parameter. The
+  seam's three jobs (traced spans, signature preservation,
+  compiler-filled name slot) live in
+  [`src/runtime/AGENTS.md`](./packages/core/src/runtime/AGENTS.md).
 - **`refs/` is reference material for inspiration.** Cloned external
   repos — search here when stuck on design questions or debugging
   integrations. Key references:
@@ -193,7 +189,7 @@ Service plugins only by bare package name.
 ## Tooling at a glance
 
 - pnpm workspace, 2 packages (`@verrex/core` + `@verrex/ts-plugin`) + demo + workspace root.
-- Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.71`).
+- Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.78`).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.
 - Babel as the `.vx` parser (parser + traverse + generate
@@ -223,53 +219,24 @@ re-render."
 
 ## Releasing
 
-Two packages publish to npm — **`@verrex/core`** and **`@verrex/ts-plugin`** —
-driven by conventional commits via release-please
-(`release-please-config.json` + `.release-please-manifest.json`,
-`.github/workflows/release.yml`). On every push to `main`, release-please
-opens/updates one combined **Release PR**; merging it tags the releases and
-the publish job pushes to npm.
-
-- **A commit bumps a package by the path of the files it changes, not by the
-  commit scope.** Files under `packages/core/**` bump `@verrex/core`; files under
-  `packages/ts-plugin/**` bump `@verrex/ts-plugin`; a commit spanning both
-  bumps both; a commit touching neither (root, `apps/demo/`, `.github/`, docs)
-  releases nothing. The `(scope)` in `feat(compiler):` is changelog-cosmetic
-  only — keep a commit's edits inside one package dir to bump just that one.
-- **Versions are independent** (no linked-versions plugin) — each package
-  bumps off its own commits and carries its own CHANGELOG + tag
-  (`core-v…`, `ts-plugin-v…` — release-please's node strategy strips the
-  npm scope from tag names; a scoped tag like `@verrex/core-v0.1.0` is
-  invisible to it and breaks changelog anchoring).
-- **Still pre-1.0:** `bump-minor-pre-major` + `bump-patch-for-minor-pre-major`
-  keep `feat`→minor / `fix`→patch *within* 0.x until you cut a 1.0.
-- **Tokenless publish:** OIDC trusted publishing, no `NPM_TOKEN`. Provenance is
-  turned on by the `--provenance` flag in `release.yml` (deliberately *not* in
-  `publishConfig`, so a one-time local bootstrap publish doesn't try to attest
-  outside CI and fail). Requires a Trusted Publisher (this repo + `release.yml`)
-  configured per package at npmjs.com. `minimumReleaseAge` still applies to
-  *our* installs — never bypass it.
-- **First publish (bootstrap):** trusted publishing needs the package to exist
-  on npm first, so the very first version of each package is published manually
-  (`pnpm --filter <pkg> publish --access public`) — no provenance on that one.
-  Configure the Trusted Publisher afterward; every release from then on is
-  tokenless CI with provenance.
-- **go-to-definition lands in source.** Each publishable package keeps its
-  dev `exports` pointing at `src/*` (what the workspace and editors resolve,
-  so go-to-def jumps into `.ts`), and a `publishConfig.exports` override
-  repoints every subpath to `dist/*` at publish time. The tarball ships
-  **both** `dist` and `src` plus declaration maps (`declarationMap` +
-  `sourceMap`), so a consumer's go-to-def resolves through `.d.ts.map` into the
-  shipped `.ts`. `@verrex/core` builds via `tsc -p tsconfig.build.json`
-  (`rewriteRelativeImportExtensions` turns `./x.ts` imports into `./x.js`);
-  `@verrex/ts-plugin` is the esbuild bundle (`dist/index.cjs`), so it ships
-  `dist` only.
+Two packages publish to npm (`@verrex/core`, `@verrex/ts-plugin`) via
+release-please: pushes to `main` update a combined Release PR; merging
+it tags and publishes (tokenless OIDC + provenance). The one rule that
+matters in every commit: **a commit bumps a package by the path of the
+files it changes, not by the commit scope** — keep a commit's edits
+inside one package dir to bump just that one; commits touching neither
+package (root, `apps/demo/`, `.github/`, docs) release nothing. Full
+process — version/tag scheme, pre-1.0 bump policy, trusted-publisher
+bootstrap, dist/src shipping for go-to-def — in
+[`docs/RELEASING.md`](./docs/RELEASING.md).
 
 ## Reference docs (outlinks)
 
 - [`README.md`](./README.md) — public-facing intro + editor setup.
 - [`docs/intent-layer.md`](./docs/intent-layer.md) — explains the
   AGENTS.md tree itself: what it is, how to capture and maintain it.
+- [`docs/RELEASING.md`](./docs/RELEASING.md) — the full release process
+  (release-please, OIDC publishing, exports/dist shipping).
 
 ## Maintaining the Intent Layer
 
@@ -285,6 +252,16 @@ Signs an AGENTS.md needs updating:
 - You added a new subsystem that warrants its own node
 
 The root `CLAUDE.md` is a symlink to `AGENTS.md` — no need to maintain both.
+
+Claude Code does not auto-load nested `AGENTS.md` files (only the root,
+via the symlink). The checked-in PostToolUse hook
+[`.claude/hooks/inject-intent-node.sh`](./.claude/hooks/inject-intent-node.sh)
+closes that gap: after any file Read/Edit/Write it finds the nearest
+`AGENTS.md` above the touched file and injects it into context, once per
+node per session. It is fully generic — **a new node anywhere is picked
+up automatically, no registration needed** (see
+`docs/intent-layer.md` § File Naming for the verified behavior and the
+approaches that were rejected).
 
 ## Anti-patterns at the root
 

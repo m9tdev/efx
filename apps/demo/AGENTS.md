@@ -33,10 +33,7 @@ directly, `vite build` runs
 [`@verrex/core/vite`](../../packages/core/src/vite-plugin/AGENTS.md)
 directly, and the editor's
 [TS plugin](../../packages/ts-plugin/AGENTS.md) maps virtual-code
-results back to source `.vx` positions natively. (An earlier
-demo build script ran an `verrex-compile` CLI that emitted sibling
-`.ts` files for tsc to pick up — `@verrex/core/compiler` itself was, and
-still is, a pure in-memory `transformVerrex`. The CLI is gone.)
+results back to source `.vx` positions natively.
 
 ## `channels.test-d.ts`
 
@@ -66,10 +63,9 @@ purely a typing assertion.
 ## Vite dev server
 
 `vite.config.ts` is intentionally minimal — it wires
-`@verrex/core/vite`. The plugin's `configureServer` middleware adds
-`?import` to any `.vx` URL so Vite treats it as a module rather
-than serving raw text on direct GET. Don't add a separate
-filename-rewrite shim; the plugin already handles it.
+`@verrex/core/vite`, which owns the whole `.vx` story (transform + URL
+middleware; see [its node](../../packages/core/src/vite-plugin/AGENTS.md)).
+Don't add a separate filename-rewrite shim; the plugin already handles it.
 
 The dev server binds to `0.0.0.0` (set in vite.config.ts) so LAN
 devices can hit the demo. Don't drop that without checking.
