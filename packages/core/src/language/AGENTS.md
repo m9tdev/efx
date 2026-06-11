@@ -183,9 +183,19 @@ picked by `options.onTransformError`:
   features that *decorate* positions (inlay hints, hover, semantic
   tokens, diagnostics) or *write* at them (rename, format) are off —
   a shifted hint renders inside the wrong token, a shifted rename
-  edits the wrong code. A file that has never compiled falls back to
-  an empty module (`export {}`), keeping the script in the project
-  with no false claims.
+  edits the wrong code. `jsxRanges` are **dropped, not served stale**:
+  `@verrex/ts-plugin` consumes them directly off the instance
+  (tag-pair highlights), bypassing the mapping gates entirely, so the
+  only safe stale value is none. Residual accepted risk: completion
+  is itself a write path (auto-import edits) — see `FALLBACK_DATA`'s
+  comment for why it stays on anyway. A file that has never compiled
+  falls back to an empty module (`export {}`), keeping the script in
+  the project with no false claims. The `lastGood` entry is evicted
+  via `disposeVirtualCode` when Volar drops the script, so a deleted
+  file's exports can't be resurrected for a recreated path. In
+  `"throw"` mode the error is rethrown with the file named — Babel's
+  message carries only line:col, and `verrex-check --watch` prints it
+  verbatim.
 - **`"throw"`** (batch hosts — `@verrex/core/check` passes this): a
   checker must fail loudly, never report against a stale compile.
   The check watch loop catches per-pass and keeps the session alive.

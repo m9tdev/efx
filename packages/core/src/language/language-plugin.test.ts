@@ -50,6 +50,19 @@ describe("createVerrexLanguagePlugin transform-error recovery", () => {
     expect(code.compiled).toContain("greeting")
     // The virtual code still carries the CURRENT (broken) source text.
     expect(code.source).toBe(BROKEN)
+    // jsxRanges are never served stale: the ts-plugin reads them directly
+    // off the instance (tag-pair highlights), bypassing the mapping gates.
+    expect(code.jsxRanges).toEqual([])
+  })
+
+  it("evicts the last-good entry when Volar disposes the script", () => {
+    const p = plugin()
+    const good = compile(p, "/a.vx", GOOD) as VerrexVirtualCode
+    p.disposeVirtualCode!("/a.vx", good)
+    const code = compile(p, "/a.vx", BROKEN) as VerrexVirtualCode
+    // A recreated path with unparseable content must not be served the dead
+    // file's exports.
+    expect(code.compiled).toBe("export {}\n")
   })
 
   it("degrades fallback mappings to completion-only", () => {
@@ -90,11 +103,13 @@ describe("createVerrexLanguagePlugin transform-error recovery", () => {
     expect(code.compiled).toBe("export {}\n")
   })
 
-  it('"throw" mode propagates, for batch hosts', () => {
+  it('"throw" mode propagates with the file named, for batch hosts', () => {
     const p = createVerrexLanguagePlugin<string>((scriptId) => scriptId, {
       onTransformError: "throw",
     })
     compile(p, "/a.vx", GOOD)
-    expect(() => compile(p, "/a.vx", BROKEN)).toThrow(/Unexpected token/)
+    // Babel's message carries only line:col; batch hosts print this verbatim,
+    // so the file must be named.
+    expect(() => compile(p, "/a.vx", BROKEN)).toThrow(/\/a\.vx: Unexpected token/)
   })
 })

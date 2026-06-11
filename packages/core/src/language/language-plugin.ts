@@ -15,6 +15,12 @@ import { VerrexVirtualCode } from "./virtual-code.ts"
 //   identifier apart);
 // - navigation (rename!) and format are off — they WRITE at mapped offsets,
 //   and a stale offset would edit the wrong code.
+//
+// Residual risk, accepted: completion is itself a write path (auto-import
+// additionalTextEdits land at the import block's mapped offsets). Those
+// offsets only shift when the breaking edit sits ABOVE the imports — mid-edit
+// deltas almost always sit below them — and disabling completion would gut
+// the fallback's purpose.
 const FALLBACK_DATA: CodeInformation = {
   verification: false,
   completion: true,
@@ -79,11 +85,10 @@ export function createVerrexLanguagePlugin<T>(
 ): LanguagePlugin<T, VerrexVirtualCode> & { typescript: TypeScriptConfig } {
   const onTransformError = options.onTransformError ?? "recover"
   // Last successful compile per file, the "recover" fallback. Bounded by the
-  // project's .vx file count; entries are the size of the compiled output.
-  const lastGood = new Map<
-    string,
-    Pick<VerrexVirtualCode, "compiled" | "mappings" | "jsxRanges">
-  >()
+  // project's .vx file count (evicted via disposeVirtualCode); entries are
+  // the size of the compiled output. No jsxRanges: the fallback never serves
+  // them (see below).
+  const lastGood = new Map<string, Pick<VerrexVirtualCode, "compiled" | "mappings">>()
 
   return {
     getLanguageId(scriptId) {
@@ -103,23 +108,42 @@ export function createVerrexLanguagePlugin<T>(
       try {
         const result = transformVerrex(source, fileName)
         const mappings = convertSourceMap(result.mappings)
-        lastGood.set(fileName, { compiled: result.code, mappings, jsxRanges: result.jsxRanges })
+        lastGood.set(fileName, { compiled: result.code, mappings })
         return new VerrexVirtualCode(source, result.code, mappings, result.jsxRanges)
       } catch (error) {
-        if (onTransformError === "throw") throw error
+        if (onTransformError === "throw") {
+          // Babel's message carries only line:col — name the file for batch
+          // hosts (a multi-file `verrex-check --watch` pass reports this
+          // message verbatim).
+          throw new Error(
+            `${fileName}: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error },
+          )
+        }
         const cached = lastGood.get(fileName)
         if (cached) {
           // The cached mappings refer to the previous source text, so they're
           // served with FALLBACK_DATA: completion-only (see above) — features
           // that decorate or write at mapped positions stay off until the
-          // source parses again.
+          // source parses again. jsxRanges are dropped, not served stale:
+          // the ts-plugin consumes them directly off the instance (tag-pair
+          // highlights), bypassing the mapping gates, and shifted ranges
+          // would decorate the wrong tokens — the failure FALLBACK_DATA
+          // exists to prevent.
           const mappings = cached.mappings.map((mapping) => ({ ...mapping, data: FALLBACK_DATA }))
-          return new VerrexVirtualCode(source, cached.compiled, mappings, cached.jsxRanges)
+          return new VerrexVirtualCode(source, cached.compiled, mappings, [])
         }
         // Never compiled successfully (file created mid-edit): an empty
         // module keeps the script in the project with no false claims.
         return new VerrexVirtualCode(source, "export {}\n", [], [])
       }
+    },
+
+    // Volar calls this when a script is removed; without it the lastGood
+    // entry would outlive the file, and a path recreated with unparseable
+    // content would be served the dead file's exports as current.
+    disposeVirtualCode(scriptId) {
+      lastGood.delete(asFileName(scriptId))
     },
 
     typescript: {
