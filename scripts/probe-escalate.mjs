@@ -76,10 +76,11 @@ await runProbe({
     //    (.caught is CSS-uppercased → /i.)
     await settle()
     await demo.locator("button.spam").click()
+    await waitForText(/429 rate-limited/) // the request log narrates the limiter
     await waitForText(/page boundary caught: RateLimited/i)
     await waitForText(/retry in \d+ms/)
     await demo.locator(".open-fallback").waitFor()
-    console.log("PASS: real rate limit tripped; residual escalated to the page tag map")
+    console.log("PASS: real rate limit tripped (logged); residual escalated to the page tag map")
 
     // 6. Controls outside the boundaries survived; the window passes, page
     //    boundary reset re-runs construction → recovers (three flips from

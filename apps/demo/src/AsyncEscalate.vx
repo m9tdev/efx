@@ -34,13 +34,16 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
  * `View<HttpError | RateLimited>` to its catch-all `Catch` (`Cause.pretty` +
  * `reset`). Deleting that `Catch` is a compile error naming the full union.
  *
- * **The rate limit is real**: a sliding-window limiter on the demo's fake
- * endpoint allows 2 requests/second ACROSS BOTH BLOCKS (each id click costs
- * one request per block). The check + stamp run synchronously when the thunk
- * builds the request — i.e. at refetch time — so spamming is deterministic:
- * the "spam requests" button fires three refetch rounds back-to-back, enough
- * to exceed the budget even when only one block is still live. A limited
- * request never reaches `Http`.
+ * **The rate limit is real, and the request log makes it legible**: a
+ * sliding-window limiter on the fake endpoint allows 2 requests/second
+ * ACROSS BOTH BLOCKS. Every request the endpoint receives appends a log
+ * line — `sent (n/2 this second)`, its `← 200/404` outcome, `← interrupted`
+ * when a newer refetch took over, or `→ 429` when the budget is spent. The
+ * check + stamp run synchronously when the thunk builds the request (refetch
+ * time), so spamming is deterministic; a limited request never reaches
+ * `Http`. The log also shows WHY a click costs two requests (one per live
+ * block) — and only one once a block has escalated (its fetch loop is dead
+ * until its boundary resets).
  *
  * The id buttons live *outside* both boundaries so they survive the fallback
  * swaps. (Tag maps only catch errors in the *type* — an untyped defect would
@@ -51,6 +54,14 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
 export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = {}) {
   const userId = AtomRef.make("42")
   const http = yield* Http
+
+  // The request log: newest line first, capped. A plain reactive text ref —
+  // the whole story of the limiter told by the demo itself.
+  const reqLog = AtomRef.make("")
+  let seq = 0
+  const logLine = (line: string): void => {
+    reqLog.update((cur) => [line, ...cur.split("\n")].slice(0, 6).join("\n"))
+  }
 
   // Sliding-window rate limiter: at most LIMIT request creations per WINDOW,
   // shared by both blocks (it guards the endpoint, not the consumer). Runs in
@@ -63,10 +74,18 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
     const now = Date.now()
     while (stamps.length > 0 && now - (stamps[0] ?? now) >= WINDOW_MS) stamps.shift()
     if (stamps.length >= LIMIT) {
-      return Effect.fail(new RateLimited({ retryAfterMs: WINDOW_MS - (now - (stamps[0] ?? now)) }))
+      const retryAfterMs = WINDOW_MS - (now - (stamps[0] ?? now))
+      logLine(`#${++seq} GET /users/${id} → 429 rate-limited, slot free in ${retryAfterMs}ms`)
+      return Effect.fail(new RateLimited({ retryAfterMs }))
     }
     stamps.push(now)
-    return http.getUser(id)
+    const n = ++seq
+    logLine(`#${n} GET /users/${id} — sent (${stamps.length}/${LIMIT} this second)`)
+    return http.getUser(id).pipe(
+      Effect.tap((user) => Effect.sync(() => logLine(`#${n} ← 200 ${user.name}`))),
+      Effect.tapError((e) => Effect.sync(() => logLine(`#${n} ← ${e.status} ${e.message}`))),
+      Effect.onInterrupt(() => Effect.sync(() => logLine(`#${n} ← interrupted (newer request took over)`))),
+    )
   }
   // Three refetch rounds back-to-back: each flip changes the id, so every
   // LIVE block refetches per flip. Three rounds exceed 2 req/s even when only
@@ -80,8 +99,10 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
         <button onclick={() => userId.set("42")}>Ada (42)</button>
         <button onclick={() => userId.set("7")}>Grace (7)</button>
         <button onclick={() => userId.set("999")}>Bad id</button>
-        <button class="spam" onclick={() => { flip(); flip(); flip() }}>spam requests</button>
+        <button class="spam" onclick={() => { flip(); flip(); flip() }}>spam ×3</button>
+        <span class="budget-note">fake API allows 2 req/s — each click fetches once per live block</span>
       </div>
+      <pre class="req-log">{reqLog}</pre>
       {Catch(
         <section class="content">
           {Async(() => fetchUser(userId.value), {
