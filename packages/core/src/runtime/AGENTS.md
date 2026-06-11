@@ -8,7 +8,7 @@ Public surface (from `index.ts`):
 - `mount` — DOM renderer. **Requires `Effect<View<never>, never, R>`** (every
   error discharged), returns `Effect<void, never, R | AtomRegistry | Scope>`
 - `list` — keyed reactive list helper (`View.List` IR node)
-- `Async` / `asyncRef` — async render boundary + primitive (errors-as-values; see "`asyncRef` / `Async`" below)
+- `Async` / `asyncRef` / `AsyncHandle` — async render boundary + primitive returning `{ state, refetch }` (errors-as-values; see "`asyncRef` / `Async`" below)
 - `Catch` — view-level error boundary (one overloaded helper: function 2nd-arg = catch-all, object 2nd-arg = tag-selective; mirrors `Effect.catch*`; see "`Catch`" below)
 - `Fragment` — `<>...</>` compile target
 - `VerrexLive` — base Layer providing `AtomRegistry`
@@ -168,15 +168,32 @@ Effectful/async data is **errors-as-values**: it's an `AsyncResult<A, E>` you
 match where it's consumed, not a throw-and-catch boundary (à la effect-atom /
 Solid's Resource — **not** React Suspense). Two exports, both in `index.ts`:
 
-- **`asyncRef(() => effect)`** — the primitive. Runs the effect and returns a
-  reactive `AtomRef.ReadonlyRef<AsyncResult<A, E>>`. Handle it with Effect's own
-  `AsyncResult.match`:
+- **`asyncRef(() => effect)`** — the primitive. Runs the effect and returns an
+  **`AsyncHandle<A, E>`**: a reactive `state:
+  AtomRef.ReadonlyRef<AsyncResult<A, E>>` plus a manual `refetch: () => void`
+  (the same `schedule` a dep change triggers — fresh dep snapshot, stale run
+  interrupted; a no-op once the creating scope closes). Handle the state with
+  Effect's own `AsyncResult.match`:
   ```tsx
   const user = yield* asyncRef(() => http.getUser(userId.value))
-  {user.map(AsyncResult.match({ onInitial, onFailure, onSuccess }))}
+  <button onclick={user.refetch}>refresh</button>
+  {user.state.map(AsyncResult.match({ onInitial, onFailure, onSuccess }))}
   ```
 - **`Async(from, { initial?, failure?, success })`** — the render boundary,
-  **thunk-first positional**, sugar over `asyncRef` + `AsyncResult.match`:
+  **thunk-first positional**, sugar over `asyncRef` + `AsyncResult.match`.
+  `from` is a thunk **or an existing `AsyncHandle`**: a thunk creates a
+  handle private to this boundary (its `R` folds here); a passed handle
+  decouples the data's lifetime from the view — the fetch loop lives where
+  `asyncRef` ran, keeps tracking deps after a `Catch` swaps the subtree away,
+  can be refetched from anywhere, and is shared by every consumer
+  (handle-based `Async` contributes only `Scope` to `R`; the overloads
+  default `R = never` so the union param doesn't leak `unknown`). One
+  semantic shift: a boundary `reset` over a handle re-renders the handle's
+  CURRENT state and does NOT refetch (a still-failed handle re-escalates on
+  rebuild) — compose `() => { handle.refetch(); reset() }` when retry should
+  do both. Pinned by `testing/async-handle.test.ts` (external refetch,
+  shared loop = one fetch for two consumers, refetch+reset recovery, R/E
+  pins):
   ```tsx
   {Async(() => http.getUser(userId.value), {
     initial: <Spinner/>,
@@ -226,10 +243,9 @@ mirroring `Catch`'s function-vs-object convention:
   (Catch instantiates `Extra = [reset]`, Async `[retry]`). Every Async
   failure handler — catch-all `(cause, retry)` and tag-map `(error, retry)` —
   receives **`retry`** last: it re-runs the thunk with a fresh dep snapshot
-  (`makeAsyncRef`'s `refetch`, the same `schedule` a dep change triggers),
+  (the handle's `refetch`, the same `schedule` a dep change triggers),
   the leaf analog of `Catch`'s `reset` (which re-runs *construction*). The
-  public `asyncRef` still returns only the state ref; `makeAsyncRef` is the
-  internal engine that also exposes `refetch`. Three retry invariants, each
+  same `refetch` is public on the `AsyncHandle` that `asyncRef` returns. Three retry invariants, each
   hard-won: (1) **failure-waiting renders the `initial` arm**, not the
   failure arm with its stale cause — stale-while-revalidate keeps *content*
   (success-waiting renders success), a stale error isn't content, and

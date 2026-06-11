@@ -300,17 +300,23 @@ const App = (
         step: "08",
         title: "Failure homes: leaf, page, or split by tag",
         concept:
-          "The failure arm picks where each error lives — both versions run below, sharing the same userId, so every button drives both. The tag map splits per tag: HttpError is handled at the leaf — the fetch loop stays live, so picking another id recovers with no boundary involved, and the handler's retry re-runs the same fetch (the loading arm shows while it's in flight). RateLimited rides the residual — the type is View<Exclude<…>>, literally View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfterMs is typed). Deleting that Catch is a compile error naming RateLimited, and only RateLimited: the type knows HttpError was already handled. The open form below omits the arm entirely: EVERY failure rides View<HttpError | RateLimited> to a catch-all Catch, and deleting that one names the full union. The rate limit is real — the fake endpoint allows 2 requests/second across both blocks — and the request log above the blocks narrates it: every request, its budget verdict (sent n/2 vs 429), its outcome (200/404), and stale runs interrupted by newer refetches. Hit \"spam ×3\" (or click any two buttons inside a second) to trip it, watch the 429 land in the log AND ride the residual to the page banner, wait out retryAfterMs, and recover via the boundary retries.",
+          "Each block's data is an AsyncHandle — asyncRef returns { state, refetch }, created in the component body and handed to Async — so the data outlives the views: an escalated block keeps tracking userId, and refetch works from anywhere (the spam button is literally tagUser.refetch() ×3). The failure arm picks where each error lives: HttpError is handled at the leaf (the handler's retry IS the handle's refetch; the loading arm shows in flight), while RateLimited rides the residual — View<Exclude<…>>, literally View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfterMs typed). Deleting that Catch names RateLimited, and only RateLimited. The open form below omits the arm: EVERY failure rides View<HttpError | RateLimited> to a catch-all. Over a handle, a boundary reset re-renders CURRENT state without refetching, so the banners compose () => { handle.refetch(); reset() }. The rate limit is real (2 req/s across both handles) and the request log narrates every request: budget verdict, outcome, and stale runs interrupted by newer refetches. Hit spam ×3 and watch the third request 429 in the log AND ride to the page banner — your id selection survives.",
         type: "Effect<View, never, Http | Scope>",
         code: `// fetchUser: (id) => Effect<User, HttpError | RateLimited>
 // — a REAL sliding-window limiter: >2 req/s fails with RateLimited
 
+// the handle: data decoupled from the view, refetchable from anywhere
+const tagUser = yield* asyncRef(() => fetchUser(userId.value))
+<button onclick={() => { tagUser.refetch(); tagUser.refetch(); tagUser.refetch() }}>
+  spam ×3
+</button>
+
 {Catch(
   <section>
-    {Async(() => fetchUser(userId.value), {
+    {Async(tagUser, {
       initial: <span>loading…</span>,
       failure: {
-        // handled at the leaf — fetch loop stays live
+        // handled at the leaf — retry IS tagUser.refetch
         HttpError: (e, retry) =>
           <p>404 <button onclick={retry}>retry</button></p>,
       },
@@ -318,18 +324,12 @@ const App = (
     })}
   </section>,
   {
-    // the residual: View<RateLimited> — unwrapped + typed here
+    // the residual: View<RateLimited> — unwrapped + typed here.
+    // reset re-renders CURRENT state; compose refetch + reset:
     RateLimited: (e, reset) =>
-      <p>retry in {e.retryAfterMs}ms <button onclick={reset}>retry</button></p>,
+      <p>retry in {e.retryAfterMs}ms{" "}
+        <button onclick={() => { tagUser.refetch(); reset() }}>retry</button></p>,
   },
-)}
-
-// the all-or-nothing version: omit the arm entirely and EVERY
-// failure rides View<HttpError | RateLimited> to a catch-all Catch
-{Catch(
-  <section>{Async(() => fetchUser(userId.value), { success: … })}</section>,
-  (cause, reset) =>
-    <pre>{Cause.pretty(cause)} <button onclick={reset}>retry</button></pre>,
 )}`,
         file: "AsyncEscalate.vx",
       })}

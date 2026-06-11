@@ -31,7 +31,7 @@ const Widget = (id: AtomRef.AtomRef<string>) =>
     return yield* h(
       "div",
       { class: "out" },
-      data.map((r) =>
+      data.state.map((r) =>
         AsyncResult.match(r, {
           onInitial: () => "loading",
           onFailure: () => "error",

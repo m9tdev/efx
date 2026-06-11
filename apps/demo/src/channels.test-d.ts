@@ -6,7 +6,7 @@
  */
 import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { Async, Catch, h, mount, type View } from "@verrex/core"
+import { Async, type AsyncHandle, Catch, h, mount, type View } from "@verrex/core"
 import { AsyncEscalate } from "./AsyncEscalate.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
@@ -378,6 +378,33 @@ const TagMapRetry = Async(getUserTwo, {
   },
 })
 assertEquals<typeof TagMapRetry, Effect.Effect<View<ParseError>, never, Http | Scope.Scope>>()
+
+// ─── AsyncHandle: asyncRef returns { state, refetch }; Async accepts the
+//     handle directly — same E homes as the thunk form, but the data outlives
+//     the subtree and only Scope is contributed to R (the thunk's R already
+//     folded where asyncRef ran).
+
+declare const userHandle: AsyncHandle<User, HttpError | ParseError>
+
+const HandleOpen = Async(userHandle, { success: (u) => h("p", {}, u.name) })
+assertEquals<typeof HandleOpen, Effect.Effect<View<HttpError | ParseError>, never, Scope.Scope>>()
+
+const HandleTagMap = Async(userHandle, {
+  success: (u) => h("p", {}, u.name),
+  failure: {
+    HttpError: (e, retry) => {
+      const _r: () => void = retry
+      void _r
+      return h("p", {}, `${e.status}`)
+    },
+  },
+})
+assertEquals<typeof HandleTagMap, Effect.Effect<View<ParseError>, never, Scope.Scope>>()
+
+// A handle-based open Async still needs a boundary before mount.
+// @ts-expect-error — HttpError | ParseError ride the live channel
+mount(HandleOpen, root)
+mount(Catch(HandleOpen, (_cause) => h("p", {}, "failed")), root)
 
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
