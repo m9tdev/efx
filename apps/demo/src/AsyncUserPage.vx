@@ -1,5 +1,5 @@
-import { Cause, Effect } from "effect"
-import { Async } from "@verrex/core"
+import { Cause } from "effect"
+import { Async, Component } from "@verrex/core"
 import { Http } from "./services.ts"
 
 /**
@@ -18,7 +18,7 @@ import { Http } from "./services.ts"
  *
  * Inferred type: `Effect<View, never, Http | Scope>`
  */
-export const AsyncUserPage = Effect.fn("AsyncUserPage")(function* (props: { userId: string }) {
+export const AsyncUserPage = Component.make(function* (props: { userId: string }) {
   const http = yield* Http
   const getUser = () => http.getUser(props.userId)
 

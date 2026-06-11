@@ -86,10 +86,10 @@ minor versions.
 
 ```tsx
 // Counter.vx
-import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
+import { Component } from "@verrex/core"
 
-export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
+export const Counter = Component.make(function* () {
   const count = AtomRef.make(0)
   return yield* (
     <div>

@@ -119,7 +119,7 @@ const App = (
         concept:
           "Local state is an Effect AtomRef — verrex ships no signal of its own. Drop the ref straight into child position and h() emits a reactive node; on update, only that text node re-renders. No services, so R is never.",
         type: "Effect<View, never, never>",
-        code: `export const Counter = Effect.fn("Counter")(function* () {
+        code: `export const Counter = Component.make(function* () {
   const count = AtomRef.make(0)
 
   return yield* (
@@ -141,7 +141,7 @@ const App = (
         concept:
           "Fetch inside the component. `yield* Http` adds Http to R; the request can fail, so HttpError rides E. Both surface in the type and must be satisfied at mount — drop HttpLive below and main stops compiling. The subtree blocks until the request resolves.",
         type: "Effect<View, HttpError, Http | Theme>",
-        code: `export const UserPage = Effect.fn("UserPage")(function* (props: {
+        code: `export const UserPage = Component.make(function* (props: {
   userId: string
 }) {
   const http = yield* Http        // adds Http to R
@@ -166,7 +166,7 @@ const App = (
         concept:
           "Same fetch via Async. A pending placeholder shows immediately; failure is handled locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. Scope is Async's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the element's own demo scope, so reset interrupts an in-flight fetch. The arms are the three AsyncResult states, handled as values.",
         type: "Effect<View, never, Http | Scope>",
-        code: `export const AsyncUserPage = Effect.fn("AsyncUserPage")(function* (props: {
+        code: `export const AsyncUserPage = Component.make(function* (props: {
   userId: string
 }) {
   const http = yield* Http   // folds into R; Scope comes from Async
@@ -190,7 +190,7 @@ const App = (
         concept:
           "The Async thunk reads userId.value, so the compiler tracks it as a dependency and re-runs the fetch whenever the id changes — interrupting the stale request. Deps are discovered, not declared: no key array. Failure and pending are AsyncResult values handled by the arms. Click the buttons to refetch.",
         type: "Effect<View, never, Http | Scope>",
-        code: `export const LiveUser = Effect.fn("LiveUser")(function* () {
+        code: `export const LiveUser = Component.make(function* () {
   const userId = AtomRef.make("42")
   const http = yield* Http
 
@@ -219,7 +219,7 @@ const App = (
         concept:
           "A collection where each row is its own AtomRef. `coll.value.map(x => <Row/>)` in JSX compiles to a keyed View.List node; mount reconciles by ref identity on add/remove. Each row subscribes to its own ref, so toggling one doesn't re-render the rest.",
         type: "Effect<View, never, never>",
-        code: `export const Todos = Effect.fn("Todos")(function* () {
+        code: `export const Todos = Component.make(function* () {
   const todos = AtomRef.collection<Todo>([
     { text: "build a UI framework", done: true },
     { text: "write a blog post", done: false },
@@ -245,7 +245,7 @@ const App = (
         concept:
           "Effect.acquireRelease registers a finalizer against the current Scope, so it rides Row's R — that's the inferred type shown. Each row mounts in its own Scope, so the release fires when that row's DOM is removed, not when the whole app unmounts. list() supplies each row's Scope, so a parent that renders the list stays Scope-free. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Reset closes the demo's scope, firing every remaining row's finalizer at once.)",
         type: "Effect<View, never, Scope>",
-        code: `const Row = Effect.fn("Row")(function* (props: {
+        code: `const Row = Component.make(function* (props: {
   item: AtomRef<Item>
 }) {
   const id = props.item.value.id
@@ -271,7 +271,7 @@ const App = (
         concept:
           "Catch mirrors Effect's catch*: recover the failure side of a view subtree, let success pass through. It catches BOTH a failed construction Effect and a post-mount failure inside the live subtree — here the crash button's Effect, which has no E channel to land on and is routed to the boundary instead of dropped. reset re-runs the child's construction. Scope is the boundary's own contribution (it forks its reset/report loop into the enclosing scope). A function handler is the catch-all (it gets the full Cause); an object of {Tag: handler} narrows the channel by the handled tags. mount requires every error discharged — a forgotten boundary is a compile error that names it.",
         type: "Effect<View, never, Scope>",
-        code: `export const CatchDemo = Effect.fn("CatchDemo")(function* () {
+        code: `export const CatchDemo = Component.make(function* () {
   return yield* (
     <section>
       {/* catch-all: a function handler recovers any failure */}

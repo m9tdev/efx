@@ -1,5 +1,5 @@
 import { Cause, Data, Effect } from "effect"
-import { Catch } from "@verrex/core"
+import { Catch, Component } from "@verrex/core"
 import { HttpError } from "./services.ts"
 
 // A local tagged error so the failure has a real shape in `Cause.pretty`.
@@ -8,7 +8,7 @@ class BoomError extends Data.TaggedError("BoomError")<{ readonly why: string }> 
 // catch-all subject: renders fine; its button's `onclick` returns a failing
 // Effect, which — post-mount, with no E channel to land on — is routed to the
 // nearest boundary instead of being dropped.
-const Crasher = Effect.fn("Crasher")(function* (_props: {} = {}) {
+const Crasher = Component.make(function* () {
   return yield* (
     <div class="crasher">
       <p>Works fine — until you push the button.</p>
@@ -27,7 +27,7 @@ const Crasher = Effect.fn("Crasher")(function* (_props: {} = {}) {
 // the rest succeed. So clicking "retry" visibly re-runs the boundary and may
 // recover (or surface a different error).
 const STATUSES = [500, 503, 429, 404, 418]
-const BadRequest = Effect.fn("BadRequest")(function* (_props: {} = {}) {
+const BadRequest = Component.make(function* () {
   if (Math.random() < 0.5) {
     const status = STATUSES[Math.floor(Math.random() * STATUSES.length)]!
     yield* Effect.fail(new HttpError({ status, message: "request failed" }))
@@ -63,7 +63,7 @@ const BadRequest = Effect.fn("BadRequest")(function* (_props: {} = {}) {
  * requires every error discharged, so a *forgotten* boundary is a compile error
  * that names the unhandled error.
  */
-export const CatchDemo = Effect.fn("CatchDemo")(function* (_props: {} = {}) {
+export const CatchDemo = Component.make(function* () {
   return yield* (
     <section class="catch-demo">
       {/* catch-all (function): one fallback for any failure */}

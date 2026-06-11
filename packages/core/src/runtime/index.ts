@@ -3,6 +3,7 @@ import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { type ErrorSink, isAtomRef, trackDeps } from "./coerce.ts"
 import { type BoundaryState, type Props, View } from "./View.ts"
 
+export * as Component from "./Component.ts"
 export { h } from "./h.ts"
 export { mount } from "./mount.ts"
 export { type Props, View } from "./View.ts"

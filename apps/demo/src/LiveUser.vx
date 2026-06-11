@@ -1,6 +1,6 @@
-import { Cause, Effect } from "effect"
+import { Cause } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { Async } from "@verrex/core"
+import { Async, Component } from "@verrex/core"
 import { Http } from "./services.ts"
 
 /**
@@ -18,7 +18,7 @@ import { Http } from "./services.ts"
  *   the mount fiber, not a baked `Atom.runtime`. Forgetting the `Http` layer is
  *   a compile error, not a runtime failure.
  */
-export const LiveUser = Effect.fn("LiveUser")(function* (_props: {} = {}) {
+export const LiveUser = Component.make(function* () {
   const userId = AtomRef.make("42")
   const http = yield* Http
 

@@ -761,3 +761,56 @@ describe("JSX text whitespace (cleanJSXElementLiteralChild parity)", () => {
     expect(compile(src)).toContain(`" "`)
   })
 })
+
+describe("Component.make name injection", () => {
+  it("injects the declared name as a second argument", () => {
+    const out = compile(`
+      export const Counter = Component.make(function* () {
+        return yield* <div>hi</div>
+      })
+    `)
+    expect(out).toContain(`Component.make(function*`)
+    expect(out).toContain(`, "Counter")`)
+  })
+
+  it("injects for a non-exported const too", () => {
+    const out = compile(`
+      const Local = Component.make(function* () {
+        return yield* <div>hi</div>
+      })
+    `)
+    expect(out).toContain(`"Local")`)
+  })
+
+  it("leaves an explicitly named call alone", () => {
+    const out = compile(`
+      export const Counter = Component.make(fn, "Custom")
+    `)
+    expect(out).toContain(`Component.make(fn, "Custom")`)
+    expect(out).not.toContain(`"Counter"`)
+  })
+
+  it("does not fire on other Component members or bare make calls", () => {
+    const out = compile(`
+      const a = Component.makeOther(fn)
+      const b = make(fn)
+    `)
+    expect(out).not.toContain(`"a"`)
+    expect(out).not.toContain(`"b"`)
+  })
+
+  it("does not fire on an aliased namespace (fails soft, no named span)", () => {
+    const out = compile(`
+      const Aliased = C.make(fn)
+    `)
+    expect(out).toContain(`C.make(fn)`)
+    expect(out).not.toContain(`"Aliased"`)
+  })
+
+  it("does not fire on a destructuring declarator", () => {
+    const out = compile(`
+      const { x } = Component.make(fn)
+    `)
+    expect(out).toContain(`Component.make(fn)`)
+  })
+})

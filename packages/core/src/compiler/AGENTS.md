@@ -163,6 +163,27 @@ scope, or (future) a small `untrack`-style wrapper. Optional chaining
 (`obj?.value`, an `OptionalMemberExpression`) is never matched, so it is
 left as-is and does not track.
 
+The same traversal carries the Component-name injection visitor (next
+section) — an independent rewrite riding along to avoid a fourth pass.
+
+## Component-name injection
+
+The whole-body pass also rewrites
+`const Counter = Component.make(fn)` → `Component.make(fn, "Counter")`,
+injecting the *declared* name as the span name so users don't repeat the
+export name (`matchNamelessComponentMake` + the `VariableDeclarator`
+visitor in `transformVerrex`). Deliberately narrow and additive:
+
+- Fires only on the exact callee shape `Component.make` with exactly one
+  argument, bound by a plain identifier declarator (`const X = …`,
+  exported or not). A second argument already present (an explicit name)
+  is left alone.
+- Matched by name, like `isSelfTrackingCall` — an aliased import
+  (`import { Component as C }`) defeats it, which **fails soft**: the
+  component still works, its span is just anonymous. No diagnostic.
+- `Component` is NOT auto-imported (it only appears in this rewrite when
+  the user already wrote the call, so they already import it).
+
 ## Auto-injected imports
 
 If any JSX rewrote to an `h()` call **or** the whole-body pass emitted any

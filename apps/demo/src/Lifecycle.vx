@@ -1,4 +1,5 @@
 import { Effect } from "effect"
+import { Component } from "@verrex/core"
 import { AtomRef } from "effect/unstable/reactivity"
 
 // Module-level event log, exposed on `window.__lifecycle` so the probe can
@@ -10,7 +11,7 @@ interface Item {
   readonly id: number
 }
 
-const Row = Effect.fn("Row")(function* (props: {
+const Row = Component.make(function* (props: {
   readonly item: AtomRef.AtomRef<Item>
 }) {
   const id = props.item.value.id
@@ -27,7 +28,7 @@ const Row = Effect.fn("Row")(function* (props: {
   )
 })
 
-export const Lifecycle = Effect.fn("Lifecycle")(function* (_props: {} = {}) {
+export const Lifecycle = Component.make(function* () {
   // State lives in the component, so the demo's reset button recreates it back
   // to two rows (the event log on `__lifecycle` is module-level and persists).
   const items = AtomRef.collection<Item>([{ id: 1 }, { id: 2 }])

@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Component } from "@verrex/core"
 import { Http, Theme } from "./services.ts"
 
 /**
@@ -10,7 +10,7 @@ import { Http, Theme } from "./services.ts"
  *
  * Inferred type: `Effect<View, HttpError, Http | Theme>`
  */
-export const UserPage = Effect.fn("UserPage")(function* (props: { userId: string }) {
+export const UserPage = Component.make(function* (props: { userId: string }) {
   const http = yield* Http
   const theme = yield* Theme
   const user = yield* http.getUser(props.userId)

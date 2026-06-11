@@ -157,14 +157,24 @@ Service plugins only by bare package name.
   only tries `extraFileExtensions` against import paths that
   already carry the matching suffix. Same convention as Vue
   (`.vue` in imports) and Astro (`.astro`).
-- **Components are named `Effect.fn` functions taking one props
-  object.** Write `export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) { … })`,
-  not `(props) => Effect.gen(function* () { … })`. The single-prop
-  signature is what makes `<Counter />` compile (h's tag-as-function
-  path calls `tag(props)`); the named `Effect.fn` wrapper gives the
-  resulting Effect a span name in traces and is the v4-recommended
-  shape. An empty `_props: {} = {}` default keeps `<Counter />`
-  with no attrs valid.
+- **Components are `Component.make` functions taking at most one
+  props object.** Write `export const Counter = Component.make(function* () { … })`
+  (or `function* (props: { id: string })` when there are props),
+  not a bare `Effect.fn` wrap or `(props) => Effect.gen(function* () { … })`.
+  `Component.make` is a thin seam over `Effect.fn` (traced by default —
+  span cost is per-mount, and spans buy component stack traces in a
+  failure `Cause` plus OTel UI↔backend joins); in `.vx` source the
+  compiler injects the span name from the declared name
+  (`Component.make(fn)` → `Component.make(fn, "Counter")`). The
+  single-prop signature is what makes `<Counter />`
+  compile (h's tag-as-function path calls `tag(props)`); a propless
+  component takes **no parameter at all** — the old
+  `_props: {} = {}` boilerplate is gone (a zero-param tag still
+  satisfies `h`, and `TagProps` folds it to the empty object;
+  pinned in `Component.test-d.ts`). A *generic* component uses the
+  Effect-returning form
+  (`Component.make(<T,>(props: { item: T }) => Effect.gen(…))`),
+  whose identity-typed overload preserves the type parameter.
 - **`refs/` is reference material for inspiration.** Cloned external
   repos — search here when stuck on design questions or debugging
   integrations. Key references:

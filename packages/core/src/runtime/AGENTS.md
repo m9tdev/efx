@@ -5,6 +5,8 @@ Public surface (from `index.ts`):
 
 - `h` — the view factory (the compile target for `<...>` source
   syntax) + `h.track`/`h.read` (compiler hooks)
+- `Component` — `Component.make`, the canonical component constructor
+  (a thin seam over `Effect.fn`; see "`Component.make`" below)
 - `mount` — DOM renderer. **Requires `Effect<View<never>, never, R>`** (every
   error discharged), returns `Effect<void, never, R | AtomRegistry | Scope>`
 - `list` — keyed reactive list helper (`View.List` IR node)
@@ -39,6 +41,7 @@ the editor margin. If you rename them, update the regex.
 | File | Purpose |
 |---|---|
 | `h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`) |
+| `Component.ts` | `Component.make` — the canonical component constructor (traced `Effect.fn` seam + compiler-filled name slot). `Component.test.ts` pins the span-in-Cause; `Component.test-d.ts` pins the channel inference and generic preservation |
 | `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Async`) |
 | `View.ts` | `View<E>` IR. The runtime shape is `ViewNode` — a hand-written union of 7 phantom-free named interfaces (`ViewText`…`ViewBoundary`, `ViewEmpty`); constructors via `Data.taggedEnum<ViewNode>()`. `View<E = never> = ViewNode & ViewErr<E>` layers the runtime-error channel on via a covariant phantom (`ViewErr`), so `View<HttpError>` ⊄ `View<never>` (mount can require it) while a `ViewNode` ⊂ any `View<E>` (constructors need no casts). Plus `isView`, `VIEW_TAGS` |
 | `mount.ts` | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink }`), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures) |
@@ -49,6 +52,48 @@ the editor margin. If you rename them, update the regex.
 | `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` + `TagE`/`TagLiveE`/`TagR`/`TagProps` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel) |
 | `types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics |
 | `types/Fold.test-d.ts` | `assertEquals` matrix — every channel-fold shape |
+
+## `Component.make` — the canonical component constructor
+
+A thin **seam** over `Effect.fn`, not an abstraction. Exactly three jobs —
+if it grows past these, it's grown too much:
+
+1. **Traced by default.** Component bodies run once at construction
+   (fine-grained model), so the span costs per-mount, not per-update — and
+   buys component stack traces in a failure `Cause` (the boundary fallback
+   can show *where*: `App > ProfilePage > UserCard`) plus OTel spans that
+   join UI to backend (the `asyncRef` supervisor forked during construction
+   inherits the span context, so refetches nest under the component).
+   Opt-out: write a plain `Effect.fnUntraced` function — components are
+   just functions; `make` is a seam, not a gate. (A `makeUntraced` twin
+   was tried and removed as premature; note `Effect.fnUntraced` iterates
+   the body's result unconditionally — generator bodies only.) Framework
+   internals stay untraced.
+2. **Signature-preserving type.** Two overloads: an Effect-returning
+   component hits the identity-typed one (`(f: F) => F`), so a
+   *generic* component survives with its type parameter intact — which
+   `Effect.fn`'s overloads don't guarantee. Generator bodies (the common
+   case) hit the second, which re-derives the channels the way `Effect.fn`
+   does. TS cannot carry a generator's own type parameter through that one
+   — write generic components in the Effect-returning form.
+3. **A name slot the compiler fills.** In `.vx`,
+   `const Counter = Component.make(fn)` is rewritten to
+   `Component.make(fn, "Counter")` (see compiler AGENTS.md). Fails soft:
+   no name → no span (the anonymous `Effect.fn` form never calls
+   `useSpan`), but failures still carry definition + call-site stack
+   frames via `CurrentStackFrame`. In plain `.ts` (tests, harnesses) pass
+   the name explicitly.
+
+Runtime: `Effect.fn` accepts both body shapes (it checks
+`isEffect(body(...))` before iterating), so one implementation serves both
+overloads. (A runtime brand for #71's direct-call lowering was considered
+and deliberately left out until that issue proves the need.)
+
+The body takes **at most one** props object. A propless component takes no
+parameter at all — `function* ()`, not the old `_props: {} = {}`
+boilerplate: a zero-param tag still satisfies `h` (fewer params is
+assignable) and `TagProps` folds it to the empty object. Pinned in
+`Component.test-d.ts`.
 
 ## Reactivity model
 

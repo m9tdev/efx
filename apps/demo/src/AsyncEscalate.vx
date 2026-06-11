@@ -1,6 +1,6 @@
 import { Cause, Data, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { Async, asyncRef, Catch } from "@verrex/core"
+import { Async, asyncRef, Catch, Component } from "@verrex/core"
 import { Http, HttpError, type User } from "./services.ts"
 
 /**
@@ -49,7 +49,7 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
  *
  * Inferred type: `Effect<View, never, Http | Scope>`
  */
-export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = {}) {
+export const AsyncEscalate = Component.make(function* () {
   const userId = AtomRef.make("42")
   const http = yield* Http
 

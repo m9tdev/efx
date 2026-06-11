@@ -23,10 +23,10 @@ pnpm add -D @verrex/ts-plugin     # editor support for .vx files
 
 ```tsx
 // Counter.vx
-import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
+import { Component } from "@verrex/core"
 
-export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
+export const Counter = Component.make(function* () {
   const count = AtomRef.make(0)
   return yield* (
     <div>
@@ -41,7 +41,7 @@ export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
 
 | Import | What you get |
 |---|---|
-| `@verrex/core` | `h`, `mount`, `Async`, `asyncRef`, `list`, `Fragment`, `View`, `VerrexLive` |
+| `@verrex/core` | `h`, `mount`, `Component`, `Async`, `asyncRef`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive` |
 | `@verrex/core/vite` | Vite plugin that compiles `.vx` |
 | `@verrex/core/check` (+ `verrex-check` bin) | `.vx`-aware type-checker (replaces `tsc --noEmit`) |
 | `@verrex/core/compiler`, `@verrex/core/language`, `@verrex/core/testing` | compiler, Volar language plugin, test harness |
