@@ -229,6 +229,24 @@ const rewriteValueRead = (path: NodePath<t.MemberExpression>): boolean => {
 }
 
 /**
+ * Match `Component.make(<single arg>)` — the one call-site shape the
+ * component-name injection rewrites. Matched purely by callee shape (the
+ * compiler has no types), so `import { Component as C }` defeats it — which
+ * fails soft: the wrapped component loses its named span (anonymous
+ * `Effect.fn` adds no span, only stack frames). A call that
+ * already carries a second argument (an explicit name) is left alone.
+ */
+const matchNamelessComponentMake = (node: t.Node): t.CallExpression | null =>
+  t.isCallExpression(node) &&
+    node.arguments.length === 1 &&
+    t.isMemberExpression(node.callee) &&
+    !node.callee.computed &&
+    t.isIdentifier(node.callee.object, { name: "Component" }) &&
+    t.isIdentifier(node.callee.property, { name: "make" })
+    ? node
+    : null
+
+/**
  * True when an arrow body is a JSX expression — either directly
  * (`item => <Row/>`) or via a block whose only statement is `return <JSX/>`
  * (`item => { return <Row/> }`).
@@ -611,10 +629,24 @@ export const transformVerrex = (
   // gate. And NO `h.track` wrap here — eager statement reads stay one-time
   // reads (Solid/Svelte/Vue semantics); tracking only activates when the read
   // executes under a tracker (an `Async` thunk, or a JSX `h.track` scope).
+  //
+  // The same traversal also performs the Component-name injection (see the
+  // VariableDeclarator visitor) — an independent, additive rewrite that rides
+  // along to avoid a fourth pass.
   let usedHRead = false
   traverse(ast, {
     MemberExpression(path: NodePath<t.MemberExpression>) {
       if (rewriteValueRead(path)) usedHRead = true
+    },
+    // Component-name injection: `const Counter = Component.make(fn)` gains the
+    // declared name as a second argument — `Component.make(fn, "Counter")` —
+    // so the span is named without the user repeating the export name. Purely
+    // additive, single call-site shape (see `matchNamelessComponentMake`);
+    // anything that doesn't match fails soft (no named span).
+    VariableDeclarator(path: NodePath<t.VariableDeclarator>) {
+      if (!t.isIdentifier(path.node.id) || path.node.init == null) return
+      const call = matchNamelessComponentMake(path.node.init)
+      if (call) call.arguments.push(t.stringLiteral(path.node.id.name))
     },
   })
 

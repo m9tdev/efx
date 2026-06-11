@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Component } from "@verrex/core"
 import { AtomRef } from "effect/unstable/reactivity"
 
 interface Todo {
@@ -12,7 +12,7 @@ interface Todo {
  * subscribe per-ref). `remove` is passed in so the row needn't reach for the
  * collection — that lives inside `Todos`.
  */
-const TodoRow = Effect.fn("TodoRow")(function* (props: {
+const TodoRow = Component.make(function* (props: {
   readonly item: AtomRef.AtomRef<Todo>
   readonly remove: () => void
 }) {
@@ -41,7 +41,7 @@ const TodoRow = Effect.fn("TodoRow")(function* (props: {
  * <TodoRow />)` in JSX position is compiled to a keyed `View.List` IR node;
  * `mount` reconciles rows by ref identity on add/remove.
  */
-export const Todos = Effect.fn("Todos")(function* (_props: {} = {}) {
+export const Todos = Component.make(function* () {
   // Reactive collection — each item is wrapped in its own AtomRef so per-row
   // updates don't tear down the whole list.
   const todos = AtomRef.collection<Todo>([

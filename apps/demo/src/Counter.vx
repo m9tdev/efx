@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Component } from "@verrex/core"
 import { AtomRef } from "effect/unstable/reactivity"
 
 /**
@@ -11,7 +11,7 @@ import { AtomRef } from "effect/unstable/reactivity"
  * Inferred type: `Effect<View, never, never>`
  *   — `AtomRegistry` is mount's concern, not the component's.
  */
-export const Counter = Effect.fn("Counter")(function* (_props: {} = {}) {
+export const Counter = Component.make(function* () {
   const count = AtomRef.make(0)
 
   return yield* (
