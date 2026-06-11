@@ -21,6 +21,8 @@ jobs:
       pull-requests: write # open/update the Release PR
     outputs:
       releases_created: ${{ steps.rp.outputs.releases_created }}
+      prs_created: ${{ steps.rp.outputs.prs_created }}
+      pr: ${{ steps.rp.outputs.pr }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -29,9 +31,65 @@ jobs:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: rp
         with:
-          # A PAT lets the Release PR trigger CI; GITHUB_TOKEN works too, but its
-          # checks must then be re-run manually.
+          # Deliberately GITHUB_TOKEN (not a PAT): PRs it creates don't trigger
+          # the `pull_request` CI workflow, and that's what we want — the
+          # Release PR releases what's already on main, so release-pr-status
+          # below mirrors main's CI result onto it instead of re-running CI.
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Show the status of main on the Release PR: wait for the CI run of the same
+  # push that updated the PR, then post its conclusion as a `main-branch-ci`
+  # commit status on the PR head.
+  release-pr-status:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.prs_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read # read the CI run for this push
+      statuses: write # post the mirrored status on the Release PR head
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_JSON: ${{ needs.release-please.outputs.pr }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Mirror main CI status onto the Release PR
+        run: |
+          set -euo pipefail
+          pr_number=$(jq -r '.number' <<<"$PR_JSON")
+          head_sha=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" --jq '.head.sha')
+          short=${GITHUB_SHA:0:7}
+
+          post() { # state description target_url
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$head_sha" \
+              -f state="$1" -f context='main-branch-ci' \
+              -f description="$2" -f target_url="$3" >/dev/null
+          }
+
+          post pending "Waiting for CI on main @ $short" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commits/main"
+
+          for _ in $(seq 1 60); do # up to ~30 min
+            run=$(gh run list --workflow ci.yml --branch main --commit "$GITHUB_SHA" \
+              --json status,conclusion,url --jq '.[0] // empty')
+            if [ -n "$run" ] && [ "$(jq -r '.status' <<<"$run")" = completed ]; then
+              conclusion=$(jq -r '.conclusion' <<<"$run")
+              url=$(jq -r '.url' <<<"$run")
+              if [ "$conclusion" = success ]; then
+                post success "CI on main @ $short succeeded" "$url"
+              else
+                post failure "CI on main @ $short: $conclusion" "$url"
+                exit 1
+              fi
+              exit 0
+            fi
+            sleep 30
+          done
+          post error "Timed out waiting for CI on main @ $short" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions"
+          exit 1
 
   publish:
     needs: release-please
