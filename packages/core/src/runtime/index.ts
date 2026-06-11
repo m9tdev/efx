@@ -136,10 +136,17 @@ export const asyncRef = <A, E, R>(
  * Channels are accepted permissively (`any`) — the arms render at the node scope
  * and their E/R are NOT folded; only `from`'s `R` is (the thesis-bearing one).
  */
-interface AsyncArms<A, E> {
+interface AsyncArmsBase<A> {
   readonly initial?: View | Effect.Effect<View, any, any>
-  readonly failure?: (cause: Cause.Cause<E>) => View | Effect.Effect<View, any, any>
   readonly success: (value: A) => View | Effect.Effect<View, any, any>
+}
+/** Handled form: `failure` renders the failure locally → `E` discharged. */
+interface AsyncArmsHandled<A, E> extends AsyncArmsBase<A> {
+  readonly failure: (cause: Cause.Cause<E>) => View | Effect.Effect<View, any, any>
+}
+/** Open form: no `failure` arm — the failure rides the live channel (`View<E>`). */
+interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
+  readonly failure?: never
 }
 
 /**
@@ -162,27 +169,52 @@ interface AsyncArms<A, E> {
  * ```
  *
  * Sugar over `asyncRef` + `AsyncResult.match`: `from` runs on the mount fiber so
- * its `R` folds into the component (forgotten Layer = compile error); result is
- * `Effect<View, never, R | Scope>`. Failure renders via `failure` (omit → renders
- * nothing) — never thrown, never folded to `E`.
+ * its `R` folds into the component (forgotten Layer = compile error). The
+ * `failure` arm is a per-call-site choice between the two error homes:
+ *
+ *  - **provide it** → the failure is handled here as a value (rendered by the
+ *    arm) and the result is `Effect<View<never>, never, R | Scope>` — fully
+ *    discharged, nothing for a boundary to see.
+ *  - **omit it** → the failure **rides the live channel**: the result is
+ *    `Effect<View<E>, never, R | Scope>`, the failure (initial fetch *or* any
+ *    refetch) routes to the nearest enclosing `Catch`, and `mount`'s
+ *    `View<never>` gate makes a missing boundary a compile error naming `E`.
+ *    The boundary's `reset` re-runs construction → a fresh fetch.
  */
-export const Async = <A, E, R>(
+export function Async<A, E, R>(
   from: () => Effect.Effect<A, E, R>,
-  arms: AsyncArms<A, E>,
-): Effect.Effect<View, never, R | Scope.Scope> =>
-  asyncRef(from).pipe(
+  arms: AsyncArmsHandled<A, E>,
+): Effect.Effect<View, never, R | Scope.Scope>
+export function Async<A, E, R>(
+  from: () => Effect.Effect<A, E, R>,
+  arms: AsyncArmsOpen<A>,
+): Effect.Effect<View<E>, never, R | Scope.Scope>
+export function Async<A, E, R>(
+  from: () => Effect.Effect<A, E, R>,
+  arms: AsyncArmsBase<A> & {
+    readonly failure?: (cause: Cause.Cause<E>) => View | Effect.Effect<View, any, any>
+  },
+): Effect.Effect<View<E>, never, R | Scope.Scope> {
+  return asyncRef(from).pipe(
     Effect.map((state) =>
       View.Reactive({
         source: state.map((r) =>
           AsyncResult.match(r, {
             onInitial: () => arms.initial ?? null,
-            onFailure: (f) => (arms.failure ? arms.failure(f.cause) : null),
+            // No failure arm: emit the cause as a failing Effect. The Reactive
+            // render path (`coerceSync`) runs it, routes the cause to the
+            // subtree's error sink — the nearest `Catch`'s `report` — and
+            // renders nothing. The interrupt-only guard already ran in
+            // `asyncRef` (teardown never reaches the Failure state).
+            onFailure: (f) =>
+              arms.failure ? arms.failure(f.cause) : Effect.failCause(f.cause),
             onSuccess: (s) => arms.success(s.value),
           }),
         ) as AtomRef.ReadonlyRef<unknown>,
       }),
     ),
   )
+}
 
 // ─── Error boundary (Catch) ────────────────
 

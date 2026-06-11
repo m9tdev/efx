@@ -19,6 +19,7 @@ they can be exercised in a browser side-by-side.
 | `Todos.vx` | Keyed reactive list (`{coll.value.map(item => <Row item={item}/>)}` compiles to `list(coll, render)`). Per-row reactivity: toggling one row doesn't tear down others. |
 | `Lifecycle.vx` | `Effect.acquireRelease` inside a row — release fires when the row is removed (per-row Scope in mount). |
 | `CatchDemo.vx` | The `Catch` error boundary (step 07), both forms: a function handler (catch-all over a `Crasher` whose click fails) and an object tag-map (`{ HttpError }` over a flaky `BadRequest` that ~50% of the time fails construction with a random typed error, routed + unwrapped — `retry` re-rolls and may recover). Discharges to `Effect<View, never, Scope>`; `reset`/`retry` re-run construction. Exercised end-to-end by `scripts/probe-catch.mjs`. |
+| `AsyncEscalate.vx` | `Async`, open form (step 08): the same auto-tracking fetch as `LiveUser`, **without** a `failure` arm — the failure rides the live channel (`View<HttpError>`) to a page-level `Catch` whose banner offers `retry` (re-runs construction → fresh fetch). The id buttons live outside the boundary so they survive the fallback swap. Deleting the `Catch` is a compile error at the demo mount naming `HttpError`. Exercised end-to-end by `scripts/probe-escalate.mjs`. |
 | `main.vx` | Wires Layers (`VerrexLive`, `HttpLive`, `ThemeLive`) + `Effect.scoped` + `Effect.never` (keep scope alive for page lifetime). |
 | `services.ts` | Mock Http + Theme services. `Data.TaggedError` for `HttpError`. |
 

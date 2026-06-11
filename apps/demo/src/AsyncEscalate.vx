@@ -1,0 +1,58 @@
+import { Cause, Effect } from "effect"
+import { AtomRef } from "effect/unstable/reactivity"
+import { Async, Catch } from "@verrex/core"
+import { Http } from "./services.ts"
+
+/**
+ * `Async`, open form — **omit the `failure` arm and the failure escalates**.
+ *
+ * Without a `failure` arm the failure is not handled at the leaf: it rides the
+ * `View<E>` live channel to the nearest `Catch` — here, a page-level boundary
+ * wrapping the content section. Both phases route there: the initial fetch and
+ * any auto-tracked refetch (the thunk reads `userId.value`, so "Bad id"
+ * triggers a failing refetch *after* content already rendered). The boundary's
+ * `reset` re-runs construction → a fresh fetch with the current id.
+ *
+ * Deleting the `Catch` below is a compile error at the demo's mount, naming
+ * `HttpError` — `mount` requires `View<never>`, and the open `Async` is the
+ * leaf primitive that stamps `View<E≠never>`.
+ *
+ * The id buttons live *outside* the boundary so they survive the fallback swap
+ * (pick a good id, then retry, to recover).
+ *
+ * Inferred type: `Effect<View, never, Http | Scope>`
+ */
+export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = {}) {
+  const userId = AtomRef.make("42")
+  const http = yield* Http
+
+  return yield* (
+    <div class="async-escalate">
+      <div class="controls">
+        <button onclick={() => userId.set("42")}>Ada (42)</button>
+        <button onclick={() => userId.set("7")}>Grace (7)</button>
+        <button onclick={() => userId.set("999")}>Bad id</button>
+      </div>
+      {Catch(
+        <section class="content">
+          {Async(() => http.getUser(userId.value), {
+            initial: <span class="loading">  loading…</span>,
+            success: (user) => (
+              <div class="user-card">
+                <strong>{user.name}</strong>
+                {user.bio && <p class="bio">{user.bio}</p>}
+              </div>
+            ),
+          })}
+        </section>,
+        (cause, reset) => (
+          <div class="boundary-fallback">
+            <p class="caught">page boundary caught:</p>
+            <pre class="cause">{Cause.pretty(cause)}</pre>
+            <button class="retry" onclick={reset}>retry</button>
+          </div>
+        ),
+      )}
+    </div>
+  )
+})

@@ -15,6 +15,7 @@ re-renders when you click +".
 | `probe-liveuser.mjs` | Keyed `asyncRef`: clicking the LiveUser buttons changes the trigger `AtomRef`, refetching through Initial → Success → Failure → recovery. |
 | `probe-async-userpage.mjs` | Once-form `Async`: the boundary renders a pending placeholder then swaps in the success arm (`.async-user-page .user-body`). Non-blocking counterpart to `probe.mjs`'s in-component UserPage check. |
 | `probe-catch.mjs` | Both `Catch` forms in the browser: the catch-all (function) form catching a failing event-handler Effect and recovering on reset; the object tag-map (`{ HttpError }`) form routing a flaky construction failure **and** a live (post-construction) error, with retry re-rolling the request. Prints PASS/FAIL, sets `process.exitCode`. |
+| `probe-escalate.mjs` | `Async` open form (no `failure` arm): a failing auto-tracked refetch escalates past the leaf to the page-level `Catch` banner; the controls outside the boundary survive the swap; `retry` after fixing the id recovers. Prints PASS/FAIL, sets `process.exitCode`. |
 | `probe-todos.mjs` | Keyed reactive list: add/remove/toggle a row leaves sibling DOM nodes untouched (tagged-node identity check). |
 | `probe-lifecycle.mjs` | Per-component lifecycle scope, three phases: (1) initial mount-event count, (2) removing a row fires its matching unmount via `Scope.closeUnsafe`, (3) full teardown via `__teardown` cascades through every row scope so every outstanding mount has a matching unmount. |
 | `probe-hmr.mjs` | Vite HMR on a `.vx` edit propagates without a full reload. |

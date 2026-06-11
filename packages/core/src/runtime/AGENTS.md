@@ -189,6 +189,28 @@ Solid's Resource — **not** React Suspense). Two exports, both in `index.ts`:
   object passed through `h(Async, props)` defeats inference (`success`'s value
   collapses to `unknown`), the same reason `list` is positional.
 
+**The `failure` arm is an overload pair — it picks the error's home.** Two
+public overloads (the with-`failure` one declared first, the open form's arms
+typed `failure?: never` so resolution can't fall through):
+
+- **provide `failure`** → the failure is handled at the leaf, rendered by the
+  arm: `Effect<View<never>, never, R | Scope>` — discharged, nothing for a
+  boundary to see.
+- **omit `failure`** → the failure **rides the live channel**:
+  `Effect<View<E>, never, R | Scope>`. This is the leaf primitive that stamps
+  `View<E≠never>`. Both an initial-fetch failure and a refetch failure route to
+  the nearest enclosing `Catch` (whose `reset` re-runs construction → a fresh
+  fetch), and `mount`'s `View<never>` gate makes a missing boundary a compile
+  error naming `E`. Mechanism: on `AsyncResult.failure` the matched source
+  emits `Effect.failCause(cause)`; the Reactive render path (`coerceSync`)
+  runs it, routes the cause to `ctx.sink` — the boundary's `report` — and
+  renders `Empty`. No new runtime machinery: it reuses the reactive-re-render
+  producer of "Runtime error routing" below. The interrupt-only guard already
+  ran in `asyncRef` (teardown never reaches the `Failure` state), and the
+  boundary queues the report off the render stack. Pinned by
+  `testing/async-escalate.test.ts` and the `Async` section of
+  `apps/demo/src/channels.test-d.ts`.
+
 The `from`/thunk runs under the **same dependency tracker as `h.track`**
 (`trackDeps`/`recordDep`, from `coerce.ts`): any reactive ref it reads via
 `.value`/`h.read` becomes a dependency, and the effect **re-runs when one
@@ -229,9 +251,11 @@ Reactive node does the DOM work. The design that makes this fit verrex:
 - **Channels:** because `forkScoped` forks the thunk's effect, the result folds
   its `R` — `asyncRef`/`Async` are `Effect<…, never, R | Scope>` with **no cast**.
   Extract services with `yield* Service` before the thunk so they fold into the
-  *component's* `R` (a missing Layer is a compile error at `mount`). `E` is
-  `never`: failure is a `Failure` value (matched / rendered via `failure`), not
-  propagated. Contrast in-component fetching (UserPage), where `E`+`R` fold to
+  *component's* `R` (a missing Layer is a compile error at `mount`). The
+  construction `E` is always `never` — the fetch never fails the build. The
+  failure's home is the `failure`-arm choice above: rendered at the leaf
+  (`View<never>`), or riding the live channel (`View<E>`) to the nearest
+  `Catch`. Contrast in-component fetching (UserPage), where `E`+`R` fold to
   the root.
 
 Why NOT `Atom`/`Atom.runtime` for this: an `Atom.runtime(layer)` bakes the

@@ -6,11 +6,11 @@
  */
 import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { Catch, h, mount, type View } from "@verrex/core"
+import { Async, Catch, h, mount, type View } from "@verrex/core"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
 import { LiveUser } from "./LiveUser.vx"
-import { HttpError, Http, Theme } from "./services.ts"
+import { HttpError, Http, Theme, type User } from "./services.ts"
 import { UserPage } from "./UserPage.vx"
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
@@ -245,8 +245,7 @@ mount(AllTags, root)
 // ─── The LIVE half of the mount gate ────────────────────────────────────
 //     A View carrying a live error (`View<E≠never>`) is also rejected by `mount`,
 //     and `Catch` discharges it — the symmetric counterpart of the construction
-//     (Effect-E) gate above. (No leaf primitive stamps `View<E≠never>` today, so
-//     this is the type-level guarantee in isolation.)
+//     (Effect-E) gate above.
 
 declare const liveOnly: Effect.Effect<View<HttpError>, never, never>
 
@@ -258,6 +257,44 @@ mount(Catch(liveOnly, (_cause) => h("p", {}, "live error")), root)
 
 // tag-map discharges it too, narrowing to View<never>.
 mount(Catch(liveOnly, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
+
+// ─── Async: the failure arm picks the error's home ──────────────────────
+//     Providing `failure` handles the failure at the leaf — `View<never>`,
+//     nothing for a boundary to see. Omitting it puts `E` on the LIVE channel
+//     (`View<E>`) — the leaf primitive that stamps `View<E≠never>` — and the
+//     failure (initial fetch or refetch) routes to the nearest `Catch`.
+
+declare const getUser42: () => Effect.Effect<User, HttpError, Http>
+
+// Open form: HttpError rides the View channel; Http still folds into R.
+const OpenAsync = Async(getUser42, { success: (u) => h("p", {}, u.name) })
+assertEquals<typeof OpenAsync, Effect.Effect<View<HttpError>, never, Http | Scope.Scope>>()
+
+// Handled form: discharged to View<never>; the cause is precisely typed.
+const HandledAsync = Async(getUser42, {
+  success: (u) => h("p", {}, u.name),
+  failure: (cause) => {
+    const _typed: Cause.Cause<HttpError> = cause
+    void _typed
+    return h("p", {}, "failed")
+  },
+})
+assertEquals<typeof HandledAsync, Effect.Effect<View, never, Http | Scope.Scope>>()
+
+// The live E folds through enclosing elements (FoldLiveE picks it off the
+// child Effect's View<E> success).
+const OpenInTree = h("main", {}, OpenAsync)
+assertEquals<typeof OpenInTree, Effect.Effect<View<HttpError>, never, Http | Scope.Scope>>()
+
+// @ts-expect-error — the open Async's HttpError is undischarged: mount rejects
+// it, naming HttpError. Add a Catch boundary (or a failure arm at the leaf).
+mount(OpenInTree, root)
+
+// A page-level Catch discharges the live failure → mountable.
+mount(Catch(OpenInTree, (_cause) => h("p", {}, "failed")), root)
+
+// Tag-map form discharges it too, narrowing to View<never>.
+mount(Catch(OpenInTree, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
 
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
