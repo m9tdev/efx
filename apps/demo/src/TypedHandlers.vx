@@ -16,7 +16,7 @@ import { Http } from "./services.ts"
 const Loader = Component.make(function* () {
   const loaded = AtomRef.make("nobody yet")
 
-  const load = Effect.fn("TypedHandlers.load")(function* (id: string) {
+  const load = Effect.fn(function* (id: string) {
     const http = yield* Http // the handler's R — folds into the element
     const user = yield* http.getUser(id) // may 404 → HttpError, live
     loaded.set(user.name)

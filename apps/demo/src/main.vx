@@ -352,7 +352,7 @@ const tagUser = yield* asyncRef(() => fetchUser(userId.value))
   const loaded = AtomRef.make("nobody yet")
 
   // no \`yield* Http\` in the body — the HANDLER carries the channels
-  const load = Effect.fn("TypedHandlers.load")(function* (id: string) {
+  const load = Effect.fn(function* (id: string) {
     const http = yield* Http              // handler R → element R
     const user = yield* http.getUser(id)  // may 404 → HttpError, LIVE
     loaded.set(user.name)
