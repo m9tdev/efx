@@ -137,29 +137,49 @@ type Tagged = { readonly _tag: string }
 type TagsOf<E> = E extends Tagged ? E["_tag"] : never
 type WithoutTag<E, Tag extends string> = Exclude<E, { readonly _tag: Tag }>
 
-/** The `_tag` of a cause's first error, if it's a tagged error. */
-const errorTagOf = (cause: Cause.Cause<unknown>): string | undefined => {
-  const err = Option.getOrUndefined(Cause.findErrorOption(cause))
-  return typeof err === "object" && err !== null && "_tag" in err
-    ? (err as Tagged)._tag
-    : undefined
+/**
+ * Tag-selective handler map over `E`'s tagged members; `Extra` appends the
+ * surface-specific trailing params (Catch's `reset`; Async's planned retry).
+ * Both tag-map surfaces instantiate THIS alias so the deliberate trade-offs
+ * live once: keys are constrained to the child's tags for per-handler `error`
+ * inference, and the exactness guard is omitted on purpose — a typo'd key
+ * beside ≥1 valid key is silently dead (its tag stays on the channel, so the
+ * type never lies for inline literals), while a typo as the only key is a
+ * compile error. Pre-built/widened maps, prototype-keyed objects, and (for
+ * consumers without `exactOptionalPropertyTypes`) explicit-`undefined` slots
+ * can over-discharge — the type/runtime gap is tracked in #91.
+ */
+type TagHandlers<E, Extra extends ReadonlyArray<unknown> = []> = {
+  readonly [K in TagsOf<E>]?: (
+    error: Extract<E, { readonly _tag: K }>,
+    ...rest: Extra
+  ) => View | Effect.Effect<View, any, any>
 }
 
 /**
- * The OWN, function-valued handler for the cause's first tagged error (not a
- * prototype-chain hit, not an explicit `undefined` slot). Dispatches on the
- * FIRST tagged error of the cause (`Cause.findErrorOption`); the design assumes
- * a single tagged failure per cause — a multi-tagged cause routes on its first
- * error. One lookup for both tag-map surfaces so their dispatch can't drift.
+ * The handler matching the cause's first error, when that error is tagged and
+ * `handlers` carries an OWN, function-valued key for it (not a prototype-chain
+ * hit, not an explicit `undefined` slot — the gaps this leaves are #91).
+ * Dispatch is on the cause's FIRST error — if it is untagged, no handler
+ * matches even when a later error's tag is mapped; the design assumes a single
+ * failure per cause. Returns the handler together with the error it matched
+ * on, so dispatch tag and handler argument can't drift apart across the two
+ * tag-map surfaces.
  */
-const taggedHandlerFor = (
+const taggedMatch = (
   handlers: Record<string, unknown>,
   cause: Cause.Cause<unknown>,
-): ((error: any, ...rest: Array<any>) => unknown) | undefined => {
-  const t = errorTagOf(cause)
+):
+  | { readonly handler: (error: any, reset?: () => void) => unknown; readonly error: unknown }
+  | undefined => {
+  const err = Option.getOrUndefined(Cause.findErrorOption(cause))
+  const t =
+    typeof err === "object" && err !== null && "_tag" in err ? (err as Tagged)._tag : undefined
   if (t === undefined || !Object.hasOwn(handlers, t)) return undefined
   const fn = handlers[t]
-  return typeof fn === "function" ? (fn as (error: any, ...rest: Array<any>) => unknown) : undefined
+  return typeof fn === "function"
+    ? { handler: fn as (error: any, reset?: () => void) => unknown, error: err }
+    : undefined
 }
 
 /**
@@ -213,10 +233,12 @@ interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
  *    LIVE — a dep change still refetches, so the view can recover with no
  *    boundary `reset`. The residual rides the live channel:
  *    `Effect<View<Exclude<E, { _tag }>>, never, R | Scope>`. Dispatch is
- *    `Catch`'s tag-map dispatch (first tagged error; own, function-valued
- *    keys; a typo'd key mixed with ≥1 valid key is silently dead — its tag
- *    stays on the channel, nothing is wrongly discharged). Handlers get no
- *    retry callback yet (TODO; `Catch`'s `reset` is the boundary-side analog).
+ *    `Catch`'s tag-map dispatch (the cause's first error, when tagged; own,
+ *    function-valued keys — prefer inline literals: pre-built/widened maps
+ *    can over-discharge, see #91). A typo'd key mixed with ≥1 valid key is
+ *    silently dead — its tag stays on the channel. A tag map on an `E` with
+ *    no tagged members is rejected at compile time. Handlers get no retry
+ *    callback yet (TODO; `Catch`'s `reset` is the boundary-side analog).
  *  - **omitted** — the failure **rides the live channel**: the result is
  *    `Effect<View<E>, never, R | Scope>`, the failure (initial fetch *or* any
  *    refetch) routes to the nearest enclosing `Catch`, and `mount`'s
@@ -231,11 +253,9 @@ export function Async<
   A,
   E,
   R,
-  Handlers extends {
-    readonly [K in TagsOf<E>]?: (
-      error: Extract<E, { readonly _tag: K }>,
-    ) => View | Effect.Effect<View, any, any>
-  },
+  // `never` when E has no tagged members: without it, TagsOf<E> = never makes
+  // the constraint the empty mapped type and ANY map compiles, silently dead.
+  Handlers extends [TagsOf<E>] extends [never] ? never : TagHandlers<E>,
 >(
   from: () => Effect.Effect<A, E, R>,
   arms: AsyncArmsBase<A> & { readonly failure: Handlers },
@@ -249,7 +269,7 @@ export function Async<A, E, R>(
   arms: AsyncArmsBase<A> & {
     readonly failure?:
       | ((cause: Cause.Cause<E>) => View | Effect.Effect<View, any, any>)
-      | Record<string, (error: any) => View | Effect.Effect<View, any, any>>
+      | Record<string, unknown>
   },
 ): Effect.Effect<View<E>, never, R | Scope.Scope> {
   return asyncRef(from).pipe(
@@ -269,10 +289,11 @@ export function Async<A, E, R>(
             onFailure: (f) => {
               const { failure } = arms
               if (typeof failure === "function") return failure(f.cause)
-              const handler = failure === undefined ? undefined : taggedHandlerFor(failure, f.cause)
-              return handler !== undefined
-                ? handler(Option.getOrUndefined(Cause.findErrorOption(f.cause)))
-                : Effect.failCause(f.cause)
+              // Truthiness (not === undefined): a nullish `failure` smuggled
+              // past the types degrades to the open form instead of crashing
+              // `Object.hasOwn` — matching the pre-tag-map behavior.
+              const match = failure ? taggedMatch(failure, f.cause) : undefined
+              return match ? match.handler(match.error) : Effect.failCause(f.cause)
             },
             onSuccess: (s) => arms.success(s.value),
           }),
@@ -454,12 +475,7 @@ export function Catch<
   EV,
   EC,
   R,
-  Handlers extends {
-    readonly [K in TagsOf<EC | EV>]?: (
-      error: Extract<EC | EV, { readonly _tag: K }>,
-      reset: () => void,
-    ) => View | Effect.Effect<View, any, any>
-  },
+  Handlers extends TagHandlers<EC | EV, [reset: () => void]>,
 >(
   child: Effect.Effect<View<EV>, EC, R>,
   handlers: Handlers,
@@ -478,12 +494,15 @@ export function Catch(
     return makeBoundary(child, () => true, handlerOrMap)
   }
   const handlers = handlerOrMap
-  // Dispatch rules (own function-valued key, first tagged error) live in
-  // `taggedHandlerFor`, shared with Async's tag-map `failure` arm.
+  // Dispatch rules (own function-valued key, first-error routing) live in
+  // `taggedMatch`, shared with Async's tag-map `failure` arm.
   return makeBoundary(
     child,
-    (cause) => taggedHandlerFor(handlers, cause) !== undefined,
-    (cause, reset) => taggedHandlerFor(handlers, cause)!(Option.getOrUndefined(Cause.findErrorOption(cause)), reset),
+    (cause) => taggedMatch(handlers, cause) !== undefined,
+    (cause, reset) => {
+      const m = taggedMatch(handlers, cause)!
+      return m.handler(m.error, reset)
+    },
   )
 }
 

@@ -98,6 +98,28 @@ describe("Async tag-map failure arm", () => {
     await ui.unmount()
   })
 
+  it("a nullish failure arm smuggled past the types degrades to the open form, not a crash", async () => {
+    // Regression pin: the impl guards with truthiness, so `failure: null`
+    // (reachable only via JS or a cast) behaves like the omitted arm —
+    // the cause rides to the boundary instead of throwing in Object.hasOwn.
+    const NullPage = Effect.fn(function* () {
+      const client = yield* Users
+      return yield* Catch(
+        h("section", {},
+          Async(() => client.get("999"), {
+            success: (n) => h("span", { class: "ok" }, n),
+            failure: null as never,
+          }),
+        ),
+        () => h("div", { class: "fallback" }, "caught"),
+      )
+    })()
+    const ui = await render(NullPage, UsersLive)
+    await ui.waitFor(".fallback")
+    expect(ui.query(".ok")).toBeNull()
+    await ui.unmount()
+  })
+
   it("types: matched tags are excluded from the live channel", () => {
     // Compile-time pin, kept next to the runtime proof: a partial tag map
     // narrows by Exclude; a full map discharges to View<never>.

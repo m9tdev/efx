@@ -206,14 +206,23 @@ mirroring `Catch`'s function-vs-object convention:
   swaps the subtree and closes its build scope, tearing down the `asyncRef`
   supervisor. The residual rides the live channel:
   `Effect<View<Exclude<E, { _tag }>>, never, R | Scope>`. Dispatch is shared
-  with `Catch` (`taggedHandlerFor`: own function-valued key, first tagged
-  error) and inherits its caveats — first-error routing on multi-tagged
-  causes, and a typo'd key mixed with ≥1 valid key is silently dead (its tag
-  stays on the channel, so nothing is wrongly discharged; a typo as the
-  *only* key is a compile error). Tag handlers get no retry callback yet
-  (TODO — `Catch`'s `reset` is the boundary-side analog). Pinned by
-  `testing/async-tagmap.test.ts` (incl. the recover-without-reset semantic)
-  and the tag-map `Async` section of `apps/demo/src/channels.test-d.ts`.
+  with `Catch` (`taggedMatch`: own function-valued key, routed on the cause's
+  *first* error when it is tagged; the helper returns the matched
+  `{ handler, error }` pair so dispatch tag and handler argument can't drift)
+  and inherits its caveats: a typo'd key mixed with ≥1 valid key is silently
+  dead (its tag stays on the channel — for *inline literals* the type never
+  lies; a typo as the only key is a compile error), and a tag map on an `E`
+  with no tagged members is rejected outright (the overload's constraint
+  collapses to `never`, not the accept-anything empty mapped type). Known
+  type/runtime gaps — pre-built/widened maps, prototype-keyed objects,
+  explicit-`undefined` slots without `exactOptionalPropertyTypes` — can
+  over-discharge and are tracked in #91; both tag-map surfaces share them.
+  The handler-map shape itself is the shared `TagHandlers<E, Extra>` alias
+  (Catch instantiates `Extra = [reset]`), so the planned Async retry callback
+  (TODO — `Catch`'s `reset` is the boundary-side analog) is a one-place
+  change. Pinned by `testing/async-tagmap.test.ts` (incl. the
+  recover-without-reset semantic and nullish-arm degradation) and the tag-map
+  `Async` section of `apps/demo/src/channels.test-d.ts`.
 - **omit `failure`** → the failure **rides the live channel**:
   `Effect<View<E>, never, R | Scope>`. This is the leaf primitive that stamps
   `View<E≠never>`. Both an initial-fetch failure and a refetch failure route to

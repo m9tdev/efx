@@ -13,7 +13,8 @@ produce ride the `View<E>` success — one `Catch` boundary discharges both.
 **Honest scope today:** the *construction* channel is fully type-tracked —
 a forgotten boundary on a failing build is a compile error. The *live*
 channel is only partially tracked: exactly one leaf primitive stamps
-`View<E≠never>` — `Async` *without* a `failure` arm, typed
+`View<E≠never>` — `Async` *without* a `failure` arm (or with a *partial* tag
+map, whose residual rides), typed
 `Effect<View<E>, never, R | Scope>`. Its failures (initial fetch or refetch)
 ride `View<E>` to the nearest `Catch`, and `mount`'s `View<never>` gate makes
 a missing boundary a compile error naming `E`. The `failure` arm mirrors

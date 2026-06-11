@@ -327,6 +327,13 @@ mount(TagMapAsync, root)
 // A boundary discharges the residual → mountable.
 mount(Catch(TagMapAsync, { ParseError: (e) => h("p", {}, e.message) }), root)
 
+// A tag map needs an E with at least one tagged member: with TagsOf<E> = never
+// the Handlers constraint collapses to `never` (not the empty mapped type, which
+// would accept ANY map as a silently-dead handler set).
+declare const getUntagged: () => Effect.Effect<string, string, never>
+// @ts-expect-error — E = string has no tags; the tag-map overload is rejected
+Async(getUntagged, { success: (s) => h("p", {}, s), failure: { Oops: () => h("p", {}, "x") } })
+
 // Handle every tag at the leaf → View<never>, mountable with no boundary.
 const TagMapAll = Async(getUserTwo, {
   success: (u) => h("p", {}, u.name),
