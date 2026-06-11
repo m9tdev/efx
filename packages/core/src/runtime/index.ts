@@ -1,6 +1,7 @@
 import { Cause, Effect, Exit, Fiber, Layer, Option, Queue, Scope, type Types } from "effect"
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { type ErrorSink, isAtomRef, trackDeps } from "./coerce.ts"
+import { coerceAsync, type ErrorSink, isAtomRef, trackDeps } from "./coerce.ts"
+import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
 import { type BoundaryState, type Props, View } from "./View.ts"
 
 export * as Component from "./Component.ts"
@@ -16,10 +17,6 @@ export type {
   FoldE,
   FoldLiveE,
   FoldR,
-  TagE,
-  TagLiveE,
-  TagProps,
-  TagR,
 } from "./types/Fold.ts"
 export type { HtmlEventHandlers, IntrinsicProps } from "./types/Html.ts"
 
@@ -638,13 +635,26 @@ export function Catch(
 /**
  * Fragment component — the compile target for JSX `<>...</>` syntax.
  *
- * `h(Fragment, props, ...children)` evaluates to a `View.Fragment` whose
- * children are whatever was nested inside.
+ * `<>...</>` lowers to the direct call `Fragment({ children: [...] })`
+ * (component tags don't route through `h` since #71). Children arrive RAW —
+ * any child shape `h` accepts — and are coerced here exactly as `h` coerces
+ * its variadic children.
+ *
+ * Fragment is also the canonical pattern for a component that accepts
+ * arbitrary effectful children: generic over the children TUPLE, folding its
+ * channels with `FoldE`/`FoldLiveE`/`FoldR`. Inference happens at the direct
+ * call site, so the folds are precise. Do NOT type such a prop as the
+ * non-generic `Child[]` — `Child` includes `Effect<View, any, any>`, and
+ * folding `any` poisons the channel (an `any` E defeats the `mount` gate).
  */
-export const Fragment = (
-  props: Props & { children?: ReadonlyArray<View> },
-): Effect.Effect<View, never, never> =>
-  Effect.succeed(View.Fragment({ children: props.children ?? [] }))
+export const Fragment = <Cs extends ReadonlyArray<unknown>>(
+  props: { readonly children?: Cs },
+): Effect.Effect<View<FoldLiveE<Cs>>, FoldE<Cs>, FoldR<Cs>> =>
+  Effect.gen(function* () {
+    const out: View<any>[] = []
+    for (const c of props.children ?? []) out.push(yield* coerceAsync(c))
+    return View.Fragment({ children: out })
+  }) as Effect.Effect<View<FoldLiveE<Cs>>, FoldE<Cs>, FoldR<Cs>>
 
 /**
  * The base Layer every verrex app needs. Provides the `AtomRegistry` so any

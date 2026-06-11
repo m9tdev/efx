@@ -11,7 +11,6 @@ import { Effect } from "effect"
 import * as Component from "./Component.ts"
 import { h } from "./h.ts"
 import type { View } from "./View.ts"
-import type { TagE, TagProps, TagR } from "./types/Fold.ts"
 
 // Test fixtures
 interface HttpService { readonly _tag: "HttpService" }
@@ -38,20 +37,17 @@ const Live = Component.make(liveBody, "Live")
 assertEquals<ReturnType<typeof Live>, Effect.Effect<View<HttpError>, never, never>>()
 
 // 2) A propless component needs NO props parameter at all — `function* ()`
-//    is the idiom; the `_props: {} = {}` boilerplate is gone. The zero-param
-//    shape stays directly callable AND usable as an h() tag (`<Counter />`
-//    compiles to `h(Counter, {})`): `TagProps` of a zero-param tag folds to
-//    the empty object, and the Tag* channel folds still extract.
+//    is the idiom; the `_props: {} = {}` boilerplate is gone. `<Counter />`
+//    compiles to the direct call `Counter()` (#71), and the component's
+//    channels fold into a surrounding `h()` as an ordinary Effect child.
 declare const counterBody: () => Generator<never, View, never>
 const Counter = Component.make(counterBody, "Counter")
 const _noArgs: Effect.Effect<View, never, never> = Counter()
-const _asTag = h(Counter, {})
-assertEquals<typeof _asTag, Effect.Effect<View<never>, never, never>>()
+const _inTree = h("div", {}, Counter())
+assertEquals<typeof _inTree, Effect.Effect<View<never>, never, never>>()
 
 declare const ProplessFailing: () => Effect.Effect<View, HttpError, HttpService>
-assertEquals<TagE<typeof ProplessFailing>, HttpError>()
-assertEquals<TagR<typeof ProplessFailing>, HttpService>()
-const _proplessFolded = h("div", {}, h(ProplessFailing, {}))
+const _proplessFolded = h("div", {}, ProplessFailing())
 assertEquals<typeof _proplessFolded, Effect.Effect<View<never>, HttpError, HttpService>>()
 
 // 3) A GENERIC Effect-returning component typechecks through the wrapper with
@@ -65,8 +61,11 @@ const Row = Component.make(
 const _rowCall = Row({ item: 1, render: (n) => n.toFixed(2) })
 assertEquals<typeof _rowCall, Effect.Effect<View, never, never>>()
 
-// 4) A made component still drives the Tag* folds when used as an h() tag.
-assertEquals<TagE<typeof Gen>, HttpError>()
-assertEquals<TagR<typeof Gen>, HttpService>()
-assertEquals<TagProps<typeof Gen>, { id: string }>()
+// 4) A made component composes as a child: its construction E/R and the live
+//    E riding its View success fold through the surrounding h() (FoldE /
+//    FoldLiveE / FoldR — no Tag* family since #71's direct-call lowering).
+const _genInTree = h("section", {}, Gen({ id: "1" }))
+assertEquals<typeof _genInTree, Effect.Effect<View<never>, HttpError, HttpService>>()
+const _liveInTree = h("section", {}, Live({ id: "1" }))
+assertEquals<typeof _liveInTree, Effect.Effect<View<HttpError>, never, never>>()
 

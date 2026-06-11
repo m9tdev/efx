@@ -134,9 +134,9 @@ describe("convertSourceMap — span lengths", () => {
   it("list arrow body: the inner `<Row>` tag-name position still maps for go-to-def", () => {
     // The `.value.map → list(...)` rewrite uses `path.skip()` to halt the
     // inner traversal, but the outer JSX traversal still rewrites the inner
-    // `<Row>` to `h(Row, ...)`. The Row tag's nameStart in source must keep
-    // a mapping that lands inside the generated `h(Row,` so editor
-    // go-to-definition on Row inside the list arrow still resolves.
+    // `<Row>` to the direct call `Row({...})`. The Row tag's nameStart in
+    // source must keep a mapping that lands on the generated `Row` callee so
+    // editor go-to-definition on Row inside the list arrow still resolves.
     const src = `
       const Row = (props: { item: number }) => null
       const coll = { value: [] as number[] }
@@ -144,16 +144,16 @@ describe("convertSourceMap — span lengths", () => {
     `
     const { code, mappings } = buildMappings(src)
     expect(code).toContain("list(coll,")
-    expect(code).toContain("h(Row,")
+    expect(code).toContain("Row({")
     // Find the `R` of `<Row` in source (the tag name's start, +1 to skip `<`).
     const rowTagSrc = src.indexOf("<Row") + 1
-    // ...and the `R` of `h(Row,` in generated.
-    const rowGenStart = code.indexOf("h(Row,") + "h(".length
+    // ...and the `R` of the direct call `Row({` in generated.
+    const rowGenStart = code.indexOf("Row({")
     const m = findBySourceOffset(mappings, rowTagSrc)
     expect(m, "expected a mapping at source `Row` tag name").toBeDefined()
     expect(
       m!.generatedOffsets[0],
-      "source `Row` must map into generated `h(Row,` region",
+      "source `Row` must map into the generated `Row({` callee",
     ).toBeGreaterThanOrEqual(rowGenStart)
     expect(m!.generatedOffsets[0]).toBeLessThanOrEqual(rowGenStart + "Row".length)
   })
@@ -257,14 +257,14 @@ describe("convertSourceMap — structural cases", () => {
     expect(mappings.some((m) => m.sourceOffsets[0]! >= openSrc && m.sourceOffsets[0]! <= openSrc + 2)).toBe(true)
   })
 
-  it("member-expression tag: <X.Y>...</X.Y> emits h(X.Y, ...)", () => {
+  it("member-expression tag: <X.Y>...</X.Y> lowers to the direct call X.Y(...)", () => {
     const src = `
       import * as M from "./mod"
       const view = <M.X />
     `
     const { code, mappings } = buildMappings(src)
-    expect(code).toContain("h(M.X")
-    // The `M.X` source identifiers map into the h(M.X, ...) call.
+    expect(code).toContain("M.X(")
+    // The `M.X` source identifiers map into the M.X(...) call.
     const mSrc = src.indexOf("<M.X") + 1
     expect(mappings.some((m) => m.sourceOffsets[0] === mSrc)).toBe(true)
   })

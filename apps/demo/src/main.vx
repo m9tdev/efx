@@ -92,11 +92,15 @@ const App = (
           point is that <code>E</code>/<code>R</code> survive composition. So
           verrex never lets <code>tsc</code> see JSX: source files use a{" "}
           <code>.vx</code> extension, and <code>verrex/compiler</code> rewrites
-          every <code>{"<tag/>"}</code> into an <code>h(tag, props, …children)</code>{" "}
-          call <em>before</em> tsc parses the file. <code>h()</code>'s
-          conditional-type signature then unions every child's <code>E</code>{" "}
-          and <code>R</code> into the result. tsc only ever type-checks plain
-          function calls — so the channels can't be erased.
+          every intrinsic <code>{"<tag/>"}</code> into an{" "}
+          <code>h(tag, props, …children)</code> call and every component{" "}
+          <code>{"<MyComp/>"}</code> into the direct call{" "}
+          <code>{"MyComp({…})"}</code> <em>before</em> tsc parses the file.{" "}
+          <code>h()</code>'s conditional-type signature unions every child's{" "}
+          <code>E</code> and <code>R</code> into the result — a component's
+          channels are just its call's Effect type, and generic components keep
+          their type parameter. tsc only ever type-checks plain function calls
+          — so the channels can't be erased.
         </p>
         <p class="how-note">
           Every <code>inferred type</code> below is real, checked by{" "}

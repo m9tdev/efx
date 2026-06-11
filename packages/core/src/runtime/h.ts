@@ -1,7 +1,8 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { coerceAsync, isAtomRef, recordDep, trackDeps } from "./coerce.ts"
-import type { FoldE, FoldLiveE, FoldR, TagE, TagLiveE, TagProps, TagR } from "./types/Fold.ts"
+import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
+import type { IntrinsicProps } from "./types/Html.ts"
 import { type Props, View } from "./View.ts"
 
 // ─── Tracking scope for h.track / h.read ─────────────────────────────────
@@ -62,16 +63,19 @@ function readImpl(obj: unknown): unknown {
 }
 
 /**
- * The view factory.
+ * The view factory — **intrinsic elements only** since #71. Component tags
+ * (`<MyComp/>`) are lowered by the compiler to direct calls
+ * (`MyComp({...})`), so a component's channels surface as an ordinary
+ * Effect child of the surrounding `h()` — no tag-fold machinery.
  *
- * Takes a tag (intrinsic element name or a component function) and any
- * number of children. The return type carries the union of every child's
- * `E` and `R` channels via `FoldE`/`FoldR`. Children of arbitrary shape
- * (Effect, Option, Result, Atom, AtomRef, Array, Chunk, primitive) are
- * normalized via `coerceAsync` in `./coerce.ts`.
+ * Takes an intrinsic tag name and any number of children. The return type
+ * carries the union of every child's `E` and `R` channels via
+ * `FoldE`/`FoldR`. Children of arbitrary shape (Effect, Option, Result,
+ * Atom, AtomRef, Array, Chunk, primitive) are normalized via `coerceAsync`
+ * in `./coerce.ts`.
  */
 const _h = (
-  tag: string | ((props: Props) => Effect.Effect<View<any>, any, any>),
+  tag: string,
   props: Props,
   ...children: ReadonlyArray<unknown>
 ): Effect.Effect<View<any>, any, any> =>
@@ -80,30 +84,19 @@ const _h = (
     for (const c of children) {
       out.push(yield* coerceAsync(c))
     }
-    if (typeof tag === "function") {
-      // Component: pass props (children threaded as a prop)
-      return yield* tag({ ...props, children: out })
-    }
     return View.Element({ tag, props, children: out })
   })
 
 // Errors split by phase across the two channels: CONSTRUCTION errors
-// (`FoldE`/`TagE`) on the Effect `E` (a child's build failing fails this build),
-// LIVE errors (`FoldLiveE`/`TagLiveE`) on the `View<E>` success (errors the
+// (`FoldE`) on the Effect `E` (a child's build failing fails this build),
+// LIVE errors (`FoldLiveE`) on the `View<E>` success (errors the
 // rendered subtree can still produce). `mount` requires both `never`;
 // `Catch` discharges both. The position encodes the phase.
-type HFn = <
-  T extends string | ((props: any) => Effect.Effect<View<any>, any, any>),
-  Cs extends readonly unknown[],
->(
-  _tag: T,
-  _props: TagProps<T>,
+type HFn = <Cs extends readonly unknown[]>(
+  _tag: string,
+  _props: IntrinsicProps,
   ..._children: Cs
-) => Effect.Effect<
-  View<FoldLiveE<Cs> | TagLiveE<T>>,
-  FoldE<Cs> | TagE<T>,
-  FoldR<Cs> | TagR<T>
->
+) => Effect.Effect<View<FoldLiveE<Cs>>, FoldE<Cs>, FoldR<Cs>>
 
 /**
  * The view factory, plus two helper methods the compiler calls into:

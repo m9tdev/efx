@@ -3,10 +3,11 @@
 Single Babel transform. Takes `.vx` source (TypeScript with
 angle-bracket `<div>...</div>` syntax — JSX-shape only, no JSX
 semantics; see root [AGENTS.md](../../../../AGENTS.md)) and emits plain
-TypeScript with every `<...>` expression rewritten as an
-`h(tag, props, ...children)` call. The output contains zero angle
-brackets — they are gone before tsc, Vite, or any other downstream
-tool sees the file.
+TypeScript with every `<...>` expression rewritten as a call:
+intrinsic elements become `h(tag, props, ...children)`, component tags
+become DIRECT calls (`MyComp({ ...attrs, children: [...] })` — see
+"Tag dispatch"). The output contains zero angle brackets — they are
+gone before tsc, Vite, or any other downstream tool sees the file.
 
 Entry point: `transformVerrex(source, filename) → { code, map, jsxRanges, mappings }`.
 
@@ -197,11 +198,28 @@ identifier (no alias) are skipped to avoid duplicates.
 
 ## Tag dispatch
 
-- Lowercase identifier → string literal (`<div>` → `h("div", ...)`)
-- Uppercase identifier → identifier reference (`<Counter>` → `h(Counter, ...)`)
-- `JSXMemberExpression` → member expression (`<X.Y>` → `h(X.Y, ...)`)
-- `JSXNamespacedName` → string literal with `:` (`<svg:rect>`)
-- Fragment (`<>`) → `h(Fragment, {}, ...children)`
+- Lowercase identifier → intrinsic: `<div>` → `h("div", props, ...children)`
+- `JSXNamespacedName` → intrinsic: `<svg:rect>` → `h("svg:rect", ...)`
+- Uppercase identifier → DIRECT call (`isComponentTag`):
+  `<Counter/>` → `Counter()` (zero-arg when no attrs and no children, so
+  propless `function* ()` components typecheck);
+  `<Foo bar={1}>kid</Foo>` → `Foo({ bar: 1, children: [...] })`
+- `JSXMemberExpression` → direct call regardless of case
+  (`<X.Y>` → `X.Y({...})` — components by JSX convention)
+- Fragment (`<>`) → `Fragment({ children: [...] })` — `Fragment` is itself a
+  direct-call component (generic over the children tuple, coerces raw
+  children; see runtime AGENTS.md)
+
+The direct-call lowering (#71) is why generic components keep their type
+parameter at JSX call sites and why the `Tag*` fold families no longer
+exist — a component's channels are just its call's Effect type, folding
+into the surrounding `h()` as an ordinary child. Children pass RAW in the
+`children` array prop (coercion happens where the component embeds them);
+JSX children win over an explicit `children={...}` attr (React semantics
+— and a duplicate literal key would be a TS error in the emitted object).
+Consequence for imports: `h` is auto-imported per-emission (an intrinsic
+element, an `h.track` wrap, or an `h.read` rewrite) — a component-only
+file imports nothing.
 
 ## JSX text whitespace
 

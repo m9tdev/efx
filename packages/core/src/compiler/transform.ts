@@ -100,11 +100,16 @@ const attrName = (id: t.JSXIdentifier | t.JSXNamespacedName): t.Identifier | t.S
 
 /**
  * Per-call mutable state, threaded through every helper that may emit a
- * `list(...)` call. `transformVerrex` creates a fresh instance and reads
- * `wroteList` at the end to decide whether to auto-import `list`.
+ * runtime call. `transformVerrex` creates a fresh instance and reads the
+ * flags at the end to decide which runtime imports to auto-inject. `usedH`
+ * is per-emission (an intrinsic `h(...)`, an `h.track` wrap, or an
+ * `h.read` rewrite) — a file whose JSX is all component tags emits direct
+ * calls and needs no `h` at all.
  */
 interface RewriteState {
   wroteList: boolean
+  usedH: boolean
+  usedFragment: boolean
 }
 
 /**
@@ -146,6 +151,7 @@ const isSelfTrackingCall = (expr: t.Expression): boolean =>
 const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
   const { expr: rewritten, rewroteRead } = rewriteTrackedExpression(expr, state)
   if (!rewroteRead) return rewritten
+  state.usedH = true // the rewrite emitted h.read (and below, possibly h.track)
   // Async / Catch self-track; the `.value`→`h.read` rewrite inside them is
   // kept, but the outer `h.track` wrap is skipped so their channels survive the fold.
   if (isSelfTrackingCall(rewritten)) return rewritten
@@ -532,25 +538,76 @@ const collectJsxRange = (node: t.JSXElement | t.JSXFragment): JsxRange => {
   }
 }
 
-/** Transform a JSX element or fragment node into an h(...) call expression. */
+/**
+ * True when the JSX tag names a component (the compiler lowers it to a
+ * direct call) rather than an intrinsic element (routed through `h`).
+ * Components are capitalized identifiers (`<MyComp/>` — same first-letter
+ * rule `tagExpression` uses) and member expressions (`<X.Y/>` — components
+ * by JSX convention regardless of case). Namespaced names (`<svg:rect/>`)
+ * are intrinsic.
+ */
+const isComponentTag = (
+  name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName,
+): boolean =>
+  t.isJSXMemberExpression(name) || (t.isJSXIdentifier(name) && !/^[a-z]/.test(name.name))
+
+/**
+ * Transform a JSX element or fragment node into its compiled call:
+ *
+ *  - intrinsic element → `h("tag", props, ...children)` (unchanged)
+ *  - component tag     → direct call: `MyComp({ ...attrs, children: [...] })`,
+ *    `MyComp({ ...attrs })`, or `MyComp()` when there are no attrs and no
+ *    children (so zero-param components stay callable)
+ *  - fragment          → `Fragment({ children: [...] })` (Fragment is itself
+ *    a component since #71; it coerces the raw children)
+ *
+ * Direct calls are what let a generic component's type parameter infer at
+ * the call site, and what makes the component's channels fold as an
+ * ordinary Effect child of the surrounding `h()` — no `Tag*` fold types.
+ * JSX children always win over an explicit `children={...}` attr (React
+ * semantics; a duplicate key would also be a TS error in the emitted
+ * object literal).
+ */
 const transformJsxNode = (
   node: t.JSXElement | t.JSXFragment,
   state: RewriteState,
 ): t.CallExpression => {
-  const tag: t.Expression = t.isJSXFragment(node)
-    ? copyLoc(t.identifier("Fragment"), node)
-    : tagExpression(node.openingElement.name)
-
-  const props: t.Expression = t.isJSXFragment(node)
-    ? t.objectExpression([])
-    : buildProps(node.openingElement.attributes, state)
-
   const childArgs: t.Expression[] = []
   for (const child of node.children) {
     const transformed = transformChild(child, state)
     if (transformed) childArgs.push(transformed)
   }
 
+  const isFragment = t.isJSXFragment(node)
+  if (isFragment || isComponentTag(node.openingElement.name)) {
+    const callee: t.Expression = isFragment
+      ? copyLoc(t.identifier("Fragment"), node)
+      : tagExpression(node.openingElement.name)
+    if (isFragment) state.usedFragment = true
+
+    const props = isFragment
+      ? t.objectExpression([])
+      : (buildProps(node.openingElement.attributes, state) as t.ObjectExpression)
+    if (childArgs.length > 0) {
+      props.properties = props.properties.filter(
+        (p) =>
+          !(t.isObjectProperty(p) &&
+            (t.isIdentifier(p.key, { name: "children" }) ||
+              t.isStringLiteral(p.key, { value: "children" }))),
+      )
+      props.properties.push(
+        t.objectProperty(t.identifier("children"), t.arrayExpression(childArgs)),
+      )
+    }
+    // No attrs, no children → zero-arg call, so propless `function* ()`
+    // components typecheck. Fragment always takes its (required) props arg.
+    const args = !isFragment && props.properties.length === 0 ? [] : [props]
+    return copyLoc(t.callExpression(callee, args), node)
+  }
+
+  state.usedH = true
+  const tag = tagExpression(node.openingElement.name)
+  const props = buildProps(node.openingElement.attributes, state)
   // Preserve location on the h() call for source map accuracy
   const hCall = t.callExpression(t.identifier("h"), [tag, props, ...childArgs])
   return copyLoc(hCall, node)
@@ -602,18 +659,13 @@ export const transformVerrex = (
     },
   })
 
-  const state: RewriteState = { wroteList: false }
-  let usedH = false
-  let usedFragment = false
+  const state: RewriteState = { wroteList: false, usedH: false, usedFragment: false }
 
   traverse(ast, {
     JSXElement(path: NodePath<t.JSXElement>) {
-      usedH = true
       path.replaceWith(transformJsxNode(path.node, state))
     },
     JSXFragment(path: NodePath<t.JSXFragment>) {
-      usedH = true
-      usedFragment = true
       path.replaceWith(transformJsxNode(path.node, state))
     },
   })
@@ -658,9 +710,10 @@ export const transformVerrex = (
   // missing names there; otherwise prepends a new import. Keeps the user's
   // imports untouched and avoids duplicate specifiers. `h` is needed if the
   // JSX pass emitted `h(...)` OR pass 3 emitted any `h.read(...)`.
-  if (usedH || usedHRead) {
-    const wanted = new Set(["h"])
-    if (usedFragment) wanted.add("Fragment")
+  if (state.usedH || usedHRead || state.usedFragment || state.wroteList) {
+    const wanted = new Set<string>()
+    if (state.usedH || usedHRead) wanted.add("h")
+    if (state.usedFragment) wanted.add("Fragment")
     if (state.wroteList) wanted.add("list")
     ensureRuntimeImports(ast.program, wanted)
   }

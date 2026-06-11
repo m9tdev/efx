@@ -82,20 +82,35 @@ const WithList = h("ul", {}, ids.map((id) => UserPage({ userId: id })))
 type WithListType = typeof WithList
 assertEquals<WithListType, Effect.Effect<View, HttpError, Http | Theme>>()
 
-// ─── <Component /> form: h(Component, props) carries the component's E/R ─
+// ─── <Component /> form: the compiler lowers component tags to DIRECT calls
+//     (#71) — `<UserPage userId="42"/>` is `UserPage({ userId: "42" })` in the
+//     emitted code, so the component's E/R is just the call's Effect type and
+//     folds into a surrounding h() as an ordinary child. (These direct calls
+//     ARE the compiled form of the JSX tags.)
 
-const CounterAsTag = h(Counter, {})
+const CounterAsTag = Counter()                      // <Counter />
 assertEquals<typeof CounterAsTag, Effect.Effect<View, never, never>>()
 
-const UserPageAsTag = h(UserPage, { userId: "42" })
+const UserPageAsTag = UserPage({ userId: "42" })    // <UserPage userId="42"/>
 assertEquals<typeof UserPageAsTag, Effect.Effect<View, HttpError, Http | Theme>>()
 
-// Tag E/R unions with child E/R
+// Component children union with the surrounding element's other children.
 const Mixed = h("div", {},
-  h(UserPage, { userId: "42" }),       // tag contributes HttpError + Http | Theme
-  h(Counter, {}),                       // contributes nothing
+  UserPage({ userId: "42" }),          // contributes HttpError + Http | Theme
+  Counter(),                            // contributes nothing
 )
 assertEquals<typeof Mixed, Effect.Effect<View, HttpError, Http | Theme>>()
+
+// ─── Generic components survive JSX tags (#71's acceptance) ─────────────
+//     Direct calls infer the type parameter natively — the old h()-mediated
+//     higher-rank erasure is gone.
+
+declare const GenericRow: <T>(props: { item: T; render: (item: T) => string }) =>
+  Effect.Effect<View, never, never>
+// <GenericRow item={42} render={n => n.toFixed(2)}/> — T pins to number;
+// `n.toFixed` compiles only because T survived.
+const RowCall = GenericRow({ item: 42, render: (n) => n.toFixed(2) })
+assertEquals<typeof RowCall, Effect.Effect<View, never, never>>()
 
 // ─── Event handlers on intrinsic elements get typed event arguments ─────
 
@@ -138,20 +153,23 @@ h("div", { "data-id": "x", "aria-hidden": "true", customX: 42 })
 
 // ─── Props are type-checked against the component's declared shape ───────
 
+// (the direct-call lowering means these errors point at UserPage's own
+// signature, not at h's conditional types)
+
 // @ts-expect-error — missing required prop `userId`
-const Missing = h(UserPage, {})
+const Missing = UserPage({})
 void Missing
 
 // @ts-expect-error — typo: `userid` is not in `{ userId: string }`
-const Typo = h(UserPage, { userid: "42" })
+const Typo = UserPage({ userid: "42" })
 void Typo
 
 // @ts-expect-error — wrong type: number not assignable to string
-const WrongType = h(UserPage, { userId: 42 })
+const WrongType = UserPage({ userId: 42 })
 void WrongType
 
 // @ts-expect-error — extra prop not declared on component
-const Extra = h(UserPage, { userId: "42", nope: true })
+const Extra = UserPage({ userId: "42", nope: true })
 void Extra
 
 // ─── Container parity: ChildE/ChildR must peel exactly what coerceAsync

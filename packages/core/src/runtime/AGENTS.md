@@ -3,8 +3,9 @@
 What the user actually imports from when writing components.
 Public surface (from `index.ts`):
 
-- `h` — the view factory (the compile target for `<...>` source
-  syntax) + `h.track`/`h.read` (compiler hooks)
+- `h` — the view factory for INTRINSIC elements only (the compile target
+  for lowercase `<div>` source syntax; component tags lower to direct
+  calls since #71) + `h.track`/`h.read` (compiler hooks)
 - `Component` — `Component.make`, the canonical component constructor
   (a thin seam over `Effect.fn`; see "`Component.make`" below)
 - `mount` — DOM renderer. **Requires `Effect<View<never>, never, R>`** (every
@@ -12,17 +13,23 @@ Public surface (from `index.ts`):
 - `list` — keyed reactive list helper (`View.List` IR node)
 - `Async` / `asyncRef` / `AsyncHandle` — async render boundary + primitive returning `{ state, refetch }` (errors-as-values; see "`asyncRef` / `Async`" below)
 - `Catch` — view-level error boundary (one overloaded helper: function 2nd-arg = catch-all, object 2nd-arg = tag-selective; mirrors `Effect.catch*`; see "`Catch`" below)
-- `Fragment` — `<>...</>` compile target
+- `Fragment` — `<>...</>` compile target (a direct-call component since
+  #71: `Fragment({ children: [...] })`, generic over the children tuple —
+  also the canonical pattern for effectful-children components)
 - `VerrexLive` — base Layer providing `AtomRegistry`
-- Types: `View<E>`, `Props`, `FoldE`/`FoldLiveE`/`FoldR`/`TagE`/`TagLiveE`/`TagR`/`TagProps`,
+- Types: `View<E>`, `Props`, `FoldE`/`FoldLiveE`/`FoldR` (the `Tag*`
+  families died with #71 — component channels are ordinary child folds),
   `IntrinsicProps`, `HtmlEventHandlers`
 
 This is where the **channel propagation contract lives** —
 `h()`'s signature uses the fold conditional types to union every child's
 channels into the result. Errors split by phase: **construction** errors
-(`FoldE`/`TagE`) ride the result Effect's `E`; **live** errors a rendered
-subtree can still produce (`FoldLiveE`/`TagLiveE`) ride the `View<E>` success.
-`R` unifies (`FoldR`/`TagR`). `mount` requires both error channels `never`;
+(`FoldE`) ride the result Effect's `E`; **live** errors a rendered
+subtree can still produce (`FoldLiveE`) ride the `View<E>` success.
+`R` unifies (`FoldR`). A component tag is not a fold case of its own:
+the compiler lowers `<MyComp/>` to the direct call `MyComp({...})`, so a
+component's channels surface as an ordinary Effect child of the
+surrounding `h()`. `mount` requires both error channels `never`;
 `Catch` discharges them. A forgotten boundary is a compile error that
 names the error — the runtime counterpart of a forgotten Layer naming a
 service. See [`types/Fold.ts`](./types/Fold.ts).
@@ -49,7 +56,7 @@ the editor margin. If you rename them, update the regex.
 | `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`, `VerrexLive` |
 | `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
 | `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality matches the old single-pass; index updates on shift) |
-| `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` + `TagE`/`TagLiveE`/`TagR`/`TagProps` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel) |
+| `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls) |
 | `types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics |
 | `types/Fold.test-d.ts` | `assertEquals` matrix — every channel-fold shape |
 
@@ -652,33 +659,45 @@ typically) and keep it alive for the lifetime of the rendered UI.
 
 ## Known limits
 
-### Generic components don't survive JSX call sites
+### Generic components DO survive JSX tags (since #71) — one caveat
 
-A component declared as `<T>(props: {item: T}) => Effect<View, …>`
-loses its `T` when called as `<MyComp item={x} />` — the same
-higher-rank polymorphism limit React/Solid hit. `h()`'s outer
-generics infer once per call site and can't carry a component's
-inner type parameter through.
+Component tags lower to direct calls (`<Row item={x}/>` →
+`Row({ item: x })`), so a generic component's `T` infers natively at
+the call site — the old h()-mediated higher-rank erasure is gone, and
+`list()` is no longer a generics workaround (it remains the keyed
+reconciliation primitive; the compiler still rewrites
+`{coll.value.map(item => <Row/>)}` into `list(coll, …)`).
 
-**Workaround.** Keep generics on a regular function whose call
-site preserves `T`, and accept a function child instead of a JSX
-`<MyComp<T>>` tag. `list(coll, render)` is the canonical shape:
+The caveat: a **tracked attr** still erases. An attr value containing a
+`.value` read gets wrapped in `h.track(() => …)`, whose return type is
+`unknown` — so `<Row item={ref.value}/>` passes `item: unknown`. Static
+attrs pass through untouched (the empty-deps early return in `h.track`
+is what preserves them). Same trade-off as before #71, now scoped to
+reactive attrs only.
+
+Don't "fix" anything here by widening `h()`'s signature — `h` is
+intrinsic-only since #71 and the narrow signature is what makes child
+folding work (see the root [AGENTS.md](../../../../AGENTS.md)
+anti-pattern about pluggable JSX backends).
+
+### Children-accepting components: be generic, never `Child[]`
+
+A component that accepts arbitrary effectful children declares a
+GENERIC children tuple and folds it (Fragment in `index.ts` is the
+canonical implementation):
 
 ```ts
-list<T>(coll: AtomRef.Collection<T>, render: (item: AtomRef.AtomRef<T>, i: AtomRef.ReadonlyRef<number>) => …)
+const Layout = Component.make(<Cs extends ReadonlyArray<unknown>>(
+  props: { readonly children?: Cs },
+) => … /* embed {props.children}; folds Fold*<Cs> */)
 ```
 
-Users normally never write `list()` by hand — the compiler rewrites
-`{coll.value.map(item => <Row item={item} />)}` in JSX expression
-position into this call. The function is exported and stable so the
-generated code has something to link to (and so escape hatches like
-"call `list` from non-JSX code" stay possible).
-
-Don't "fix" generic erasure by widening `h()`'s signature — see the
-root [AGENTS.md](../../../../AGENTS.md) anti-pattern about pluggable JSX
-backends. The narrow `h()` signature is what makes channel folding
-work; carrying a component's inner generic would require
-higher-rank polymorphism TS doesn't have.
+Direct calls make the inference precise. Typing the prop as the
+non-generic `Child[]` is an anti-pattern: `Child` includes
+`Effect<View, any, any>`, and folding `any` poisons `E` — an `any`
+error channel is assignable to `never`, which silently defeats the
+`mount` gate. Children arrive RAW (any child shape `h` accepts) and
+coerce where embedded.
 
 ### `h.read` overload preserves arbitrary `.value` types
 
