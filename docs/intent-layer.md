@@ -184,6 +184,31 @@ Survey your team's tools and ensure nodes auto-load everywhere. Options:
 Avoid duplicating content across every filetype—this bloats the layer and
 creates drift.
 
+### Claude Code specifics (what this repo does)
+
+Claude Code auto-loads nested `CLAUDE.md` files on demand but does **not**
+read nested `AGENTS.md` — only a root-level symlink covers the root node.
+Instead of per-directory symlinks, this repo maps each node with a
+path-scoped **pointer rule** in `.claude/rules/`:
+
+```markdown
+---
+paths:
+  - "packages/core/src/runtime/**"
+---
+
+INTENT-NODE core-runtime: before reading or changing code under
+`packages/core/src/runtime/`, Read `packages/core/src/runtime/AGENTS.md`
+once this session.
+```
+
+Two behaviors verified empirically (2026-06):
+- A pointer rule is **lazy**: nothing loads until a file matching `paths`
+  is touched; then the instruction injects and the agent Reads the node.
+- An `@`-import inside a rule is **eager**: the imported file's content
+  enters every session at startup regardless of `paths` — which would
+  load the whole tree always. Don't use imports in these rules.
+
 ## Naive vs. Effective Implementation
 
 **Naive approach:**

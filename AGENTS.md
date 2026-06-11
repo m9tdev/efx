@@ -253,6 +253,15 @@ Signs an AGENTS.md needs updating:
 
 The root `CLAUDE.md` is a symlink to `AGENTS.md` — no need to maintain both.
 
+Claude Code does not auto-load nested `AGENTS.md` files (only the root,
+via the symlink). Each node therefore has a path-scoped pointer rule in
+[`.claude/rules/`](./.claude/rules/) that fires when files under the
+node's directory are touched and instructs the agent to Read the node.
+**If you add a new node, add its mapping rule in the same change.**
+Keep the rules as pointers — an `@`-import there loads the node into
+*every* session eagerly, defeating the lazy hierarchy (verified
+empirically; see `docs/intent-layer.md` § File Naming).
+
 ## Anti-patterns at the root
 
 - Don't try to make `.tsx` work as a parallel file extension.
