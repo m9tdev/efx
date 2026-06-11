@@ -17,7 +17,8 @@ const SEVERITY_HINT = 4
  * `"error"` < `"warning"` < `"hint"` — each level includes the ones before it
  * (`"hint"` also admits LSP Information, like astro's `severity <= Hint` filter).
  */
-export type Severity = "error" | "warning" | "hint"
+export const SEVERITIES = ["error", "warning", "hint"] as const
+export type Severity = (typeof SEVERITIES)[number]
 
 const SEVERITY_CEILING: Record<Severity, number> = {
   error: SEVERITY_ERROR,
@@ -52,7 +53,11 @@ export interface CheckResult {
   errors: number
   /** Total warning-severity diagnostics. */
   warnings: number
-  /** Total hint-severity diagnostics (TS "suggestions", e.g. unused locals). */
+  /**
+   * Total diagnostics below warning — LSP Hint (TS "suggestions", e.g. unused
+   * locals) and LSP Information both land here, mirroring the `"hint"` print
+   * ceiling so everything printable is counted somewhere.
+   */
   hints: number
 }
 
@@ -66,12 +71,18 @@ export interface VerrexChecker {
   check(options?: { cancel?: () => boolean }): Promise<CheckResult>
   /** Notify the checker of a created file (re-expands the tsconfig include globs). */
   fileCreated(fileName: string): void
-  /** Notify the checker of an in-place edit (bumps the project version; content re-read from disk). */
+  /**
+   * Notify the checker of an in-place edit (bumps the project version; content
+   * re-read from disk). An edit to the tsconfig itself marks the whole project
+   * stale instead — compiler options and include globs are re-parsed.
+   */
   fileUpdated(fileName: string): void
   /** Notify the checker of a deletion (re-expands the tsconfig include globs). */
   fileDeleted(fileName: string): void
   /** Current root file names (re-resolved after create/delete events). */
   getRootFileNames(): string[]
+  /** Absolute path of the tsconfig this checker resolved. */
+  readonly tsconfigPath: string
 }
 
 /**
@@ -83,24 +94,28 @@ export interface VerrexChecker {
  *
  * `fileUpdated` (the hot path — every save) is incremental: kit bumps its
  * project version and the edited file's snapshot is re-read from disk.
- * `fileCreated`/`fileDeleted` rebuild the kit checker instead: kit's own root
- * file re-expansion is broken upstream (its `getScriptFileNames` caches
- * resolved names in a WeakMap keyed by a `ParsedCommandLine` it then mutates
- * in place, so a re-parsed include glob is never observed — present in
- * `@volar/kit` ≤ 2.4.28 and on volar main). Rebuild costs one project
- * construction, only on the rare add/remove events.
+ * `fileCreated`/`fileDeleted` (and tsconfig edits) mark the project stale
+ * instead, and the kit checker is rebuilt lazily — once, at the start of the
+ * next `check()` — because kit's own root-file re-expansion is broken
+ * upstream (its `getScriptFileNames` caches resolved names in a WeakMap
+ * keyed by a `ParsedCommandLine` it then mutates in place, so a re-parsed
+ * include glob is never observed — present in `@volar/kit` ≤ 2.4.28 and on
+ * volar main). Lazy means a burst of N add/remove events (git checkout,
+ * codegen) costs one project construction, not N.
  */
 export function createChecker(options: CheckOptions = {}): VerrexChecker {
   const cwd = path.resolve(options.cwd ?? process.cwd())
   const minimumSeverity = options.minimumSeverity ?? "error"
   const printCeiling = SEVERITY_CEILING[minimumSeverity]
 
-  const tsconfigPath = resolveTsconfig(cwd, options.tsconfig)
-  if (!tsconfigPath) {
+  const foundTsconfig = resolveTsconfig(cwd, options.tsconfig)
+  if (!foundTsconfig) {
     throw new Error(
       `No tsconfig.json found from ${cwd}. Pass --tsconfig <path> or run from a directory containing one.`,
     )
   }
+  // Normalized so fileUpdated can reliably recognize edits to the tsconfig.
+  const tsconfigPath = path.resolve(foundTsconfig)
 
   // `@volar/kit` uses `URI` as the script-id type, so the plugin gets URIs
   // and reduces them to filesystem paths for the compiler. The kit checker
@@ -112,17 +127,28 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
     return kit.createTypeScriptChecker([languagePlugin], tsServices, tsconfigPath)
   }
   let linter = buildLinter()
+  let projectStale = false
+  const freshLinter = () => {
+    if (projectStale) {
+      projectStale = false
+      linter = buildLinter()
+    }
+    return linter
+  }
 
   async function check(checkOptions: { cancel?: () => boolean } = {}): Promise<CheckResult> {
     const cancel = checkOptions.cancel ?? (() => false)
     const result: CheckResult = { filesChecked: 0, errors: 0, warnings: 0, hints: 0 }
 
-    // Pin the instance for the whole pass — a create/delete event arriving
-    // mid-pass swaps `linter`, and mixing instances would skew the counts.
-    const pass = linter
+    // Pin the instance for the whole pass — a superseded-but-draining pass
+    // must not pick up a rebuild a newer overlapping pass just performed.
+    const pass = freshLinter()
     for (const fileName of pass.getRootFileNames()) {
       if (cancel()) return result
       const diagnostics = await pass.check(fileName)
+      // Re-check after the await: a pass superseded mid-file must not print
+      // stale diagnostics over the newer pass's output.
+      if (cancel()) return result
       result.filesChecked += 1
       if (diagnostics.length === 0) continue
 
@@ -139,7 +165,10 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
         const sev = d.severity ?? SEVERITY_ERROR
         if (sev === SEVERITY_ERROR) result.errors += 1
         else if (sev === SEVERITY_WARNING) result.warnings += 1
-        else if (sev === SEVERITY_HINT) result.hints += 1
+        // Everything below warning (LSP Information 3 and Hint 4) counts as a
+        // hint — the same bucket the "hint" print ceiling admits, so nothing
+        // can print yet be invisible to the counts and the exit code.
+        else result.hints += 1
       }
     }
 
@@ -149,13 +178,17 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
   return {
     check,
     fileCreated: () => {
-      linter = buildLinter()
+      projectStale = true
     },
-    fileUpdated: (fileName) => linter.fileUpdated(fileName),
+    fileUpdated: (fileName) => {
+      if (path.resolve(fileName) === tsconfigPath) projectStale = true
+      else linter.fileUpdated(fileName)
+    },
     fileDeleted: () => {
-      linter = buildLinter()
+      projectStale = true
     },
-    getRootFileNames: () => linter.getRootFileNames(),
+    getRootFileNames: () => freshLinter().getRootFileNames(),
+    tsconfigPath,
   }
 }
 
@@ -185,6 +218,10 @@ export function shouldFail(
       return result.errors + result.warnings > 0
     case "hint":
       return result.errors + result.warnings + result.hints > 0
+    default:
+      // Unreachable for TS callers; guards untyped JS callers passing a typo'd
+      // threshold, which must not read as "success" (astro has the same arm).
+      return result.errors > 0
   }
 }
 

@@ -13,7 +13,7 @@ Used in `apps/demo`'s `typecheck` script. Modeled on Astro's
 | File | Purpose |
 |---|---|
 | `index.ts` | Programmatic API: `createChecker(options) → VerrexChecker` (persistent, file-event-driven — what `--watch` runs on), `runCheck(options) → CheckResult` (one-shot), `shouldFail(result, severity)` (exit-code policy). Wires the language plugin + `volar-service-typescript` into a kit `TypeScriptChecker`, iterates root files, prints diagnostics at or above `minimumSeverity`. |
-| `cli.ts` | CLI entry. Minimal argv parser (`--tsconfig`, `--root`, `--watch`, `--minimumSeverity`, `--minimumFailingSeverity`, `--preserveWatchOutput`, `--help`), colored summary line, chokidar wiring for watch mode, exits 0/1/2. |
+| `cli.ts` | CLI entry. `node:util` `parseArgs` (`--tsconfig`, `--root`, `--watch`, `--minimumSeverity`, `--minimumFailingSeverity`, `--preserveWatchOutput`, `--help`; rejects unknown flags and missing/flag-like option values), colored summary line, chokidar wiring for watch mode, exits 0/1/2. |
 | `../../test/check/integration.mjs` | Smoke test: known-good fixture → 0 errors; inject broken `.vx` → expect TS2322 with `.vx` source position; cleanup → 0 errors again. Plus: persistent `createChecker` driven by file events (the watch loop's contract), `minimumSeverity` print filtering on a hint-severity suggestion, `shouldFail` threshold cascade. |
 | `../../test/check/fixture/` | Minimal `.vx` project (tsconfig + `Good.vx`) used by the smoke test. Self-contained, no cross-file imports — keep it that way. |
 
@@ -88,24 +88,38 @@ LSP protocol.
   can print hints without failing on them and vice versa. Usage
   errors exit 2.
 - **Watch mode** (`--watch`/`-w`): one `createChecker` instance for
-  the process lifetime; chokidar watches the root (ignoring
-  `node_modules`/`.git`, filtering to the extensions the resolved
-  root files actually use) and feeds
-  `fileCreated`/`fileUpdated`/`fileDeleted`. Re-checks are debounced
-  100ms; a superseded pass cancels between files. The screen is
-  cleared between passes unless `--preserveWatchOutput`. Watch mode
-  never exits non-zero on diagnostics.
+  the process lifetime. chokidar watches the **tsconfig's directory**
+  (the anchor of its include globs — not the invocation cwd, which
+  can differ under `--tsconfig ../app/tsconfig.json`), ignoring
+  `node_modules`/`.git` by **whole path segment** (substring matching
+  would silently kill the watch for e.g. a `user.github.io` checkout),
+  admitting the full set of checkable extensions (the TS family plus
+  `.vx` — not just the extensions present at startup, so a project's
+  first `.tsx` still fires) plus the tsconfig itself (an edit to it
+  re-parses options and includes). Events feed
+  `fileCreated`/`fileUpdated`/`fileDeleted`; a watcher `error`
+  (EPERM dir, inotify ENOSPC) is reported on stderr and watching
+  continues. Re-checks are debounced 100ms; a superseded pass cancels
+  between files and never prints a stale file's diagnostics after its
+  await. The screen clear runs after the debounce (one per executed
+  pass), only on a TTY, and never under `--preserveWatchOutput`.
+  Watch mode never exits non-zero on diagnostics.
   **Upstream caveat:** `fileUpdated` (every save — the hot path) is
   incremental via kit's project-version bump, but kit's root-file
   re-expansion is broken (`getScriptFileNames` caches resolved names
   in a WeakMap keyed by a `ParsedCommandLine` it mutates in place —
-  `@volar/kit` ≤ 2.4.28 and volar main), so `fileCreated`/`fileDeleted`
-  rebuild the kit checker instead. If a kit release fixes that cache,
-  the rebuild in `createChecker` can go back to forwarding the events.
-- **Colors**: the summary line and watch status color only when
-  stdout is a TTY and `NO_COLOR` is unset. Per-diagnostic output is
-  colored upstream by `ts.formatDiagnosticsWithColorAndContext`
-  unconditionally (kit behavior, pre-existing).
+  `@volar/kit` ≤ 2.4.28 and volar main), so create/delete/tsconfig
+  events mark the project stale and the kit checker is rebuilt
+  **lazily at the next `check()`/`getRootFileNames()`** — a burst of
+  N events costs one rebuild, not N. If a kit release fixes that
+  cache, the stale-flag rebuild can go back to forwarding the events.
+- **Colors**: the summary line, watch status, and screen clear only
+  when stdout is a TTY (and, for color, `NO_COLOR` unset) — a pipe
+  gets plain text and never the `\x1bc` reset. Per-diagnostic output
+  is colored upstream by `ts.formatDiagnosticsWithColorAndContext`
+  unconditionally (kit behavior, pre-existing). The one-shot path
+  awaits the final write's flush callback before `process.exit` so
+  piped output isn't truncated.
 - **In-process isolation**: each `runCheck` call builds its own
   `@volar/kit` checker, which owns the virtual-code lifetime for that
   call. Two calls in the same Node process — e.g. a test that
@@ -145,9 +159,11 @@ LSP protocol.
 - Don't make the watch loop poll. It's file-event-driven (chokidar →
   `fileCreated/Updated/Deleted`, like astro-check); the debounce in
   `cli.ts` plus between-files cancellation is what keeps rapid saves
-  cheap. Don't "fix" `fileCreated`/`fileDeleted` back to forwarding
-  kit's events without checking the upstream WeakMap-cache bug is
-  actually fixed (see the watch-mode caveat above).
+  cheap. Don't "fix" the stale-flag lazy rebuild back to forwarding
+  create/delete events to kit without checking the upstream
+  WeakMap-cache bug is actually fixed (see the watch-mode caveat
+  above) — and don't make the rebuild eager again: event bursts
+  (git checkout) must cost one rebuild, not N.
 - Don't add flags or option types that diverge from Astro's
   `check()` API beyond what's necessary. If you add a flag here,
   mirror the Astro name and semantics (`astro-check`'s `options.ts`

@@ -13,9 +13,26 @@
  * see the behavior contract in AGENTS.md.
  */
 import * as path from "node:path"
-import { createChecker, runCheck, shouldFail, type CheckResult, type Severity } from "./index.ts"
+import { parseArgs } from "node:util"
+import {
+  createChecker,
+  runCheck,
+  shouldFail,
+  SEVERITIES,
+  type CheckOptions,
+  type CheckResult,
+  type Severity,
+} from "./index.ts"
 
-const SEVERITIES: ReadonlyArray<Severity> = ["error", "warning", "hint"]
+const OPTIONS = {
+  tsconfig: { type: "string", short: "p" },
+  root: { type: "string" },
+  watch: { type: "boolean", short: "w", default: false },
+  minimumSeverity: { type: "string", default: "error" },
+  minimumFailingSeverity: { type: "string", default: "error" },
+  preserveWatchOutput: { type: "boolean", default: false },
+  help: { type: "boolean", short: "h", default: false },
+} as const
 
 interface ParsedArgs {
   root: string | undefined
@@ -26,47 +43,38 @@ interface ParsedArgs {
   preserveWatchOutput: boolean
 }
 
-function parseArgs(argv: ReadonlyArray<string>): ParsedArgs {
-  const out: ParsedArgs = {
-    root: undefined,
-    tsconfig: undefined,
-    watch: false,
-    minimumSeverity: "error",
-    minimumFailingSeverity: "error",
-    preserveWatchOutput: false,
+function usageError(message: string): never {
+  console.error(`verrex-check: ${message}`)
+  printHelp()
+  process.exit(2)
+}
+
+function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
+  let values: ReturnType<typeof parseArgs<{ options: typeof OPTIONS }>>["values"]
+  try {
+    // parseArgs rejects unknown flags, missing option values, and flag-like
+    // values (`--root --watch`) — the failure modes a hand-rolled `argv[++i]`
+    // loop silently swallows.
+    values = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: false }).values
+  } catch (error) {
+    usageError(error instanceof Error ? error.message : String(error))
   }
-  const severityValue = (flag: string, value: string | undefined): Severity => {
-    if (value !== undefined && (SEVERITIES as ReadonlyArray<string>).includes(value)) {
-      return value as Severity
-    }
-    console.error(`verrex-check: ${flag} expects one of: ${SEVERITIES.join(", ")}`)
+  if (values.help) {
     printHelp()
-    process.exit(2)
+    process.exit(0)
   }
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]
-    if (arg === "--tsconfig" || arg === "-p") {
-      out.tsconfig = argv[++i]
-    } else if (arg === "--root") {
-      out.root = argv[++i]
-    } else if (arg === "--watch" || arg === "-w") {
-      out.watch = true
-    } else if (arg === "--minimumSeverity") {
-      out.minimumSeverity = severityValue(arg, argv[++i])
-    } else if (arg === "--minimumFailingSeverity") {
-      out.minimumFailingSeverity = severityValue(arg, argv[++i])
-    } else if (arg === "--preserveWatchOutput") {
-      out.preserveWatchOutput = true
-    } else if (arg === "--help" || arg === "-h") {
-      printHelp()
-      process.exit(0)
-    } else {
-      console.error(`verrex-check: unknown argument: ${arg}`)
-      printHelp()
-      process.exit(2)
-    }
+  const severity = (flag: string, value: string): Severity => {
+    if ((SEVERITIES as ReadonlyArray<string>).includes(value)) return value as Severity
+    usageError(`${flag} expects one of: ${SEVERITIES.join(", ")}`)
   }
-  return out
+  return {
+    root: values.root,
+    tsconfig: values.tsconfig,
+    watch: values.watch,
+    minimumSeverity: severity("--minimumSeverity", values.minimumSeverity),
+    minimumFailingSeverity: severity("--minimumFailingSeverity", values.minimumFailingSeverity),
+    preserveWatchOutput: values.preserveWatchOutput,
+  }
 }
 
 function printHelp(): void {
@@ -102,26 +110,30 @@ const dim = paint(2, 22)
 const red = paint(31, 39)
 const yellow = paint(33, 39)
 
-function printSummary(result: CheckResult, minimumSeverity: Severity): void {
+function formatSummary(result: CheckResult, minimumSeverity: Severity): string {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
   const parts = [
     result.errors > 0 ? bold(red(plural(result.errors, "error"))) : dim("0 errors"),
   ]
-  if (minimumSeverity === "warning" || minimumSeverity === "hint" || result.warnings > 0) {
+  if (minimumSeverity !== "error" || result.warnings > 0) {
     parts.push(result.warnings > 0 ? bold(yellow(plural(result.warnings, "warning"))) : dim("0 warnings"))
   }
   if (minimumSeverity === "hint") {
     parts.push(dim(plural(result.hints, "hint")))
   }
-  process.stdout.write(
-    `\n${bold(`Checked ${plural(result.filesChecked, "file")}:`)} ${parts.join(", ")}\n`,
-  )
+  return `\n${bold(`Checked ${plural(result.filesChecked, "file")}:`)} ${parts.join(", ")}\n`
 }
 
-const args = parseArgs(process.argv.slice(2))
-const checkOptions: { cwd?: string; tsconfig?: string; minimumSeverity: Severity } = {
-  minimumSeverity: args.minimumSeverity,
-}
+// Every extension the checker can ingest (the TS family plus .vx) — NOT the
+// extensions the project happens to contain at startup, so the first file of
+// a new kind still fires its add event. The tsconfig itself is allowed
+// through separately in the `ignored` predicate.
+const WATCHED_EXTENSIONS = new Set(
+  [".vx", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
+)
+
+const args = parseCliArgs(process.argv.slice(2))
+const checkOptions: CheckOptions = { minimumSeverity: args.minimumSeverity }
 if (args.root !== undefined) checkOptions.cwd = args.root
 if (args.tsconfig !== undefined) checkOptions.tsconfig = args.tsconfig
 
@@ -129,57 +141,72 @@ if (args.watch) {
   // Loaded lazily: the one-shot path (CI, pre-commit) never pays for it.
   const { watch } = await import("chokidar")
   const checker = createChecker(checkOptions)
-  const root = path.resolve(args.root ?? process.cwd())
 
-  // Watch the extensions the project actually contains (derived from the
-  // resolved root files — for verrex that's .vx plus .ts/.tsx etc.), not a
-  // hardcoded list. Same trick as astro-check.
-  const watchedExtensions = new Set(
-    checker.getRootFileNames().map((fileName) => path.extname(fileName)),
-  )
+  // Watch the directory the tsconfig anchors its include globs to — not the
+  // invocation cwd, which can be elsewhere (`--tsconfig ../app/tsconfig.json`
+  // from a sibling dir would otherwise watch the wrong tree entirely).
+  const watchRoot = path.dirname(checker.tsconfigPath)
 
   // Debounced re-check: each trigger bumps `req`; an in-flight pass polls its
-  // own ticket between files and yields as soon as it's superseded.
+  // own ticket and yields as soon as it's superseded. The screen clear sits
+  // after the debounce (one clear per executed pass, none for coalesced
+  // events) and is TTY-gated — a pipe must never receive the reset sequence.
   let req = 0
   const lint = async (): Promise<void> => {
     const current = ++req
     await new Promise((resolve) => setTimeout(resolve, 100))
     if (current !== req) return
+    if (current > 1 && !args.preserveWatchOutput && process.stdout.isTTY === true) {
+      process.stdout.write("\x1bc")
+    }
     const result = await checker.check({ cancel: () => current !== req })
     if (current !== req) return
-    printSummary(result, args.minimumSeverity)
+    process.stdout.write(formatSummary(result, args.minimumSeverity))
     process.stdout.write(dim("Watching for changes...") + "\n")
   }
-  const update = (): void => {
-    if (!args.preserveWatchOutput) process.stdout.write("\x1bc")
-    void lint()
-  }
 
-  watch(root, {
-    ignored: (p, stats) =>
-      p.includes("node_modules") ||
-      p.includes(".git") ||
-      (stats?.isFile() === true && !watchedExtensions.has(path.extname(p))),
+  watch(watchRoot, {
+    ignored: (p, stats) => {
+      if (path.resolve(p) === checker.tsconfigPath) return false
+      // Match whole path segments below the watch root — substring tests
+      // would ignore the entire tree of e.g. a `user.github.io` checkout.
+      const segments = path.relative(watchRoot, p).split(path.sep)
+      if (segments.includes("node_modules") || segments.includes(".git")) return true
+      return stats?.isFile() === true && !WATCHED_EXTENSIONS.has(path.extname(p))
+    },
     ignoreInitial: true,
   })
     .on("add", (fileName) => {
       checker.fileCreated(fileName)
-      update()
+      void lint()
     })
     .on("change", (fileName) => {
       checker.fileUpdated(fileName)
-      update()
+      void lint()
     })
     .on("unlink", (fileName) => {
       checker.fileDeleted(fileName)
-      update()
+      void lint()
+    })
+    .on("error", (error) => {
+      // An unhandled 'error' event would crash the watch session (chokidar
+      // emits one for EPERM/EACCES dirs and inotify ENOSPC). Report and keep
+      // watching — the checker itself is unaffected.
+      const message = error instanceof Error ? error.message : String(error)
+      process.stderr.write(`verrex-check: watcher error: ${message}\n`)
     })
 
-  // First pass runs immediately (no screen clear); the watcher keeps the
-  // process alive afterwards. Watch mode never exits non-zero on diagnostics.
+  // First pass runs immediately; the watcher keeps the process alive
+  // afterwards. Watch mode never exits non-zero on diagnostics.
   await lint()
 } else {
   const result = await runCheck(checkOptions)
-  printSummary(result, args.minimumSeverity)
+  // Await the final write's flush callback before exiting: stdout-to-pipe is
+  // async on Linux and process.exit() does not drain it — a large diagnostic
+  // dump piped to a slow reader would otherwise be truncated. Writes are
+  // FIFO, so flushing the last one flushes everything before it.
+  await new Promise<void>((resolve) => {
+    process.stdout.write(formatSummary(result, args.minimumSeverity), () => resolve())
+  })
   process.exit(shouldFail(result, args.minimumFailingSeverity) ? 1 : 0)
 }

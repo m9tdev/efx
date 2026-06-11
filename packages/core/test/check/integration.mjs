@@ -116,9 +116,14 @@ console.log("\n4. createChecker: one instance tracks file events incrementally..
   expect(restored.result.errors === 0, `after fileUpdated restore: expected 0 errors, got ${restored.result.errors}`)
   if (restored.result.errors !== 0) console.error("output was:\n" + restored.output)
 
-  // Create/delete re-expand the tsconfig include globs.
+  // Create/delete re-expand the tsconfig include globs (lazily, at the next
+  // check/getRootFileNames — a burst of events costs one rebuild).
   writeFileSync(brokenPath, `const x: number = "wrong type"\nexport { x }\n`)
   checker.fileCreated(brokenPath)
+  expect(
+    checker.getRootFileNames().some((f) => f.endsWith("Broken.vx")),
+    "after fileCreated: getRootFileNames flushes the stale project",
+  )
   const broken = await captureStdout(() => checker.check())
   expect(broken.result.errors >= 1, `after fileCreated: expected >=1 errors, got ${broken.result.errors}`)
   expect(broken.output.includes("Broken.vx"), "after fileCreated: output should mention Broken.vx")
@@ -126,6 +131,29 @@ console.log("\n4. createChecker: one instance tracks file events incrementally..
     broken.result.filesChecked === baselineFiles + 1,
     `after fileCreated: expected ${baselineFiles + 1} files, got ${broken.result.filesChecked}`,
   )
+
+  // An edit to the tsconfig itself marks the project stale: excluding
+  // Broken.vx must drop its error without a new checker.
+  const tsconfigPath = join(fixtureDir, "tsconfig.json")
+  expect(checker.tsconfigPath === tsconfigPath, "checker.tsconfigPath points at the fixture tsconfig")
+  const tsconfigSource = readFileSync(tsconfigPath, "utf8")
+  try {
+    const config = JSON.parse(tsconfigSource)
+    writeFileSync(tsconfigPath, JSON.stringify({ ...config, exclude: ["Broken.vx"] }, null, 2))
+    checker.fileUpdated(tsconfigPath)
+    const excluded = await captureStdout(() => checker.check())
+    expect(
+      excluded.result.errors === 0,
+      `after tsconfig exclude: expected 0 errors, got ${excluded.result.errors}`,
+    )
+    expect(
+      excluded.result.filesChecked === baselineFiles,
+      `after tsconfig exclude: expected ${baselineFiles} files, got ${excluded.result.filesChecked}`,
+    )
+  } finally {
+    writeFileSync(tsconfigPath, tsconfigSource)
+  }
+  checker.fileUpdated(tsconfigPath)
 
   unlinkSync(brokenPath)
   checker.fileDeleted(brokenPath)
@@ -164,6 +192,9 @@ console.log("\n6. shouldFail: failing-severity thresholds cascade...")
   expect(shouldFail(only("hints", 1), "hint") === true, '"hint": hints fail')
   expect(shouldFail(only("errors", 1), "hint") === true, '"hint": errors still fail')
   expect(shouldFail(only("errors", 0), "hint") === false, '"hint": clean result passes')
+  // Untyped JS callers passing a typo'd threshold must still fail on errors.
+  expect(shouldFail(only("errors", 1), "bogus") === true, "unknown threshold: errors still fail")
+  expect(shouldFail(only("warnings", 1), "bogus") === false, "unknown threshold: falls back to error level")
 }
 
 ensureClean()
