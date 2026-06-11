@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { Cause, Context, Effect, Layer, Logger } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { h } from "@verrex/core"
+import { h, list } from "@verrex/core"
 import { render } from "./index.ts"
 
 // PR1 fix: an event handler that returns an Effect used to be added as a raw DOM
@@ -85,6 +85,92 @@ describe("event handlers — Effect-returning", () => {
     ui.click(".btn")
     await ui.tick()
     expect(ui.text(".btn")).toBe("count: 1")
+    await ui.unmount()
+  })
+
+  it("honors a mid-tree Effect.provide — the handler runs on the element's construction context", async () => {
+    // FoldPropsR puts the handler's R on the construction Effect, which
+    // Effect.provide discharges mid-tree. The runtime must agree: h() captures
+    // the ambient context at construction and runHandlerEffect runs on it —
+    // NOT on the root context, which never saw this Layer. render() is called
+    // WITHOUT the layer (the type allows it: R = never after the provide).
+    class Step extends Context.Service<Step, { readonly by: number }>()("test/MidStep") {}
+    const StepLive = Layer.succeed(Step, { by: 7 })
+
+    const Provided = Effect.fn("Provided")(function* (_props: {} = {}) {
+      const count = AtomRef.make(0)
+      const btn = h(
+        "button",
+        {
+          class: "btn",
+          onClick: () =>
+            Effect.gen(function* () {
+              const step = yield* Step
+              count.set(count.value + step.by)
+            }),
+        },
+        "count: ",
+        count,
+      )
+      return yield* h("div", {}, Effect.provide(btn, StepLive))
+    })
+
+    const ui = await render(Provided())
+    ui.click(".btn")
+    await ui.tick()
+    expect(ui.text(".btn")).toBe("count: 7")
+    await ui.unmount()
+  })
+
+  it("list rows see the app context — a row handler's service resolves (construction too)", async () => {
+    // Rows are built post-mount via coerceSync, which now runs them on
+    // mount's captured context: a row's construction `yield* Step` resolves,
+    // and the h() inside captures a real context for its handler.
+    class Step extends Context.Service<Step, { readonly by: number }>()("test/RowStep") {}
+    const StepLive = Layer.succeed(Step, { by: 5 })
+
+    const Rows = (coll: AtomRef.Collection<string>) =>
+      Effect.gen(function* () {
+        const count = AtomRef.make(0)
+        return yield* h(
+          "ul",
+          {},
+          list(coll, (item) =>
+            Effect.gen(function* () {
+              yield* Step // construction-time service read inside a row
+              return yield* h(
+                "li",
+                {},
+                h(
+                  "button",
+                  {
+                    class: "row-btn",
+                    onClick: () =>
+                      Effect.gen(function* () {
+                        const step = yield* Step
+                        count.set(count.value + step.by)
+                      }),
+                  },
+                  item,
+                ),
+              )
+            })),
+          h("span", { class: "total" }, "total: ", count),
+        )
+      })
+
+    const coll = AtomRef.collection<string>(["a"])
+    const ui = await render(Rows(coll), StepLive)
+    ui.click(".row-btn")
+    await ui.tick()
+    expect(ui.text(".total")).toBe("total: 5")
+
+    // A row inserted AFTER mount builds through the same context-threaded path.
+    coll.push("b")
+    await ui.tick()
+    ui.all(".row-btn")[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    await ui.tick()
+    expect(ui.text(".total")).toBe("total: 10")
     await ui.unmount()
   })
 

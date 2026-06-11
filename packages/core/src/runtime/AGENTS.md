@@ -10,7 +10,11 @@ Public surface (from `index.ts`):
   (a thin seam over `Effect.fn`; see "`Component.make`" below)
 - `mount` — DOM renderer. **Requires `Effect<View<never>, never, R>`** (every
   error discharged), returns `Effect<void, never, R | AtomRegistry | Scope>`
-- `list` — keyed reactive list helper (`View.List` IR node)
+- `list` — keyed reactive list helper (`View.List` IR node). Folds row
+  channels (#72 review): a row's live `E` and `R` surface on `list`'s
+  result (`Effect<View<E>, never, Exclude<R, Scope>>` — an
+  already-resolved Effect whose shell exists to carry the channels; the
+  per-row `Scope` is the list runtime's own and stays excluded)
 - `Async` / `asyncRef` / `AsyncHandle` — async render boundary + primitive returning `{ state, refetch }` (errors-as-values; see "`asyncRef` / `Async`" below)
 - `Catch` — view-level error boundary (one overloaded helper: function 2nd-arg = catch-all, object 2nd-arg = tag-selective; mirrors `Effect.catch*`; see "`Catch`" below)
 - `Fragment` — `<>...</>` compile target (a direct-call component since
@@ -35,9 +39,17 @@ generic (constrained by `IntrinsicProps`, which is what contextually types
 the event argument), and an `on*` handler returning `Effect<_, E, R>`
 contributes `E` to the element's LIVE channel (`FoldPropsLiveE` — the
 element is already rendered when a handler runs, so live is the only honest
-home) and `R` to its requirements (`FoldPropsR`). Only `on*`-keyed function
-props fold — runtime parity: `applyProp` runs returned Effects only for
-those; any other function-valued attr is stringified, never invoked.
+home) and `R` to its requirements (`FoldPropsR`). Only `on*`-keyed props
+fold, EXCLUDING the bare key `on` — runtime parity: `applyProp` runs
+returned Effects only for `on*` keys with `length > 2`; any other
+function-valued attr is stringified, never invoked. Two more parity rules
+live in `HandlerChannels` (Fold.ts): an `any`-typed handler/return is INERT
+(unguarded it infers `unknown`, which silently swallows sibling handlers'
+errors one fold up and poisons `R`), and an AtomRef-valued handler folds
+THROUGH to the inner function (applyProp's AtomRef branch unwraps and
+re-applies it live). Extracted handlers should be annotated with the
+exported `EventHandler<Ev, E, R>` — a wider hand annotation erases the
+channels (see Html.ts).
 `mount` requires both error channels `never`;
 `Catch` discharges them. A forgotten boundary is a compile error that
 names the error — the runtime counterpart of a forgotten Layer naming a
@@ -65,7 +77,7 @@ the editor margin. If you rename them, update the regex.
 | `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`, `VerrexLive` |
 | `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
 | `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality; index updates on shift) |
-| `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls). Plus the props fold (#72): `FoldPropsLiveE`/`FoldPropsR` — an `on*` handler's `Effect` return contributes live `E` + `R` |
+| `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls). Plus the props fold (#72): `FoldPropsLiveE`/`FoldPropsR` — an `on*` handler's `Effect` return contributes live `E` + `R`, via ONE cached `[E, R]` pass (`FoldPropsChannels`) with a zero-handler fast path, an `any`-guard, a bare-`on` exclusion, and AtomRef fold-through. Hard-won pin: the pair is read through a naked type param (`PairE`/`PairR`) — a non-distributive `never extends [infer E, any]` silently resolves to `unknown` |
 | `types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics. Handlers return `unknown` (the honest `applyProp` contract: an `Effect` return is run, anything else ignored); the precise `E`/`R` are read off the *inferred* props type by the props fold, not off this constraint |
 | `types/Fold.test-d.ts` | `assertEquals` matrix — every channel-fold shape |
 
@@ -355,8 +367,15 @@ changes**, interrupting the stale run. A thunk that reads no refs runs once —
 deps are *discovered, not declared*.
 
 Arm channels are accepted permissively (`any`) and are not folded; that avoids a
-JSX conditional's `any`-folded channels breaking inference. **Arms must be
-synchronous View-producers** — they render via `coerceSync` (`runSyncExit`), so
+JSX conditional's `any`-folded channels breaking inference. **This also bounds
+the #72 handler guarantee**: a handler's `R` inside an arm (or a `Catch`
+fallback) is SWALLOWED by the arm's `any`, not folded — a missing Layer there
+surfaces only at click time, as a sink-routed defect (pinned explicitly in
+`channels.test-d.ts`). A typed *failing* handler in an arm/fallback is at
+least rejected (the arm's success is `View<never>`) — discharge it inside
+(nest a `Catch`). **Arms must be
+synchronous View-producers** — they render via `coerceSync` (`runSyncExitWith`
+on mount's context), so
 an *async* arm effect can never resolve. A *failing* arm effect is routed to the
 error sink (and renders `Empty`), not stringified — see "Runtime error routing".
 Keep arms pure markup.
@@ -506,14 +525,30 @@ own lifetime). On scope close, parent-fork cascade tears everything down.
 There is no `{ node, cleanup }` wrapper return type — closing the surrounding
 scope IS the cleanup.
 
+**Per-element context capture (#72 review).** `h()` captures the ambient
+Effect context at construction (`yield* Effect.context()`) into
+`ViewElement.context`, and event handlers run on THAT context (`buildDom`'s
+Element case swaps it into the `BuildCtx` passed to `applyProps`) — falling
+back to mount's capture for hand-built nodes. This is what makes a mid-tree
+`Effect.provide(subtree, SvcLive)` sound: `FoldPropsR` claims the handler's
+`R` on the construction Effect, `provide` discharges it there, and the
+handler genuinely sees the service at click time. Symmetrically,
+**`coerceSync` runs render-time Effects ON mount's context**
+(`Effect.runSyncExitWith(context)`, with the per-render `scope` provided
+inside the run so it wins over any stale Scope entry): a dynamically-built
+subtree — a reactive re-render, a list row — resolves construction-time
+services and its `h()` calls capture a real context for their handlers.
+Don't revert either side to the bare runners: the types now promise both.
+Pinned by `testing/event-handlers.test.ts` (mid-tree provide; list rows).
+
 **Runtime error routing — the sink.** A post-mount failure has no Effect `E`
 channel to land on (the component's build Effect already succeeded), so it is
 routed to `ctx.sink: (cause: Cause<unknown>) => void` instead of being
 swallowed. Two producers: (1) a **reactive re-render** whose Effect fails —
 `coerceSync` calls `sink(cause)` and renders `Empty` (it no longer stringifies
 `[effect failed: …]` into the DOM); (2) an **event handler** that returns an
-Effect — `applyProp` runs it on the captured context (`Effect.runForkWith(ctx.context)`,
-so it gets the app's services) forked into the element's DOM `scope`
+Effect — `applyProp` runs it on the element's captured context (falling back
+to mount's; see "Per-element context capture") forked into the element's DOM `scope`
 (`Effect.forkIn(scope)`, so the fiber is interrupted when the element is removed),
 with `Effect.matchCause` routing its failure to the same sink.
 Both guard with `Cause.hasInterruptsOnly` — a pure-interrupt cause is scope
@@ -683,7 +718,11 @@ is what preserves them), and since #72 so do **function-valued attrs**
 being tracked, so the compiler skips the wrap even when the function
 *body* reads `.value` — which is what lets a handler's `E`/`R` reach the
 props fold. The erasure is now scoped to non-function reactive attrs
-(`item={ref.value}`, `onclick={cond.value ? a : b}`).
+(`item={ref.value}`). Note the distinct case of a reactive attr on a
+DECLARED handler key — `onclick={cond.value ? a : b}` — which doesn't
+erase but is *rejected*: `h.track`'s `unknown` fails the
+`IntrinsicProps` constraint (pre-#72 too). The typed form selects inside
+the handler: `onclick={(e) => (cond.value ? incr : decr)(e)}`.
 
 Don't "fix" anything here by widening `h()`'s signature — `h` is
 intrinsic-only since #71 and the narrow signature is what makes child

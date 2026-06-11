@@ -1,5 +1,5 @@
 import { Data } from "effect"
-import type { Cause } from "effect"
+import type { Cause, Context } from "effect"
 import type { Atom } from "effect/unstable/reactivity"
 import type { AtomRef } from "effect/unstable/reactivity"
 
@@ -58,6 +58,15 @@ export interface ViewElement {
   readonly tag: string
   readonly props: Props
   readonly children: ReadonlyArray<ViewNode>
+  /**
+   * Ambient Effect context captured when `h()` constructed this element.
+   * Event-handler Effects run on it (`runHandlerEffect` in mount.ts), so a
+   * mid-tree `Effect.provide` over a subtree is honored at click time — the
+   * runtime counterpart of `FoldPropsR` claiming the handler's `R` on the
+   * construction Effect. Absent on hand-built nodes (tests, stale compiled
+   * output); mount falls back to its own captured context.
+   */
+  readonly context?: Context.Context<never>
 }
 export interface ViewFragment {
   readonly _tag: "Fragment"
@@ -71,7 +80,9 @@ export interface ViewReactive {
 export interface ViewList {
   readonly _tag: "List"
   readonly source: AtomRef.Collection<unknown>
-  // Returns View or Effect<View, never, never> — mount's valueToView coerces.
+  // Returns a View or a sync Effect of one — mount's coerceSync materializes
+  // each row on mount's context (so row channels claimed by `list`'s
+  // signature are genuinely available).
   // `index` is a reactive ref: mount pushes each row's current position into it
   // on reorder/shift, so `{index.value}` in a row updates without re-rendering.
   readonly render: (

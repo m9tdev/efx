@@ -149,7 +149,7 @@ const buildScopedChild = (
   ctx: BuildCtx,
 ): { readonly node: Node; readonly scope: Scope.Closeable } => {
   const scope = Scope.forkUnsafe(parent, "sequential")
-  const node = buildDom(coerceSync(value, scope, ctx.sink), ctx, scope)
+  const node = buildDom(coerceSync(value, scope, ctx.sink, ctx.context), ctx, scope)
   return { node, scope }
 }
 
@@ -168,7 +168,12 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 
     case "Element": {
       const el = document.createElement(view.tag)
-      applyProps(el, view.props, ctx, scope)
+      // Handlers run on the context captured when h() built this element, so
+      // a mid-tree Effect.provide is honored at click time (the runtime side
+      // of FoldPropsR). Children keep the ambient ctx — each element carries
+      // its own capture. Hand-built nodes (no capture) fall back to mount's.
+      const propsCtx = view.context !== undefined ? { ...ctx, context: view.context } : ctx
+      applyProps(el, view.props, propsCtx, scope)
       for (const child of view.children) {
         el.appendChild(buildDom(child, ctx, scope))
       }

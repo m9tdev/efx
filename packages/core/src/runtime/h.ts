@@ -90,11 +90,15 @@ const _h = (
     )
   }
   return Effect.gen(function* () {
+    // Capture the ambient context at construction: event handlers run on it
+    // (see ViewElement.context), so a mid-tree `Effect.provide` reaches them —
+    // keeping the runtime honest about the `R` that FoldPropsR claims here.
+    const context = yield* Effect.context<never>()
     const out: View<any>[] = []
     for (const c of children) {
       out.push(yield* coerceAsync(c))
     }
-    return View.Element({ tag, props, children: out })
+    return View.Element({ tag, props, children: out, context })
   })
 }
 

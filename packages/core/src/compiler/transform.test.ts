@@ -160,9 +160,13 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
     expect(out).not.toContain(`h.track`)
   })
 
-  it("a `.value` read OUTSIDE the function value still wraps (handler selection is reactive)", () => {
-    // `cond.value ? a : b` reads during tracking — the chosen handler must
-    // re-bind when `cond` flips, so the wrap is real reactivity here.
+  it("a `.value` read OUTSIDE the function value still wraps (untyped-JS reactive path)", () => {
+    // `cond.value ? a : b` reads during tracking, so the wrap is emitted and
+    // applyProp's AtomRef branch re-binds the listener when `cond` flips —
+    // but ONLY in untyped JS: the wrap's `unknown` fails h()'s IntrinsicProps
+    // constraint in checked .vx (it always did). The typed form selects
+    // INSIDE the handler: `onclick={(e) => (cond.value ? incr : decr)(e)}`
+    // (a function expression — wrap-skipped, channels intact).
     const out = compile(`
       const x = <button onclick={cond.value ? incr : decr}>+</button>
     `)

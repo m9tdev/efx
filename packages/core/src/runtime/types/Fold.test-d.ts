@@ -140,6 +140,39 @@ assertEquals<FoldPropsLiveE<TrackedClick>, never>()
 assertEquals<FoldPropsR<TrackedClick>, never>()
 
 // 20) The empty props object (`h("div", {})` — the compiler's no-attrs shape).
+//     Regression pin for the never-vacuous-conditional trap: `never extends
+//     [infer E, any]` is true with NO candidates, resolving E to `unknown` —
+//     these must stay literally `never`, not `unknown`.
 assertEquals<FoldPropsLiveE<{}>, never>()
 assertEquals<FoldPropsR<{}>, never>()
+
+// 21) An `any`-typed handler (or handler RETURN — an untyped lib call) is
+//     INERT, not poison: without the guard it would infer [unknown, unknown],
+//     silently swallowing sibling handlers' channels one fold up and turning
+//     R into an undischargeable blob. The sibling's channels must survive.
+type AnyBeside = {
+  onclick: (e: MouseEvent) => any
+  onkeydown: (e: KeyboardEvent) => Effect.Effect<void, HttpError, HttpService>
+}
+assertEquals<FoldPropsLiveE<AnyBeside>, HttpError>()
+assertEquals<FoldPropsR<AnyBeside>, HttpService>()
+assertEquals<FoldPropsLiveE<{ onclick: any }>, never>()
+assertEquals<FoldPropsR<{ onclick: any }>, never>()
+
+// 22) The bare key "on" does NOT fold — runtime parity with applyProp's
+//     `key.length > 2` gate (the runtime stringifies it, never attaches a
+//     listener; folding would force a Catch that can never fire).
+assertEquals<FoldPropsLiveE<{ on: () => Effect.Effect<void, HttpError> }>, never>()
+assertEquals<FoldPropsR<{ on: () => Effect.Effect<void, never, HttpService> }>, never>()
+
+// 23) An AtomRef-valued handler folds THROUGH the ref to the inner function —
+//     applyProp's AtomRef branch unwraps and re-applies it as a live listener,
+//     so the wrapper must not hide the channels (custom `on*` keys admit refs
+//     via the index signature).
+type RefHandler = {
+  onsave: AtomRef.ReadonlyRef<(e: Event) => Effect.Effect<void, HttpError, HttpService>>
+}
+assertEquals<FoldPropsLiveE<RefHandler>, HttpError>()
+assertEquals<FoldPropsR<RefHandler>, HttpService>()
+assertEquals<FoldPropsLiveE<{ onsave: AtomRef.ReadonlyRef<(e: Event) => void> }>, never>()
 

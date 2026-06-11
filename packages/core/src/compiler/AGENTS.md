@@ -61,7 +61,14 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    the props fold (#72). The inner `h.read` rewrites are kept; they run
    at call time with no tracker active, i.e. as plain `.value` reads. A
    `.value` read *outside* the function (`onclick={cond.value ? a : b}`)
-   still wraps — handler *selection* is real reactivity.
+   still wraps — but note that pattern does NOT pass the type gate: the
+   wrap's `unknown` fails `h()`'s `IntrinsicProps` constraint (it always
+   did, pre-#72 too), so reactive handler *selection* is unsupported in
+   checked `.vx`. The typed form is selecting *inside* the handler —
+   `onclick={(e) => (cond.value ? incr : decr)(e)}` — a function
+   expression (wrap-skipped, channels intact) that reads the ref at
+   click time. The wrap is still emitted for the untyped-JS path, where
+   `applyProp`'s AtomRef branch re-binds the listener reactively.
 
 2. **`x.value` → `h.read(x)`** inside the wrapped expression. Tracks
    AtomRef reads. (The *same* read rewrite also runs over the whole

@@ -113,38 +113,71 @@ export type FoldR<Cs extends readonly unknown[]> = ChildR<Cs[number]>
 // An event handler is where most LIVE errors are born: the element is already
 // rendered when the handler runs, so its failure has no construction channel
 // to ride. The runtime side has always existed (`applyProp` runs a returned
-// Effect on the mount context and routes its failure to the boundary sink) —
-// these types make it visible: a handler returning `Effect<_, E, R>`
-// contributes `E` to the element's live channel (`View<E>`, dischargeable by
-// `Catch`, gated by `mount`) and `R` to the element's requirements (a missing
-// Layer is a compile error at `mount`).
+// Effect — on the element's construction-captured context — and routes its
+// failure to the boundary sink); these types make it visible: a handler
+// returning `Effect<_, E, R>` contributes `E` to the element's live channel
+// (`View<E>`, dischargeable by `Catch`, gated by `mount`) and `R` to the
+// element's requirements (a missing Layer is a compile error at `mount`).
 //
-// Only `on*`-keyed props fold. That mirrors the runtime exactly: `applyProp`
-// attaches a listener (and runs returned Effects) only for `on*` function
-// props; any other function-valued attr is stringified into an attribute and
-// never invoked — folding it would make the type claim an `E` that can never
-// fire. (The same parity rule as `Child` ↔ `coerceAsync`.)
+// Only `on*`-keyed props fold — and NOT the bare key `on` itself. That
+// mirrors the runtime exactly: `applyProp` attaches a listener (and runs
+// returned Effects) only for `on*` keys with `key.length > 2`; any other
+// function-valued attr is stringified into an attribute and never invoked —
+// folding it would make the type claim an `E` that can never fire. (The same
+// parity rule as `Child` ↔ `coerceAsync`.) An AtomRef-valued handler prop
+// folds through to the inner function: `applyProp`'s AtomRef branch unwraps
+// the ref and re-applies its value as a live listener, so the channels must
+// survive the wrapper.
+
+/** `true` for exactly `any` — the one type that matches both conditional branches. */
+type IsAny<T> = 0 extends 1 & T ? true : false
 
 /**
- * The live `E` of one handler prop: a function returning `Effect<_, E, _>`
- * contributes `E`; a void/imperative handler, a non-function value, or a
- * tracked-`unknown` attr contributes nothing.
+ * Both channels of one handler prop, extracted in a single pass as `[E, R]`.
+ * `never` for anything inert: a void/imperative handler, a non-function
+ * value, or a tracked-`unknown` attr. An `any`-typed handler (or handler
+ * RETURN — `onclick={() => JSON.parse(x)}`) is also inert: without the guard
+ * it would infer `[unknown, unknown]`, where the live `unknown` silently
+ * coalesces to `never` one fold up (ChildLiveE's phantom-free escape) —
+ * swallowing SIBLING handlers' typed errors — and the `unknown` R poisons
+ * the whole tree's requirements into an undischargeable blob. Inert matches
+ * the pre-#72 status quo for untyped handler bodies.
  */
-type HandlerLiveE<H> = H extends (...args: ReadonlyArray<any>) => infer Ret
-  ? Ret extends Effect.Effect<any, infer E, any> ? E : never
+type HandlerChannels<H> =
+  IsAny<H> extends true ? never :
+  H extends (...args: ReadonlyArray<any>) => infer Ret
+    ? IsAny<Ret> extends true ? never :
+      Ret extends Effect.Effect<any, infer E, infer R> ? [E, R] : never
+  : H extends AtomRef.ReadonlyRef<infer Inner> ? HandlerChannels<Inner>
   : never
 
-/** The `R` of one handler prop — same shape as `HandlerLiveE`, R channel. */
-type HandlerR<H> = H extends (...args: ReadonlyArray<any>) => infer Ret
-  ? Ret extends Effect.Effect<any, any, infer R> ? R : never
-  : never
+/**
+ * One cached pass over the props object: the union of every `on*` handler's
+ * `[E, R]` pair. `FoldPropsLiveE`/`FoldPropsR` read this shared alias, so the
+ * mapped type instantiates once per props shape, not once per channel. The
+ * leading `[keyof P & `on${string}`]` check is the zero-handler fast path:
+ * the vast majority of elements (`{}`, `{ class }`, `data-*`…) bail with one
+ * intersection instead of a mapped instantiation.
+ */
+type FoldPropsChannels<P> = [keyof P & `on${string}`] extends [never] ? never
+  : {
+    [K in keyof P]-?: K extends "on" ? never
+      : K extends `on${string}` ? HandlerChannels<P[K]>
+      : never
+  }[keyof P]
+
+// Read one side of the [E, R] pairs through a NAKED type parameter: the
+// conditional then distributes, so a union of pairs unions the channel and —
+// critically — `never` stays `never`. (Checking the alias application
+// directly — `FoldPropsChannels<P> extends [infer E, any]` — does not
+// distribute, and `never extends [infer E, any]` is vacuously true with NO
+// inference candidates, which silently resolves `E` to `unknown` and poisons
+// every handler-less element. Hard-won; don't inline these.)
+type PairE<T> = T extends [infer E, any] ? E : never
+type PairR<T> = T extends [any, infer R] ? R : never
 
 /** Fold a props object to the union of its `on*` handlers' live `E` channels. */
-export type FoldPropsLiveE<P> = {
-  [K in keyof P]-?: K extends `on${string}` ? HandlerLiveE<P[K]> : never
-}[keyof P]
+export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
 
 /** Fold a props object to the union of its `on*` handlers' `R` channels. */
-export type FoldPropsR<P> = {
-  [K in keyof P]-?: K extends `on${string}` ? HandlerR<P[K]> : never
-}[keyof P]
+export type FoldPropsR<P> = PairR<FoldPropsChannels<P>>

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { h, list, type View } from "@verrex/core"
+import { h, list } from "@verrex/core"
 import { render } from "./index.ts"
 
 // Each row renders "<index>: <value>". `index` is the reactive ReadonlyRef the
@@ -91,7 +91,7 @@ describe("list() row lifecycle", () => {
               () => Effect.sync(() => log.push(`release:${id}`)),
             )
             return yield* h("li", { class: "row" }, id)
-          })) as View,
+          })),
       )
     })
 
