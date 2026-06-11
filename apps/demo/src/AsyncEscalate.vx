@@ -8,7 +8,7 @@ import { Http, HttpError, type User } from "./services.ts"
  * so one can be handled at the leaf while the other rides the residual.
  */
 class RateLimited extends Data.TaggedError("RateLimited")<{
-  readonly retryAfter: number
+  readonly retryAfterMs: number
 }> {}
 
 /**
@@ -25,14 +25,22 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
  * - `RateLimited` is *not* in the map, so it rides the residual —
  *   `View<Exclude<HttpError | RateLimited, { _tag: "HttpError" }>>` =
  *   `View<RateLimited>` — to the page-level `Catch`, whose own tag map
- *   unwraps it (`e.retryAfter` is typed). Deleting that `Catch` is a compile
- *   error naming `RateLimited` — and only `RateLimited`: the type already
- *   knows `HttpError` was handled.
+ *   unwraps it (`e.retryAfterMs` is typed). Deleting that `Catch` is a
+ *   compile error naming `RateLimited` — and only `RateLimited`: the type
+ *   already knows `HttpError` was handled.
  *
  * **Open-form block** (bottom): the SAME fetch with no `failure` arm at all —
  * the all-or-nothing version. EVERY failure (`HttpError` included) rides
  * `View<HttpError | RateLimited>` to its catch-all `Catch` (`Cause.pretty` +
  * `reset`). Deleting that `Catch` is a compile error naming the full union.
+ *
+ * **The rate limit is real**: a sliding-window limiter on the demo's fake
+ * endpoint allows 2 requests/second ACROSS BOTH BLOCKS (each id click costs
+ * one request per block). The check + stamp run synchronously when the thunk
+ * builds the request — i.e. at refetch time — so spamming is deterministic:
+ * the "spam requests" button fires three refetch rounds back-to-back, enough
+ * to exceed the budget even when only one block is still live. A limited
+ * request never reaches `Http`.
  *
  * The id buttons live *outside* both boundaries so they survive the fallback
  * swaps. (Tag maps only catch errors in the *type* — an untyped defect would
@@ -43,8 +51,28 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
 export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = {}) {
   const userId = AtomRef.make("42")
   const http = yield* Http
-  const fetchUser = (id: string): Effect.Effect<User, HttpError | RateLimited> =>
-    id === "503" ? Effect.fail(new RateLimited({ retryAfter: 30 })) : http.getUser(id)
+
+  // Sliding-window rate limiter: at most LIMIT request creations per WINDOW,
+  // shared by both blocks (it guards the endpoint, not the consumer). Runs in
+  // fetchUser's synchronous body — request-creation time — so every refetch
+  // (dep change, retry, spam) counts exactly once, interrupted or not.
+  const WINDOW_MS = 1000
+  const LIMIT = 2
+  const stamps: Array<number> = []
+  const fetchUser = (id: string): Effect.Effect<User, HttpError | RateLimited> => {
+    const now = Date.now()
+    while (stamps.length > 0 && now - (stamps[0] ?? now) >= WINDOW_MS) stamps.shift()
+    if (stamps.length >= LIMIT) {
+      return Effect.fail(new RateLimited({ retryAfterMs: WINDOW_MS - (now - (stamps[0] ?? now)) }))
+    }
+    stamps.push(now)
+    return http.getUser(id)
+  }
+  // Three refetch rounds back-to-back: each flip changes the id, so every
+  // LIVE block refetches per flip. Three rounds exceed 2 req/s even when only
+  // one block is live (an escalated block's fetch loop is dead until its
+  // boundary resets — that's the boundary-vs-leaf semantics on display).
+  const flip = () => userId.set(userId.value === "7" ? "42" : "7")
 
   return yield* (
     <div class="async-escalate">
@@ -52,7 +80,7 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
         <button onclick={() => userId.set("42")}>Ada (42)</button>
         <button onclick={() => userId.set("7")}>Grace (7)</button>
         <button onclick={() => userId.set("999")}>Bad id</button>
-        <button onclick={() => userId.set("503")}>Rate limited</button>
+        <button class="spam" onclick={() => { flip(); flip(); flip() }}>spam requests</button>
       </div>
       {Catch(
         <section class="content">
@@ -81,7 +109,7 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
           RateLimited: (e, reset) => (
             <div class="boundary-fallback page-fallback">
               <p class="caught">page boundary caught: RateLimited</p>
-              <p class="rate-msg">rate limited — retry in {e.retryAfter}s</p>
+              <p class="rate-msg">rate limited — retry in {e.retryAfterMs}ms</p>
               <button class="retry" onclick={reset}>retry</button>
             </div>
           ),

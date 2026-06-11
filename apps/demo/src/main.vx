@@ -300,9 +300,10 @@ const App = (
         step: "08",
         title: "Failure homes: leaf, page, or split by tag",
         concept:
-          "The failure arm picks where each error lives — both versions run below, sharing the same userId, so every button drives both. The tag map splits per tag: HttpError is handled at the leaf — the fetch loop stays live, so picking another id recovers with no boundary involved, and the handler's retry re-runs the same fetch (the loading arm shows while it's in flight). RateLimited isn't in the map, so it rides the residual — the type is View<Exclude<…>>, literally View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfter is typed). Deleting that Catch is a compile error naming RateLimited, and only RateLimited: the type knows HttpError was already handled. The open form below it omits the arm entirely: EVERY failure rides View<HttpError | RateLimited> to a catch-all Catch, and deleting that one names the full union.",
+          "The failure arm picks where each error lives — both versions run below, sharing the same userId, so every button drives both. The tag map splits per tag: HttpError is handled at the leaf — the fetch loop stays live, so picking another id recovers with no boundary involved, and the handler's retry re-runs the same fetch (the loading arm shows while it's in flight). RateLimited rides the residual — the type is View<Exclude<…>>, literally View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfterMs is typed). Deleting that Catch is a compile error naming RateLimited, and only RateLimited: the type knows HttpError was already handled. The open form below omits the arm entirely: EVERY failure rides View<HttpError | RateLimited> to a catch-all Catch, and deleting that one names the full union. The rate limit is real — the fake endpoint allows 2 requests/second across both blocks, counted when the thunk builds the request — so hit \"spam requests\" (or any two buttons inside a second) to trip it, wait out retryAfterMs, and recover via the boundary retries.",
         type: "Effect<View, never, Http | Scope>",
-        code: `// fetchUser: (id: string) => Effect<User, HttpError | RateLimited>
+        code: `// fetchUser: (id) => Effect<User, HttpError | RateLimited>
+// — a REAL sliding-window limiter: >2 req/s fails with RateLimited
 
 {Catch(
   <section>
@@ -319,7 +320,7 @@ const App = (
   {
     // the residual: View<RateLimited> — unwrapped + typed here
     RateLimited: (e, reset) =>
-      <p>retry in {e.retryAfter}s <button onclick={reset}>retry</button></p>,
+      <p>retry in {e.retryAfterMs}ms <button onclick={reset}>retry</button></p>,
   },
 )}
 
