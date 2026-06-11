@@ -12,9 +12,9 @@ Used in `apps/demo`'s `typecheck` script. Modeled on Astro's
 
 | File | Purpose |
 |---|---|
-| `index.ts` | Programmatic API: `runCheck(options) → CheckResult`. Wires the language plugin + `volar-service-typescript` into a kit `TypeScriptChecker`, iterates root files, prints diagnostics. |
-| `cli.ts` | CLI entry. Minimal argv parser (`--tsconfig`, `--root`, `--help`), calls `runCheck`, prints summary, exits 0/1. |
-| `../../test/check/integration.mjs` | Smoke test: known-good fixture → 0 errors; inject broken `.vx` → expect TS2322 with `.vx` source position; cleanup → 0 errors again. |
+| `index.ts` | Programmatic API: `createChecker(options) → VerrexChecker` (persistent, file-event-driven — what `--watch` runs on), `runCheck(options) → CheckResult` (one-shot), `shouldFail(result, severity)` (exit-code policy). Wires the language plugin + `volar-service-typescript` into a kit `TypeScriptChecker`, iterates root files, prints diagnostics at or above `minimumSeverity`. |
+| `cli.ts` | CLI entry. Minimal argv parser (`--tsconfig`, `--root`, `--watch`, `--minimumSeverity`, `--minimumFailingSeverity`, `--preserveWatchOutput`, `--help`), colored summary line, chokidar wiring for watch mode, exits 0/1/2. |
+| `../../test/check/integration.mjs` | Smoke test: known-good fixture → 0 errors; inject broken `.vx` → expect TS2322 with `.vx` source position; cleanup → 0 errors again. Plus: persistent `createChecker` driven by file events (the watch loop's contract), `minimumSeverity` print filtering on a hint-severity suggestion, `shouldFail` threshold cascade. |
 | `../../test/check/fixture/` | Minimal `.vx` project (tsconfig + `Good.vx`) used by the smoke test. Self-contained, no cross-file imports — keep it that way. |
 
 ## Invocation
@@ -22,9 +22,18 @@ Used in `apps/demo`'s `typecheck` script. Modeled on Astro's
 Programmatic:
 
 ```ts
-import { runCheck } from "@verrex/core/check"
+import { createChecker, runCheck, shouldFail } from "@verrex/core/check"
+
 const result = await runCheck({ cwd: "/path/to/project" })
-// result: { filesChecked: number, errors: number, warnings: number }
+// result: { filesChecked: number, errors: number, warnings: number, hints: number }
+process.exitCode = shouldFail(result, "warning") ? 1 : 0
+
+// Persistent (what --watch uses): one ts.LanguageService across runs,
+// file events drive incremental re-checks.
+const checker = createChecker({ cwd: "/path/to/project", minimumSeverity: "hint" })
+await checker.check()
+checker.fileUpdated("/path/to/project/src/Foo.vx") // after an edit
+await checker.check({ cancel: () => superseded })  // polled between files
 ```
 
 CLI:
@@ -33,6 +42,9 @@ CLI:
 verrex-check                       # tsconfig auto-discovered from cwd
 verrex-check --tsconfig path/tsconfig.json
 verrex-check --root /some/project  # cwd override
+verrex-check --watch               # incremental re-check on .vx/.ts change
+verrex-check --minimumSeverity hint            # print hints + warnings too
+verrex-check --minimumFailingSeverity warning  # exit 1 on warnings as well
 ```
 
 In `apps/demo` the script wires it via `node --experimental-strip-types`
@@ -60,23 +72,54 @@ LSP protocol.
   glob produces, expanded with `extraFileExtensions` (`.vx`
   recognized) — for the demo, its `.vx` sources plus its hand-written
   `.ts` (`channels.test-d.ts`, `flash.ts`, `highlight.ts`, `services.ts`).
-- **Diagnostics printed**: errors only by default (matching the
-  bare `tsc --noEmit` flow we replaced). Warnings and hints are
-  counted in `CheckResult` but not printed — `volar-service-typescript`
-  surfaces unused-import suggestions as warnings, and we don't
-  want to drown the output with them. Add a `--minimumSeverity`
-  flag when the astro-parity TODO ticket comes up.
-- **Exit code**: 0 if `result.errors === 0`, else 1. Warnings do
-  not fail. (`tsc` matches: warnings only fail with `noEmitOnError`
-  or `strict` flags that promote them.)
+- **Diagnostics printed**: controlled by `--minimumSeverity`
+  (`error` | `warning` | `hint`, each level including the ones before
+  it). Default `error` — the bare invocation stays a drop-in for the
+  `tsc --noEmit` flow we replaced. This is a *deliberate divergence*
+  from `astro check` (which defaults to `hint`): the flag semantics
+  match astro, only the default differs. Severities below the
+  threshold are still *counted* in `CheckResult` —
+  `volar-service-typescript` maps TS suggestions (e.g. TS6133 unused
+  locals) to **hint** severity (LSP 4), so they land in
+  `CheckResult.hints`.
+- **Exit code**: controlled by `--minimumFailingSeverity`
+  (default `error`), astro semantics: each threshold also fails on
+  everything more severe. Printing and failing are independent — you
+  can print hints without failing on them and vice versa. Usage
+  errors exit 2.
+- **Watch mode** (`--watch`/`-w`): one `createChecker` instance for
+  the process lifetime; chokidar watches the root (ignoring
+  `node_modules`/`.git`, filtering to the extensions the resolved
+  root files actually use) and feeds
+  `fileCreated`/`fileUpdated`/`fileDeleted`. Re-checks are debounced
+  100ms; a superseded pass cancels between files. The screen is
+  cleared between passes unless `--preserveWatchOutput`. Watch mode
+  never exits non-zero on diagnostics.
+  **Upstream caveat:** `fileUpdated` (every save — the hot path) is
+  incremental via kit's project-version bump, but kit's root-file
+  re-expansion is broken (`getScriptFileNames` caches resolved names
+  in a WeakMap keyed by a `ParsedCommandLine` it mutates in place —
+  `@volar/kit` ≤ 2.4.28 and volar main), so `fileCreated`/`fileDeleted`
+  rebuild the kit checker instead. If a kit release fixes that cache,
+  the rebuild in `createChecker` can go back to forwarding the events.
+- **Colors**: the summary line and watch status color only when
+  stdout is a TTY and `NO_COLOR` is unset. Per-diagnostic output is
+  colored upstream by `ts.formatDiagnosticsWithColorAndContext`
+  unconditionally (kit behavior, pre-existing).
 - **In-process isolation**: each `runCheck` call builds its own
   `@volar/kit` checker, which owns the virtual-code lifetime for that
   call. Two calls in the same Node process — e.g. a test that
   exercises the fixture, mutates it, then re-runs — see independent
   virtual-code state, not leftovers from the previous invocation.
-  This package holds no virtual-code cache of its own: it only
-  *writes* (compiles) `.vx` files through the LanguagePlugin and
-  never reads them back, so there is nothing here to share or leak.
+  `createChecker` is the deliberate exception: it keeps one checker
+  alive so a watch loop pays incremental cost, and *requires* file
+  events to observe disk changes (kit snapshots are re-read only when
+  the project version bumps). This package holds no virtual-code
+  cache of its own: it only *writes* (compiles) `.vx` files through
+  the LanguagePlugin and never reads them back, so there is nothing
+  here to share or leak. (One kit-internal exception: a module-level
+  mtime-keyed snapshot cache, shared across checkers in a process —
+  invisible as long as edits actually change mtimes.)
 
 ## Coupling
 
@@ -90,21 +133,25 @@ LSP protocol.
 - **`volar-service-typescript`** — the LSP-style language service
   plugins kit needs to actually produce diagnostics. Without these,
   `linter.check(file)` returns nothing.
+- **`chokidar`** — filesystem watcher for `--watch`, imported lazily
+  so the one-shot path (CI) never loads it.
 
 ## Anti-patterns
 
-- Don't print warnings/hints by default. The replacement flow's
-  expected baseline output is "Checked N files: 0 errors" — adding
-  warning noise breaks the "drop-in for tsc --noEmit" promise.
-  Make it opt-in via a flag when you wire severity filtering.
-- Don't add a watch loop that polls. `@volar/kit` exposes
-  `fileCreated/Updated/Deleted` callbacks; combine them with
-  `chokidar` (like astro-check does) when watch mode is built.
-- Don't add `runCheck` overloads or option types that diverge from
-  Astro's `check()` API beyond what's necessary. The astro-parity
-  TODO list in `cli.ts` is the design intent — if you add a
-  flag here, mirror the Astro name and semantics so future code
-  ports cleanly.
+- Don't change `--minimumSeverity`'s default away from `error`. The
+  replacement flow's expected baseline output is "Checked N files:
+  0 errors" — printing warnings/hints by default breaks the
+  "drop-in for tsc --noEmit" promise. Opting in is one flag away.
+- Don't make the watch loop poll. It's file-event-driven (chokidar →
+  `fileCreated/Updated/Deleted`, like astro-check); the debounce in
+  `cli.ts` plus between-files cancellation is what keeps rapid saves
+  cheap. Don't "fix" `fileCreated`/`fileDeleted` back to forwarding
+  kit's events without checking the upstream WeakMap-cache bug is
+  actually fixed (see the watch-mode caveat above).
+- Don't add flags or option types that diverge from Astro's
+  `check()` API beyond what's necessary. If you add a flag here,
+  mirror the Astro name and semantics (`astro-check`'s `options.ts`
+  in `refs/astro-language-tools`) so future code ports cleanly.
 - Don't reintroduce on-disk sibling `.ts` files. The whole point
   of `@verrex/core/check` replacing the old `verrex-compile + tsc --noEmit`
   flow is that no auxiliary on-disk shim is needed — `.vx`

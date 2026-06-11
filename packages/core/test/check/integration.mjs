@@ -6,13 +6,18 @@
  *   2. Add a deliberately-broken .vx → runCheck reports the type error,
  *      with source position pointing at the .vx file.
  *   3. Remove the broken file → back to 0 errors.
+ *   4. createChecker: ONE checker instance tracks create/update/delete via
+ *      file events — the incremental loop `verrex-check --watch` runs on.
+ *   5. minimumSeverity: hint-severity diagnostics (TS suggestions) are
+ *      counted but not printed by default; "hint" prints them.
+ *   6. shouldFail: the failing-severity thresholds cascade.
  *
  * No tsserver subprocess; the check tool is invoked in-process.
  */
-import { writeFileSync, unlinkSync, existsSync } from "node:fs"
+import { writeFileSync, readFileSync, unlinkSync, existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { runCheck } from "../../src/check/index.ts"
+import { createChecker, runCheck, shouldFail } from "../../src/check/index.ts"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const fixtureDir = join(__dirname, "fixture")
@@ -45,8 +50,11 @@ const captureStdout = async (fn) => {
   }
 }
 
+const unusedPath = join(fixtureDir, "Unused.vx")
+
 const ensureClean = () => {
   if (existsSync(brokenPath)) unlinkSync(brokenPath)
+  if (existsSync(unusedPath)) unlinkSync(unusedPath)
 }
 
 ensureClean()
@@ -80,6 +88,82 @@ unlinkSync(brokenPath)
   const { result, output } = await captureStdout(() => runCheck({ cwd: fixtureDir }))
   expect(result.errors === 0, `expected 0 errors after cleanup, got ${result.errors}`)
   if (result.errors !== 0) console.error("output was:\n" + output)
+}
+
+console.log("\n4. createChecker: one instance tracks file events incrementally...")
+{
+  const checker = createChecker({ cwd: fixtureDir })
+  const goodPath = join(fixtureDir, "Good.vx")
+  const goodSource = readFileSync(goodPath, "utf8")
+
+  const clean = await captureStdout(() => checker.check())
+  expect(clean.result.errors === 0, `fresh checker: expected 0 errors, got ${clean.result.errors}`)
+  const baselineFiles = clean.result.filesChecked
+
+  // The hot path: an in-place edit of an EXISTING root file, signalled via
+  // fileUpdated — kit bumps its project version and re-reads the snapshot.
+  try {
+    writeFileSync(goodPath, goodSource + `export const oops: number = "nope"\n`)
+    checker.fileUpdated(goodPath)
+    const edited = await captureStdout(() => checker.check())
+    expect(edited.result.errors >= 1, `after fileUpdated break: expected >=1 errors, got ${edited.result.errors}`)
+    expect(edited.output.includes("Good.vx"), "after fileUpdated break: output should mention Good.vx")
+  } finally {
+    writeFileSync(goodPath, goodSource)
+  }
+  checker.fileUpdated(goodPath)
+  const restored = await captureStdout(() => checker.check())
+  expect(restored.result.errors === 0, `after fileUpdated restore: expected 0 errors, got ${restored.result.errors}`)
+  if (restored.result.errors !== 0) console.error("output was:\n" + restored.output)
+
+  // Create/delete re-expand the tsconfig include globs.
+  writeFileSync(brokenPath, `const x: number = "wrong type"\nexport { x }\n`)
+  checker.fileCreated(brokenPath)
+  const broken = await captureStdout(() => checker.check())
+  expect(broken.result.errors >= 1, `after fileCreated: expected >=1 errors, got ${broken.result.errors}`)
+  expect(broken.output.includes("Broken.vx"), "after fileCreated: output should mention Broken.vx")
+  expect(
+    broken.result.filesChecked === baselineFiles + 1,
+    `after fileCreated: expected ${baselineFiles + 1} files, got ${broken.result.filesChecked}`,
+  )
+
+  unlinkSync(brokenPath)
+  checker.fileDeleted(brokenPath)
+  const removed = await captureStdout(() => checker.check())
+  expect(removed.result.errors === 0, `after fileDeleted: expected 0 errors, got ${removed.result.errors}`)
+  expect(
+    removed.result.filesChecked === baselineFiles,
+    `after fileDeleted: expected ${baselineFiles} files, got ${removed.result.filesChecked}`,
+  )
+
+  const cancelled = await captureStdout(() => checker.check({ cancel: () => true }))
+  expect(cancelled.result.filesChecked === 0, "cancel before the first file: 0 files checked")
+}
+
+console.log("\n5. minimumSeverity: hints counted but not printed by default...")
+writeFileSync(unusedPath, `const unused = 1\nexport const ok = 2\n`)
+{
+  const dflt = await captureStdout(() => runCheck({ cwd: fixtureDir }))
+  expect(dflt.result.errors === 0, `expected 0 errors, got ${dflt.result.errors}`)
+  expect(dflt.result.hints >= 1, `expected >=1 hint (unused local suggestion), got ${dflt.result.hints}`)
+  expect(!dflt.output.includes("Unused.vx"), "default severity: hint should not print")
+
+  const hints = await captureStdout(() => runCheck({ cwd: fixtureDir, minimumSeverity: "hint" }))
+  expect(hints.output.includes("Unused.vx"), 'minimumSeverity "hint": hint should print')
+  expect(hints.output.includes("6133"), "printed hint should be TS6133 (declared but never read)")
+}
+unlinkSync(unusedPath)
+
+console.log("\n6. shouldFail: failing-severity thresholds cascade...")
+{
+  const only = (kind, n) => ({ filesChecked: 1, errors: 0, warnings: 0, hints: 0, [kind]: n })
+  expect(shouldFail(only("errors", 1)) === true, "default: errors fail")
+  expect(shouldFail(only("warnings", 1)) === false, "default: warnings do not fail")
+  expect(shouldFail(only("warnings", 1), "warning") === true, '"warning": warnings fail')
+  expect(shouldFail(only("hints", 1), "warning") === false, '"warning": hints do not fail')
+  expect(shouldFail(only("hints", 1), "hint") === true, '"hint": hints fail')
+  expect(shouldFail(only("errors", 1), "hint") === true, '"hint": errors still fail')
+  expect(shouldFail(only("errors", 0), "hint") === false, '"hint": clean result passes')
 }
 
 ensureClean()
