@@ -211,6 +211,9 @@
       }
 
       /* ─── Small screens & touch ────────────────────────────── */
+      /* No double-tap-to-zoom (the demo buttons invite rapid taps);
+         pinch-zoom still works, unlike viewport user-scalable=no. */
+      html { touch-action: manipulation; }
       @media (max-width: 480px) {
         body { padding: 1.5rem 1rem 3rem; }
         .hero h1 { font-size: 2.25rem; }
