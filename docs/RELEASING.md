@@ -4,20 +4,9 @@ Two packages publish to npm — **`@verrex/core`** and **`@verrex/ts-plugin`** �
 driven by conventional commits via release-please
 (`release-please-config.json` + `.release-please-manifest.json`,
 `.github/workflows/release.yml`). On every push to `main`, release-please
-opens/updates one **Release PR per package** (`separate-pull-requests`),
-titled with the version it releases
-(`pull-request-title-pattern: "chore: release${component} ${version}"` —
-no space before `${component}`: release-please expands it with a leading
-space built in, mirroring its default pattern `release${component}`);
-merging one tags that release and the publish job pushes it to npm
-(`pnpm -r publish` skips versions already on the registry, so merging one
-PR publishes only that package).
-
-> **Don't hand-edit a Release PR title.** release-please re-parses the
-> title of a *merged* Release PR against the configured patterns to build
-> the release — a title that doesn't match logs `Bad pull request title`
-> and skips tagging/publishing. Any title change must go through
-> `pull-request-title-pattern` in `release-please-config.json`.
+opens/updates one **Release PR per package**, titled with the version it
+releases; merging one tags that release and the publish job pushes just
+that package to npm.
 
 - **A commit bumps a package by the path of the files it changes, not by the
   commit scope** (the invariant also stated in the root
