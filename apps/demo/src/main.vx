@@ -298,36 +298,39 @@ const App = (
     <section class="tour">
       {copy({
         step: "08",
-        title: "Async escalation (failure rides the live channel)",
+        title: "Failure homes: leaf, page, or split by tag",
         concept:
-          "The same Async as step 03 — minus the failure arm. Omitting it puts the error on the View<E> live channel instead of handling it at the leaf: the result is Effect<View<HttpError>, …>, and the failure — initial fetch or auto-tracked refetch — routes to the nearest Catch. mount requires View<never>, so deleting the boundary is a compile error naming HttpError. Click \"Bad id\" after content renders: the refetch fails and the page-level banner swaps in. reset re-runs construction with the current id — pick a good one and retry to recover. Handle-at-the-leaf (step 03) vs escalate-to-the-page is now a per-call-site choice.",
+          "The failure arm picks where each error lives — both versions run below, sharing the same userId, so every button drives both. The tag map splits per tag: HttpError is handled at the leaf — the fetch loop stays live, so picking another id recovers with no boundary involved, and the handler's retry re-runs the same fetch (the loading arm shows while it's in flight). RateLimited rides the residual — the type is View<Exclude<…>>, literally View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfterMs is typed). Deleting that Catch is a compile error naming RateLimited, and only RateLimited: the type knows HttpError was already handled. The open form below omits the arm entirely: EVERY failure rides View<HttpError | RateLimited> to a catch-all Catch, and deleting that one names the full union. The rate limit is real — the fake endpoint allows 2 requests/second across both blocks — and the request log above the blocks narrates it: every request, its budget verdict (sent n/2 vs 429), its outcome (200/404), and stale runs interrupted by newer refetches. Hit \"spam ×3\" (or click any two buttons inside a second) to trip it, watch the 429 land in the log AND ride the residual to the page banner, wait out retryAfterMs, and recover via the boundary retries.",
         type: "Effect<View, never, Http | Scope>",
-        code: `export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* () {
-  const userId = AtomRef.make("42")
-  const http = yield* Http
+        code: `// fetchUser: (id) => Effect<User, HttpError | RateLimited>
+// — a REAL sliding-window limiter: >2 req/s fails with RateLimited
 
-  return yield* (
-    <div>
-      <button onclick={() => userId.set("999")}>Bad id</button>
+{Catch(
+  <section>
+    {Async(() => fetchUser(userId.value), {
+      initial: <span>loading…</span>,
+      failure: {
+        // handled at the leaf — fetch loop stays live
+        HttpError: (e, retry) =>
+          <p>404 <button onclick={retry}>retry</button></p>,
+      },
+      success: user => <strong>{user.name}</strong>,
+    })}
+  </section>,
+  {
+    // the residual: View<RateLimited> — unwrapped + typed here
+    RateLimited: (e, reset) =>
+      <p>retry in {e.retryAfterMs}ms <button onclick={reset}>retry</button></p>,
+  },
+)}
 
-      {Catch(
-        <section>
-          {/* no failure arm → HttpError rides View<E> to the Catch */}
-          {Async(() => http.getUser(userId.value), {
-            initial: <span>loading…</span>,
-            success: user => <strong>{user.name}</strong>,
-          })}
-        </section>,
-        (cause, reset) => (
-          <div class="banner">
-            <pre>{Cause.pretty(cause)}</pre>
-            <button onclick={reset}>retry</button>
-          </div>
-        ),
-      )}
-    </div>
-  )
-})`,
+// the all-or-nothing version: omit the arm entirely and EVERY
+// failure rides View<HttpError | RateLimited> to a catch-all Catch
+{Catch(
+  <section>{Async(() => fetchUser(userId.value), { success: … })}</section>,
+  (cause, reset) =>
+    <pre>{Cause.pretty(cause)} <button onclick={reset}>retry</button></pre>,
+)}`,
         file: "AsyncEscalate.vx",
       })}
       {demoSlot("escalate")}

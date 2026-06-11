@@ -223,11 +223,30 @@ mirroring `Catch`'s function-vs-object convention:
   runtime (erasure) and stays a documented limitation (#91): prefer inline
   handler literals.
   The handler-map shape itself is the shared `TagHandlers<E, Extra>` alias
-  (Catch instantiates `Extra = [reset]`), so the planned Async retry callback
-  (TODO — `Catch`'s `reset` is the boundary-side analog) is a one-place
-  change. Pinned by `testing/async-tagmap.test.ts` (incl. the
-  recover-without-reset semantic and nullish-arm degradation) and the tag-map
-  `Async` section of `apps/demo/src/channels.test-d.ts`.
+  (Catch instantiates `Extra = [reset]`, Async `[retry]`). Every Async
+  failure handler — catch-all `(cause, retry)` and tag-map `(error, retry)` —
+  receives **`retry`** last: it re-runs the thunk with a fresh dep snapshot
+  (`makeAsyncRef`'s `refetch`, the same `schedule` a dep change triggers),
+  the leaf analog of `Catch`'s `reset` (which re-runs *construction*). The
+  public `asyncRef` still returns only the state ref; `makeAsyncRef` is the
+  internal engine that also exposes `refetch`. Three retry invariants, each
+  hard-won: (1) **failure-waiting renders the `initial` arm**, not the
+  failure arm with its stale cause — stale-while-revalidate keeps *content*
+  (success-waiting renders success), a stale error isn't content, and
+  re-invoking the arm would rebuild its DOM (and retry button) mid-flight;
+  this is also the observable that makes retry testable. (2) **Call `retry`
+  from event handlers only** — calling it during render refetches in an
+  infinite loop (the alternating `waiting` flag defeats `Equal`-dedup).
+  (3) **`schedule` is guarded by a `closed` flag** set in the scope finalizer
+  (which also clears `unsubs`): a retained `retry` (a `setTimeout`, a click
+  racing a boundary swap) fired after teardown must be a no-op — without the
+  guard it would re-subscribe deps the finalizer can never clean, feed a
+  queue whose consumer is dead, and replay non-idempotent AtomRef
+  unsubscribers. Pinned by `testing/async-tagmap.test.ts` (incl. the
+  recover-without-reset semantic and nullish-arm degradation) and
+  `testing/async-retry.test.ts` (retry on both arm forms; the gated test
+  pins waiting→initial and that a failed retry stays retryable), plus the
+  tag-map `Async` section of `apps/demo/src/channels.test-d.ts`.
 - **omit `failure`** → the failure **rides the live channel**:
   `Effect<View<E>, never, R | Scope>`. This is the leaf primitive that stamps
   `View<E≠never>`. Both an initial-fetch failure and a refetch failure route to

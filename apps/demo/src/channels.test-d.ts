@@ -7,6 +7,7 @@
 import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
 import { Async, Catch, h, mount, type View } from "@verrex/core"
+import { AsyncEscalate } from "./AsyncEscalate.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
 import { LiveUser } from "./LiveUser.vx"
@@ -30,6 +31,13 @@ assertEquals<UserPageType, Effect.Effect<View, HttpError, Http | Theme>>()
 
 type AsyncUserPageType = ReturnType<typeof AsyncUserPage>
 assertEquals<AsyncUserPageType, Effect.Effect<View, never, Http | Scope.Scope>>()
+
+// ─── AsyncEscalate: tag-map failure arm handles HttpError at the leaf; the
+//     RateLimited residual rides View<RateLimited> to a page Catch tag map.
+//     Fully discharged end-to-end → View<never>/E never, Http folds.
+
+type AsyncEscalateType = ReturnType<typeof AsyncEscalate>
+assertEquals<AsyncEscalateType, Effect.Effect<View, never, Http | Scope.Scope>>()
 
 // ─── Counter is pure (no E or R from the component itself; AtomRegistry
 //     is added at mount) ──────────────────────────────────────────────────
@@ -344,6 +352,32 @@ const TagMapAll = Async(getUserTwo, {
 })
 assertEquals<typeof TagMapAll, Effect.Effect<View, never, Http | Scope.Scope>>()
 mount(TagMapAll, root)
+
+// Every failure handler (catch-all and tag-map) receives `retry` last —
+// typed () => void, the leaf analog of Catch's reset.
+const HandledRetry = Async(getUser42, {
+  success: (u) => h("p", {}, u.name),
+  failure: (cause, retry) => {
+    const _c: Cause.Cause<HttpError> = cause
+    const _r: () => void = retry
+    void _c
+    void _r
+    return h("p", {}, "failed")
+  },
+})
+assertEquals<typeof HandledRetry, Effect.Effect<View, never, Http | Scope.Scope>>()
+
+const TagMapRetry = Async(getUserTwo, {
+  success: (u) => h("p", {}, u.name),
+  failure: {
+    HttpError: (e, retry) => {
+      const _r: () => void = retry
+      void _r
+      return h("p", {}, `${e.status}`)
+    },
+  },
+})
+assertEquals<typeof TagMapRetry, Effect.Effect<View<ParseError>, never, Http | Scope.Scope>>()
 
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.
