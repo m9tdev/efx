@@ -138,7 +138,7 @@ apps/
 
 | You import from      | What you get                                                                              |
 |----------------------|-------------------------------------------------------------------------------------------|
-| `@verrex/core`      | `h`, `mount`, `Async`, `asyncRef`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive`                             |
+| `@verrex/core`      | `h`, `mount`, `Async`, `asyncRef`, `AsyncHandle`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive`                             |
 | `effect`             | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …  |
 | `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                  |
 

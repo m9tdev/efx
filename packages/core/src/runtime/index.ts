@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Fiber, Layer, Option, Queue, Scope, type Types } from "effect"
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { type ErrorSink, trackDeps } from "./coerce.ts"
+import { type ErrorSink, isAtomRef, trackDeps } from "./coerce.ts"
 import { type BoundaryState, type Props, View } from "./View.ts"
 
 export { h } from "./h.ts"
@@ -57,48 +57,59 @@ export const list = <T>(
   })
 
 /**
+ * What `asyncRef` returns: the reactive result plus a manual `refetch`.
+ * `refetch` re-runs the thunk with a fresh dep snapshot — exactly what a
+ * tracked-dep change triggers — interrupting the stale run, and flips the
+ * state to waiting SYNCHRONOUSLY (so a re-render in the same tick observes
+ * it). It returns `false` — a silent no-op, request dropped — once the
+ * creating scope has closed: a retained handle can't resurrect
+ * subscriptions, and the return value is how a caller tells a dead handle
+ * from a scheduled run. The handle outlives any view rendering it: an
+ * `Async` subtree swapped away by a `Catch` does not stop the fetch loop.
+ */
+export interface AsyncHandle<A, E> {
+  readonly state: AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>
+  readonly refetch: () => boolean
+}
+
+/**
+ * What `Async` accepts in `from` position: a thunk (creates a
+ * boundary-private handle; `R` folds here) or an existing {@link AsyncHandle}
+ * (data decoupled from the view). The `R = never` default is LOAD-BEARING: a
+ * handle mentions no `R`, so without it inference would fall back to
+ * `unknown` and poison the fold — every `Async` overload must keep the
+ * default. A callable value is ALWAYS treated as a thunk, even if it also
+ * carries handle-shaped properties — don't build callable handle hybrids.
+ */
+type AsyncSource<A, E, R = never> = (() => Effect.Effect<A, E, R>) | AsyncHandle<A, E>
+
+/**
  * The reactive effectful data primitive — the async leaf of the
  * errors-as-values model, and what `<Async>` is sugar over.
  *
  * `asyncRef(() => effect)` runs `effect` on the **mount fiber** (so its `R`
  * folds into the component — a forgotten `Layer` is a compile error at the root
- * `mount`) and returns a reactive `AsyncResult<A, E>` you handle with Effect's
- * own `AsyncResult.match`:
+ * `mount`) and returns an {@link AsyncHandle}: a reactive `AsyncResult<A, E>`
+ * you handle with Effect's own `AsyncResult.match`, plus a manual `refetch`:
  *
  * ```tsx
  * const user = yield* asyncRef(() => http.getUser(userId.value))
- * //    user: ReadonlyRef<AsyncResult<User, HttpError>>
- * {user.map(AsyncResult.match({ onInitial, onFailure, onSuccess }))}
+ * //    user: AsyncHandle<User, HttpError>
+ * <button onclick={user.refetch}>refresh</button>
+ * {user.state.map(AsyncResult.match({ onInitial, onFailure, onSuccess }))}
+ * // or hand the handle to Async for the arms/boundary sugar:
+ * {Async(user, { initial, failure, success })}
  * ```
  *
  * Reactivity is discovered, not declared: any ref the thunk reads (`.value` →
  * `h.read`) becomes a dependency and the effect re-runs (interrupting the stale
- * run) when it changes — the thunk is the re-run scope. Built on `AtomRef` +
- * `AsyncResult` + `forkScoped`; no `Atom.runtime` (which would discharge `R`),
- * no new View IR.
+ * run) when it changes — the thunk is the re-run scope; `refetch` triggers the
+ * same re-run manually. Built on `AtomRef` + `AsyncResult` + `forkScoped`; no
+ * `Atom.runtime` (which would discharge `R`), no new View IR.
  */
 export const asyncRef = <A, E, R>(
   effect: () => Effect.Effect<A, E, R>,
-): Effect.Effect<AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>, never, R | Scope.Scope> =>
-  Effect.map(makeAsyncRef(effect), (r) => r.state)
-
-/**
- * `asyncRef`'s engine, internal: additionally exposes `refetch` — the same
- * `schedule` a dep change triggers (fresh dep snapshot, stale run
- * interrupted). `Async` hands it to failure arms as `retry`; the public
- * `asyncRef` deliberately returns only the state ref (API minimalism — a
- * manual-refetch primitive is a separate design decision).
- */
-const makeAsyncRef = <A, E, R>(
-  effect: () => Effect.Effect<A, E, R>,
-): Effect.Effect<
-  {
-    readonly state: AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>
-    readonly refetch: () => void
-  },
-  never,
-  R | Scope.Scope
-> =>
+): Effect.Effect<AsyncHandle<A, E>, never, R | Scope.Scope> =>
   Effect.gen(function* () {
     const state = AtomRef.make<AsyncResult.AsyncResult<A, E>>(AsyncResult.initial(true))
     const scope = yield* Effect.scope
@@ -110,19 +121,28 @@ const makeAsyncRef = <A, E, R>(
     let unsubs: Array<() => void> = []
     let closed = false
 
-    const schedule = (): void => {
+    const schedule = (): boolean => {
       // `schedule` escapes this scope as `refetch`/`retry` (handed to failure
       // arms), so a retained reference can fire after teardown — a stashed
       // retry in a setTimeout, a click racing a boundary swap. Once the scope
       // closes this must be a no-op: re-subscribing would register
       // subscriptions the (already-run) finalizer can never clean, and the
-      // queue's only consumer is dead.
-      if (closed) return
+      // queue's only consumer is dead. `false` is the caller's only signal.
+      if (closed) return false
+      // Flip to waiting SYNCHRONOUSLY, before the run is even enqueued: a
+      // rebuild in the same tick — `refetch(); reset()` in either order —
+      // must observe waiting, not re-escalate the stale non-waiting Failure.
+      // (The supervisor's own set on take is a deduped duplicate, and
+      // corrective in the rare interleaving where the prior run completes in
+      // between. At construction the state is already Initial(waiting) — the
+      // set dedups to a no-op.)
+      state.set(AsyncResult.waitingFrom(Option.some(state.value)))
       for (const u of unsubs) u()
       unsubs = []
       const { result: eff, deps } = trackDeps(effect)
       for (const dep of deps) unsubs.push(dep.subscribe(schedule))
       Queue.offerUnsafe(runs, eff)
+      return true
     }
     schedule() // initial run + dep subscriptions
     yield* Scope.addFinalizer(
@@ -276,11 +296,19 @@ interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
  * (like `list`) so `A`/`E` are fixed from `from` before the arms are typed; a
  * single props object would collapse `success`'s value to `unknown`.
  *
- * `from` is a thunk, so it can be inline or extracted
- * (`const getUser = () => http.getUser(userId.value)`); a ref read inside it
- * auto-refetches. (A `<Async from initial failure success/>` JSX element that
- * lowers to this positional call is *planned*, not yet implemented — use the call
- * form.)
+ * `from` is a thunk **or an {@link AsyncHandle}**. A thunk can be inline or
+ * extracted (`const getUser = () => http.getUser(userId.value)`); a ref read
+ * inside it auto-refetches, and the handle it creates is private to this
+ * boundary. Pass a handle (`const user = yield* asyncRef(getUser)`) when the
+ * data should OUTLIVE the rendering subtree or be refetched from outside —
+ * `user.refetch` keeps working after a `Catch` swaps the view away, and the
+ * fetch loop is shared by every consumer of the handle. One semantic shift to
+ * note: a boundary `reset` over a handle re-renders the handle's CURRENT
+ * state and does not refetch (with a thunk, reset reconstructs the asyncRef →
+ * fresh fetch); a still-failed handle re-escalates on rebuild, so compose
+ * `() => { user.refetch(); reset() }` when retry should do both. (A
+ * `<Async from initial failure success/>` JSX element that lowers to this
+ * positional call is *planned*, not yet implemented — use the call form.)
  *
  * ```tsx
  * Async(() => http.getUser(userId.value), {
@@ -324,27 +352,27 @@ interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
  * during render (`failure: (c, retry) => { retry(); … }`) refetches in an
  * infinite loop.
  */
-export function Async<A, E, R>(
-  from: () => Effect.Effect<A, E, R>,
+export function Async<A, E, R = never>(
+  from: AsyncSource<A, E, R>,
   arms: AsyncArmsHandled<A, E>,
 ): Effect.Effect<View, never, R | Scope.Scope>
 export function Async<
   A,
   E,
-  R,
   // `never` when E has no tagged members: without it, Types.Tags<E> = never makes
   // the constraint the empty mapped type and ANY map compiles, silently dead.
   Handlers extends [Types.Tags<E>] extends [never] ? never : TagHandlers<E, [retry: () => void]>,
+  R = never,
 >(
-  from: () => Effect.Effect<A, E, R>,
+  from: AsyncSource<A, E, R>,
   arms: AsyncArmsBase<A> & { readonly failure: Handlers },
 ): Effect.Effect<View<Types.ExcludeTag<E, keyof Handlers & string>>, never, R | Scope.Scope>
-export function Async<A, E, R>(
-  from: () => Effect.Effect<A, E, R>,
+export function Async<A, E, R = never>(
+  from: AsyncSource<A, E, R>,
   arms: AsyncArmsOpen<A>,
 ): Effect.Effect<View<E>, never, R | Scope.Scope>
-export function Async<A, E, R>(
-  from: () => Effect.Effect<A, E, R>,
+export function Async<A, E, R = never>(
+  from: AsyncSource<A, E, R>,
   arms: AsyncArmsBase<A> & {
     readonly failure?:
       | ((cause: Cause.Cause<E>, retry: () => void) => View | Effect.Effect<View, any, any>)
@@ -355,7 +383,16 @@ export function Async<A, E, R>(
   // Fail fast at the call site: a tag map that can't dispatch is a
   // programming error, not a renderable failure.
   if (failure && typeof failure === "object") assertHandlerMap(failure, "Async")
-  return makeAsyncRef(from).pipe(
+  // A thunk creates the handle here (its R folds); an existing AsyncHandle is
+  // subscribed as-is — the data outlives this subtree, so a boundary `reset`
+  // re-renders the handle's CURRENT state and does NOT refetch (compose
+  // `() => { handle.refetch(); reset() }` when retry should do both).
+  // Fail fast on a non-handle smuggled past the types (cast, JS) — same
+  // stance as assertHandlerMap.
+  if (typeof from !== "function" && !isAtomRef(from.state)) {
+    throw new TypeError("Async: `from` is neither a thunk nor an AsyncHandle (`state` is not an AtomRef)")
+  }
+  return (typeof from === "function" ? asyncRef(from) : Effect.succeed(from)).pipe(
     Effect.map(({ refetch, state }) =>
       View.Reactive({
         source: state.map((r) =>

@@ -1,6 +1,6 @@
 import { Cause, Data, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { Async, Catch } from "@verrex/core"
+import { Async, asyncRef, Catch } from "@verrex/core"
 import { Http, HttpError, type User } from "./services.ts"
 
 /**
@@ -13,41 +13,39 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
 
 /**
  * `Async` failure homes (step 08) — **the `failure` arm picks where each
- * error lives, per call site and per tag**. Two live blocks share the same
- * `userId` dep, so every button drives both:
+ * error lives, per call site and per tag** — now built on **`AsyncHandle`**:
+ * each block's data is an `asyncRef` handle (`{ state, refetch }`) created in
+ * the component body, OUTSIDE the boundaries, then handed to `Async`. The
+ * data outlives the views: an escalated block's fetch loop keeps tracking
+ * `userId` and can be refetched from anywhere — the spam button is just
+ * `tagUser.refetch()` ×3, no synthetic dep tricks.
  *
  * **Tag-map block** (top): the thunk can fail with `HttpError | RateLimited`.
- * - `HttpError` is handled **at the leaf**: the 404 banner renders in place
- *   and the fetch loop STAYS LIVE — picking another id refetches and recovers
- *   with no boundary involved, and the handler's `retry` re-runs the same
- *   fetch (the leaf analog of `Catch`'s `reset`; while the re-run is in
- *   flight the `initial` arm shows).
+ * - `HttpError` is handled **at the leaf**: the 404 banner renders in place;
+ *   picking another id refetches and recovers with no boundary involved, and
+ *   the handler's `retry` (the handle's own `refetch`) re-runs the same
+ *   fetch — the `initial` arm shows while it's in flight.
  * - `RateLimited` is *not* in the map, so it rides the residual —
  *   `View<Exclude<HttpError | RateLimited, { _tag: "HttpError" }>>` =
  *   `View<RateLimited>` — to the page-level `Catch`, whose own tag map
  *   unwraps it (`e.retryAfterMs` is typed). Deleting that `Catch` is a
- *   compile error naming `RateLimited` — and only `RateLimited`: the type
- *   already knows `HttpError` was handled.
+ *   compile error naming `RateLimited`, and only `RateLimited`.
  *
- * **Open-form block** (bottom): the SAME fetch with no `failure` arm at all —
- * the all-or-nothing version. EVERY failure (`HttpError` included) rides
- * `View<HttpError | RateLimited>` to its catch-all `Catch` (`Cause.pretty` +
- * `reset`). Deleting that `Catch` is a compile error naming the full union.
+ * **Open-form block** (bottom): the SAME pattern with no `failure` arm —
+ * every failure rides `View<HttpError | RateLimited>` to its catch-all
+ * `Catch`. Deleting that `Catch` is a compile error naming the full union.
  *
- * **The rate limit is real, and the request log makes it legible**: a
+ * **Boundary retries compose `refetch` + `reset`**: over a handle, `reset`
+ * alone re-renders the handle's CURRENT state (the data outlives the
+ * subtree — a still-failed handle would just re-escalate), so the banners'
+ * retry buttons do `() => { handle.refetch(); reset() }`.
+ *
+ * **The rate limit is real, and the request log narrates it**: a
  * sliding-window limiter on the fake endpoint allows 2 requests/second
- * ACROSS BOTH BLOCKS. Every request the endpoint receives appends a log
- * line — `sent (n/2 this second)`, its `← 200/404` outcome, `← interrupted`
- * when a newer refetch took over, or `→ 429` when the budget is spent. The
- * check + stamp run synchronously when the thunk builds the request (refetch
- * time), so spamming is deterministic; a limited request never reaches
- * `Http`. The log also shows WHY a click costs two requests (one per live
- * block) — and only one once a block has escalated (its fetch loop is dead
- * until its boundary resets).
- *
- * The id buttons live *outside* both boundaries so they survive the fallback
- * swaps. (Tag maps only catch errors in the *type* — an untyped defect would
- * escalate past the page tag-map boundary to the demo harness's catch-all.)
+ * ACROSS BOTH HANDLES. Every request logs its budget verdict (`sent (n/2
+ * this second)` / `→ 429`), its `← 200/404` outcome, and `← interrupted`
+ * when a newer refetch took over. Both handles track `userId`, so an id
+ * click always costs two requests — watch the log.
  *
  * Inferred type: `Effect<View, never, Http | Scope>`
  */
@@ -64,7 +62,7 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
   }
 
   // Sliding-window rate limiter: at most LIMIT request creations per WINDOW,
-  // shared by both blocks (it guards the endpoint, not the consumer). Runs in
+  // shared by both handles (it guards the endpoint, not the consumer). Runs in
   // fetchUser's synchronous body — request-creation time — so every refetch
   // (dep change, retry, spam) counts exactly once, interrupted or not.
   const WINDOW_MS = 1000
@@ -87,11 +85,18 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
       Effect.onInterrupt(() => Effect.sync(() => logLine(`#${n} ← interrupted (newer request took over)`))),
     )
   }
-  // Three refetch rounds back-to-back: each flip changes the id, so every
-  // LIVE block refetches per flip. Three rounds exceed 2 req/s even when only
-  // one block is live (an escalated block's fetch loop is dead until its
-  // boundary resets — that's the boundary-vs-leaf semantics on display).
-  const flip = () => userId.set(userId.value === "7" ? "42" : "7")
+
+  // The handles: one fetch loop per block, both tracking userId, both living
+  // in the COMPONENT scope — boundaries below swap views, never the data.
+  const tagUser = yield* asyncRef(() => fetchUser(userId.value))
+  const openUser = yield* asyncRef(() => fetchUser(userId.value))
+  // Spam = three manual refetches of the CURRENT id on the top handle: the
+  // third (or earlier, right after a click) exceeds 2 req/s → a real 429.
+  const spam = () => {
+    tagUser.refetch()
+    tagUser.refetch()
+    tagUser.refetch()
+  }
 
   return yield* (
     <div class="async-escalate">
@@ -99,17 +104,17 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
         <button onclick={() => userId.set("42")}>Ada (42)</button>
         <button onclick={() => userId.set("7")}>Grace (7)</button>
         <button onclick={() => userId.set("999")}>Bad id</button>
-        <button class="spam" onclick={() => { flip(); flip(); flip() }}>spam ×3</button>
-        <span class="budget-note">fake API allows 2 req/s — each click fetches once per live block</span>
+        <button class="spam" onclick={spam}>spam ×3</button>
+        <span class="budget-note">fake API allows 2 req/s — an id click fetches once per block; spam re-requests the top block</span>
       </div>
       <pre class="req-log">{reqLog}</pre>
       {Catch(
         <section class="content">
-          {Async(() => fetchUser(userId.value), {
+          {Async(tagUser, {
             initial: <span class="loading">loading…</span>,
             failure: {
-              // Handled at the leaf: the asyncRef stays live, so another id
-              // recovers without any reset; `retry` re-runs the same fetch.
+              // Handled at the leaf: the handle stays live, so another id
+              // recovers without any reset; `retry` is tagUser.refetch.
               HttpError: (e, retry) => (
                 <div class="leaf-fallback">
                   <p class="leaf-msg">handled at the leaf — HttpError {e.status}: {e.message}</p>
@@ -127,11 +132,13 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
         </section>,
         {
           // The residual — View<RateLimited> — lands here, unwrapped + typed.
+          // Over a handle, reset alone re-renders the still-failed state:
+          // compose refetch + reset so retry re-fetches AND re-renders.
           RateLimited: (e, reset) => (
             <div class="boundary-fallback page-fallback">
               <p class="caught">page boundary caught: RateLimited</p>
               <p class="rate-msg">rate limited — retry in {e.retryAfterMs}ms</p>
-              <button class="retry" onclick={reset}>retry</button>
+              <button class="retry" onclick={() => { tagUser.refetch(); reset() }}>retry</button>
             </div>
           ),
         },
@@ -139,7 +146,7 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
       <p class="contrast-label">same fetch, open form — no failure arm, every failure escalates:</p>
       {Catch(
         <section class="contrast">
-          {Async(() => fetchUser(userId.value), {
+          {Async(openUser, {
             initial: <span class="loading">loading…</span>,
             success: (user) => <strong class="open-ok">{user.name}</strong>,
           })}
@@ -148,7 +155,7 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
           <div class="boundary-fallback open-fallback">
             <p class="caught">catch-all caught:</p>
             <pre class="cause">{Cause.pretty(cause)}</pre>
-            <button class="retry" onclick={reset}>retry</button>
+            <button class="retry" onclick={() => { openUser.refetch(); reset() }}>retry</button>
           </div>
         ),
       )}
