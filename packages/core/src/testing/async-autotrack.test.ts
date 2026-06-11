@@ -5,27 +5,20 @@
  * `.value`→h.read by calling read() inside the thunk.
  */
 import { describe, it, expect } from "vitest"
-import { Context, Effect, Layer, Scope } from "effect"
+import { Effect, Scope } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { Async, h, type View } from "@verrex/core"
 import { render } from "./index.ts"
+import { makeUsersFixture, NotFound } from "./fixtures.ts"
 
-class Users extends Context.Service<Users, {
-  readonly get: (id: string) => Effect.Effect<string, GetErr>
-}>()("at/Users") {}
-class GetErr { readonly _tag = "GetErr"; constructor(readonly id: string) {} }
-const db: Record<string, string> = { "42": "Ada", "7": "Grace" }
-const UsersLive = Layer.succeed(Users, {
-  get: (id) => (db[id] ? Effect.succeed(db[id]) : Effect.fail(new GetErr(id))),
-})
-const read = (h as unknown as { read: (r: unknown) => string }).read
+const { Users, UsersLive } = makeUsersFixture("at")
 
 // folding: a thunk whose effect has no R → Async is Effect<View<E>, never, Scope>;
-// with no failure arm, GetErr rides the live channel instead of being discharged.
-const _folds = (userId: AtomRef.AtomRef<string>, get: (id: string) => Effect.Effect<string, GetErr>) =>
-  Async(() => get(read(userId)), {
+// with no failure arm, NotFound rides the live channel instead of being discharged.
+const _folds = (userId: AtomRef.AtomRef<string>, get: (id: string) => Effect.Effect<string, NotFound>) =>
+  Async(() => get(h.read(userId)), {
     success: (n) => h("span", {}, n),
-  }) satisfies Effect.Effect<View<GetErr>, never, Scope.Scope>
+  }) satisfies Effect.Effect<View<NotFound>, never, Scope.Scope>
 void _folds
 
 const Page = (userId: AtomRef.AtomRef<string>) =>
@@ -34,7 +27,7 @@ const Page = (userId: AtomRef.AtomRef<string>) =>
     return yield* h("div", { class: "page" },
       h("button", { class: "grace", onclick: () => userId.set("7") }, "Grace"),
       h("button", { class: "bad", onclick: () => userId.set("999") }, "Bad"),
-      yield* Async(() => client.get(read(userId)), {
+      yield* Async(() => client.get(h.read(userId)), {
         initial: h("span", { class: "loading" }, "…"),
         success: (n) => h("span", { class: "ok" }, n),
         failure: () => h("span", { class: "err" }, "not found"),
@@ -62,7 +55,7 @@ describe("auto-tracking Async", () => {
     const userId = AtomRef.make("42")
     const ExtractedPage = Effect.fn(function* () {
       const client = yield* Users
-      const get = () => client.get(read(userId)) // extracted thunk
+      const get = () => client.get(h.read(userId)) // extracted thunk
       return yield* h("div", { class: "page" },
         h("button", { class: "grace", onclick: () => userId.set("7") }, "Grace"),
         yield* Async(get, {

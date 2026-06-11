@@ -72,6 +72,27 @@ in `unmount()` — so a test can assert that finalizers fire on teardown
 `Effect.scoped` would close the scope as soon as `mount` returned, tearing
 the component down before you could drive it.
 
+## Shared fixtures (`fixtures.ts`)
+
+Test-only scaffolds for the Async/asyncRef suites (#98) — **not** exported
+from the package and excluded in `tsconfig.build.json`, so it never reaches
+`dist`. `makeUsersFixture(tagPrefix)` returns a fresh `Users` service per
+suite — a factory, not module constants, because suites customize the getter
+(gating, call counting, recovery flips) and a per-suite tag keeps service
+identity distinct. It returns:
+
+- `usersWith(get)` — a layer over a custom getter; build these **per test**
+  over test-local state (the shape #95 settled on), never a shared mutable db.
+- `UsersLive` — the canonical db-backed layer: `"42"`→Ada, `"7"`→Grace,
+  `"slow"` fails `Timeout`, anything else fails `NotFound`.
+
+The errors are module-level exports so they work as types too: `NotFound`
+(a `Data.TaggedError`) and `Timeout` (deliberately a plain hand-rolled `_tag`
+class — tag maps key on `_tag` alone, and both shapes must keep working).
+The service's error channel is always `NotFound | Timeout`, so a leaf tag map
+needs both tags to discharge to `View<never>`; suites exercising a *partial*
+map handle one tag and let the residual ride to a boundary.
+
 ## Setup
 
 - Each test file opts into happy-dom with a per-file
@@ -85,8 +106,13 @@ the component down before you could drive it.
 
 ## Anti-patterns
 
-- Don't add a `waitFor(predicate)` polling helper until a test needs it;
-  `tick()` + synchronous `AtomRef` reactivity covers the current cases.
+- Don't add a `waitFor(predicate)` variant until a test needs it; the
+  selector-based `waitFor` plus `tick()` covers the current cases (a test
+  needing text-level polling keeps a local helper, see
+  `async-refetch-regression.test.ts`).
+- Don't re-declare a per-suite `Users`/db scaffold in a test file — take it
+  from `fixtures.ts` (`makeUsersFixture`), and add to the fixture only what
+  at least two suites share.
 - Don't provide the component's real production layers here by default —
   tests pass their own (often test doubles). The harness only injects the
   framework infra (`VerrexLive` + scope).

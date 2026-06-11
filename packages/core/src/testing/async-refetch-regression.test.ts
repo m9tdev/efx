@@ -24,16 +24,13 @@
  *   catches), which is what this test exercises.
  */
 import { describe, expect, it } from "vitest"
-import { Context, Data, Effect, Fiber, Layer } from "effect"
+import { Effect, Fiber } from "effect"
 import { AsyncResult, AtomRef } from "effect/unstable/reactivity"
 import { asyncRef, h } from "@verrex/core"
 import { render } from "./index.ts"
+import { makeUsersFixture, type NotFound, type UsersError, type UsersService } from "./fixtures.ts"
 
-class NotFound extends Data.TaggedError("NotFound")<{ readonly id: string }> {}
-
-class Api extends Context.Service<Api, {
-  readonly get: (id: string) => Effect.Effect<string, NotFound>
-}>()("test/Api") {}
+const { Users: Api, usersWith } = makeUsersFixture("refetch")
 
 // A gated Api: each `get(id)` blocks on a per-id promise the test controls, so a
 // refetch can be held in-flight while the DOM is inspected at a chosen tick.
@@ -49,13 +46,12 @@ const gatedApi = () => {
     }
     return entry
   }
-  const layer = Layer.succeed(Api, {
-    get: (id) =>
-      Effect.gen(function* () {
-        yield* Effect.promise(() => gate(id).promise)
-        return `user-${id}`
-      }),
-  })
+  const layer = usersWith((id) =>
+    Effect.gen(function* () {
+      yield* Effect.promise(() => gate(id).promise)
+      return `user-${id}`
+    }),
+  )
   return { layer, release: (id: string) => gate(id).release() }
 }
 
@@ -64,7 +60,7 @@ const gatedApi = () => {
 // vs "surfaced a failure" are each observable in the DOM.
 const Widget = (
   id: AtomRef.AtomRef<string>,
-  get: (api: Api["Service"], id: string) => Effect.Effect<string, NotFound>,
+  get: (api: UsersService, id: string) => Effect.Effect<string, UsersError>,
 ) =>
   Effect.fn(function* () {
     const api = yield* Api
@@ -82,7 +78,7 @@ const Widget = (
     )
   })
 
-const passthrough = (api: Api["Service"], id: string) => api.get(id)
+const passthrough = (api: UsersService, id: string) => api.get(id)
 const settle = () => new Promise<void>((r) => setTimeout(r, 30))
 
 // Poll for `.out` to reach `text` (the harness `waitFor` is selector-only). Used
