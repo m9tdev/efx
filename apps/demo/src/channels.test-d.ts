@@ -12,6 +12,7 @@ import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
 import { LiveUser } from "./LiveUser.vx"
 import { HttpError, Http, Theme, type User } from "./services.ts"
+import { TypedHandlers } from "./TypedHandlers.vx"
 import { UserPage } from "./UserPage.vx"
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
@@ -38,6 +39,13 @@ assertEquals<AsyncUserPageType, Effect.Effect<View, never, Http | Scope.Scope>>(
 
 type AsyncEscalateType = ReturnType<typeof AsyncEscalate>
 assertEquals<AsyncEscalateType, Effect.Effect<View, never, Http | Scope.Scope>>()
+
+// ─── TypedHandlers: both channels enter through `onclick` alone (#72). The
+//     inner Loader stamps Effect<View<HttpError>, never, Http>; the tag-map
+//     Catch discharges the live HttpError, the handler's Http rides R out.
+
+type TypedHandlersType = ReturnType<typeof TypedHandlers>
+assertEquals<TypedHandlersType, Effect.Effect<View, never, Http | Scope.Scope>>()
 
 // ─── Counter is pure (no E or R from the component itself; AtomRegistry
 //     is added at mount) ──────────────────────────────────────────────────

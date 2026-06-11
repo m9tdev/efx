@@ -11,6 +11,7 @@ import { Lifecycle } from "./Lifecycle.vx"
 import { LiveUser } from "./LiveUser.vx"
 import { Http, HttpLive, Theme, ThemeLive } from "./services.ts"
 import { Todos } from "./Todos.vx"
+import { TypedHandlers } from "./TypedHandlers.vx"
 import { UserPage } from "./UserPage.vx"
 
 const REPO = "https://github.com/m9tdev/verrex"
@@ -340,6 +341,35 @@ const tagUser = yield* asyncRef(() => fetchUser(userId.value))
       {demoSlot("escalate")}
     </section>
 
+    <section class="tour">
+      {copy({
+        step: "09",
+        title: "Typed event handlers (the live channel)",
+        concept:
+          "Handlers are where most live errors are born — the element is already rendered when one runs, so a failure has no construction E to ride. An onclick returning Effect<_, E, R> stamps E on the element's LIVE channel (View<E>) and folds R into its requirements. This component never yields Http in its body: the handler alone puts Http in R (drop HttpLive from the root Layer and the build names Http), and load #999's 404 rides View<HttpError> — delete the Catch and mount stops compiling, naming HttpError. reset re-runs construction, so the card comes back fresh.",
+        type: "Effect<View<HttpError>, never, Http>",
+        code: `// no \`yield* Http\` in the body — the HANDLER carries the channels
+const load = (id: string) =>
+  Effect.gen(function* () {
+    const http = yield* Http              // handler R → element R
+    const user = yield* http.getUser(id)  // may 404 → HttpError, LIVE
+    loaded.set(user.name)
+  })
+
+<button onclick={() => load("42")}>load Ada</button>
+<button onclick={() => load("999")}>load #999</button>
+// element: Effect<View<HttpError>, never, Http> — the failing click
+// must meet a Catch before mount, which names it otherwise:
+
+{Catch(<Loader />, {
+  HttpError: (e, reset) =>
+    <p>HttpError {e.status} <button onclick={reset}>reset</button></p>,
+})}`,
+        file: "TypedHandlers.vx",
+      })}
+      {demoSlot("handlers")}
+    </section>
+
     <footer class="site-footer">
       <p>
         verrex is an experimental proof-of-concept.{" "}
@@ -425,6 +455,7 @@ const program = Effect.gen(function* () {
     setupDemo("lifecycle", () => Lifecycle())
     setupDemo("boundary", () => CatchDemo())
     setupDemo("escalate", () => AsyncEscalate())
+    setupDemo("handlers", () => TypedHandlers())
   })
   // Start the reactivity flash once the initial mounts settle (incl. the
   // simulated fetch latency), so only interactions and resets flash — not page
