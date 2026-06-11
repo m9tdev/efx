@@ -213,10 +213,15 @@ mirroring `Catch`'s function-vs-object convention:
   dead (its tag stays on the channel — for *inline literals* the type never
   lies; a typo as the only key is a compile error), and a tag map on an `E`
   with no tagged members is rejected outright (the overload's constraint
-  collapses to `never`, not the accept-anything empty mapped type). Known
-  type/runtime gaps — pre-built/widened maps, prototype-keyed objects,
-  explicit-`undefined` slots without `exactOptionalPropertyTypes` — can
-  over-discharge and are tracked in #91; both tag-map surfaces share them.
+  collapses to `never`, not the accept-anything empty mapped type). The two
+  runtime-detectable type/runtime gaps — prototype-keyed handler objects and
+  non-function slots (compilable without `exactOptionalPropertyTypes`) — are
+  rejected at the `Async()`/`Catch()` call site by `assertHandlerMap`
+  (TypeError naming the surface and key; pinned by
+  `testing/tagmap-validation.test.ts`). The remaining gap — a pre-built map
+  whose *type* declares keys the value doesn't carry — is invisible at
+  runtime (erasure) and stays a documented limitation (#91): prefer inline
+  handler literals.
   The handler-map shape itself is the shared `TagHandlers<E, Extra>` alias
   (Catch instantiates `Extra = [reset]`), so the planned Async retry callback
   (TODO — `Catch`'s `reset` is the boundary-side analog) is a one-place

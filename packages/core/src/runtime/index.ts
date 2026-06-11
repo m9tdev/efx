@@ -143,9 +143,10 @@ type Tagged = { readonly _tag: string }
  * inference, and the exactness guard is omitted on purpose — a typo'd key
  * beside ≥1 valid key is silently dead (its tag stays on the channel, so the
  * type never lies for inline literals), while a typo as the only key is a
- * compile error. Pre-built/widened maps, prototype-keyed objects, and (for
- * consumers without `exactOptionalPropertyTypes`) explicit-`undefined` slots
- * can over-discharge — the type/runtime gap is tracked in #91.
+ * compile error. Prototype-keyed objects and explicit-`undefined` slots are
+ * rejected at construction by `assertHandlerMap`; pre-built maps whose TYPE
+ * declares keys the value doesn't carry can still over-discharge — invisible
+ * at runtime (erasure), documented limitation (#91).
  */
 type TagHandlers<E, Extra extends ReadonlyArray<unknown> = []> = {
   readonly [K in Types.Tags<E>]?: (
@@ -155,9 +156,37 @@ type TagHandlers<E, Extra extends ReadonlyArray<unknown> = []> = {
 }
 
 /**
+ * Construction-time guard for tag-map handler objects (#91): the type level
+ * discharges every `keyof Handlers`, but dispatch only honors OWN,
+ * function-valued keys — so reject, loudly and at the call site, the two
+ * shapes that would silently over-discharge: prototype-keyed objects (class
+ * instances, whose methods never dispatch) and non-function slots
+ * (`Tag: undefined`, which compiles for consumers without
+ * `exactOptionalPropertyTypes`). The third gap — pre-built maps whose TYPE
+ * declares keys the value doesn't carry — is invisible at runtime (erasure)
+ * and stays a documented limitation.
+ */
+const assertHandlerMap = (handlers: Record<string, unknown>, surface: string): void => {
+  const proto = Object.getPrototypeOf(handlers)
+  if (proto !== Object.prototype && proto !== null) {
+    throw new TypeError(
+      `${surface}: a tag-map of handlers must be a plain object — handlers on a prototype (class instance) never dispatch (#91)`,
+    )
+  }
+  for (const key of Object.keys(handlers)) {
+    if (typeof handlers[key] !== "function") {
+      throw new TypeError(
+        `${surface}: tag-map handler "${key}" is not a function — its tag was discharged from the type but would never dispatch (#91)`,
+      )
+    }
+  }
+}
+
+/**
  * The handler matching the cause's first error, when that error is tagged and
- * `handlers` carries an OWN, function-valued key for it (not a prototype-chain
- * hit, not an explicit `undefined` slot — the gaps this leaves are #91).
+ * `handlers` carries an OWN, function-valued key for it (non-plain maps and
+ * non-function slots are rejected up front by `assertHandlerMap`; the
+ * remaining erasure gap is #91).
  * Dispatch is on the cause's FIRST error — if it is untagged, no handler
  * matches even when a later error's tag is mapped; the design assumes a single
  * failure per cause. Returns the handler together with the error it matched
@@ -270,6 +299,10 @@ export function Async<A, E, R>(
       | Record<string, unknown>
   },
 ): Effect.Effect<View<E>, never, R | Scope.Scope> {
+  const { failure } = arms
+  // Fail fast at the call site: a tag map that can't dispatch is a
+  // programming error, not a renderable failure.
+  if (failure && typeof failure === "object") assertHandlerMap(failure, "Async")
   return asyncRef(from).pipe(
     Effect.map((state) =>
       View.Reactive({
@@ -285,7 +318,6 @@ export function Async<A, E, R>(
             // interrupt-only guard already ran in `asyncRef` (teardown never
             // reaches the Failure state).
             onFailure: (f) => {
-              const { failure } = arms
               if (typeof failure === "function") return failure(f.cause)
               // Truthiness (not === undefined): a nullish `failure` smuggled
               // past the types degrades to the open form instead of crashing
@@ -492,6 +524,7 @@ export function Catch(
     return makeBoundary(child, () => true, handlerOrMap)
   }
   const handlers = handlerOrMap
+  assertHandlerMap(handlers, "Catch")
   // Dispatch rules (own function-valued key, first-error routing) live in
   // `taggedMatch`, shared with Async's tag-map `failure` arm.
   return makeBoundary(
