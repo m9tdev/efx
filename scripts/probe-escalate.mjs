@@ -3,7 +3,7 @@
 // REFETCH (Bad id) swaps in the boundary banner naming HttpError; the id
 // buttons outside the boundary survive the swap; retry after picking a good id
 // re-runs construction and recovers.
-import { runProbe } from "./probe-harness.mjs"
+import { runProbe, waitForText as waitForTextIn } from "./probe-harness.mjs"
 
 const errors = []
 
@@ -17,12 +17,7 @@ await runProbe({
     const sel = '[data-demo="escalate"]'
     const demo = page.locator(sel)
     await demo.waitFor({ state: "attached" })
-    const waitForText = (re) =>
-      page.waitForFunction(
-        ({ s, src, fl }) => new RegExp(src, fl).test(document.querySelector(s)?.innerText ?? ""),
-        { s: sel, src: re.source, fl: re.flags },
-        { timeout: 5000 },
-      )
+    const waitForText = (re) => waitForTextIn(page, sel, re)
 
     // 1. Happy path renders through the boundary untouched.
     await waitForText(/Ada Lovelace/)
