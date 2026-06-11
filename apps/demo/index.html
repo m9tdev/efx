@@ -70,8 +70,11 @@
         padding: 1.75rem 0;
         border-top: 1px solid var(--border);
       }
+      /* Single column on small screens. minmax(0, 1fr) — not plain 1fr,
+         whose auto minimum lets the white-space:pre code blocks force the
+         column (and the whole page) wider than the viewport. */
       @media (max-width: 820px) {
-        .tour { grid-template-columns: 1fr; gap: 1rem; }
+        .tour { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
       }
       .tour-head { display: flex; align-items: baseline; gap: 0.6rem; }
       .step {
@@ -205,6 +208,25 @@
       .boundary-fallback .cause {
         margin: 0 0 0.7rem; font-size: 0.75rem; color: var(--muted);
         white-space: pre-wrap; word-break: break-word; max-height: 8rem; overflow: auto;
+      }
+
+      /* ─── Small screens & touch ────────────────────────────── */
+      @media (max-width: 480px) {
+        body { padding: 1.5rem 1rem 3rem; }
+        .hero h1 { font-size: 2.25rem; }
+        .tagline { font-size: 1rem; }
+        .how { padding: 1rem 1.1rem; }
+        .tour-demo { padding-inline: 0.9rem; }
+      }
+      @media (pointer: coarse) {
+        .counter button, .controls button, .catch-demo button,
+        .boundary-fallback button {
+          padding: 0.5rem 0.9rem;
+        }
+        .todos li .toggle, .todos li .remove {
+          padding: 0.35rem 0.6rem; min-width: 2.2rem;
+        }
+        .demo-refresh { padding: 0.35rem 0.7rem; }
       }
     </style>
   </head>
