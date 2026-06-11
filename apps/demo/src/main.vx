@@ -300,7 +300,7 @@ const App = (
         step: "08",
         title: "Failure homes: leaf, page, or split by tag",
         concept:
-          "The failure arm picks where each error lives. Omit it and EVERY failure rides the View<E> live channel to the nearest Catch — mount requires View<never>, so a forgotten boundary is a compile error naming the tag. Provide a tag map and the choice is per tag, live below: HttpError is handled at the leaf — the fetch loop stays live, so picking another id recovers with no boundary involved, and the handler's retry re-runs the same fetch. RateLimited isn't in the map, so it rides the residual — the type is View<Exclude<…>>, literally View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfter is typed). Deleting that Catch is a compile error naming RateLimited, and only RateLimited: the type knows HttpError was already handled.",
+          "The failure arm picks where each error lives — both versions run below, sharing the same userId, so every button drives both. The tag map splits per tag: HttpError is handled at the leaf — the fetch loop stays live, so picking another id recovers with no boundary involved, and the handler's retry re-runs the same fetch (the loading arm shows while it's in flight). RateLimited isn't in the map, so it rides the residual — the type is View<Exclude<…>>, literally View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfter is typed). Deleting that Catch is a compile error naming RateLimited, and only RateLimited: the type knows HttpError was already handled. The open form below it omits the arm entirely: EVERY failure rides View<HttpError | RateLimited> to a catch-all Catch, and deleting that one names the full union.",
         type: "Effect<View, never, Http | Scope>",
         code: `// fetchUser: (id: string) => Effect<User, HttpError | RateLimited>
 
@@ -312,7 +312,6 @@ const App = (
         // handled at the leaf — fetch loop stays live
         HttpError: (e, retry) =>
           <p>404 <button onclick={retry}>retry</button></p>,
-        // omit the arm entirely → EVERY failure escalates
       },
       success: user => <strong>{user.name}</strong>,
     })}
@@ -322,6 +321,14 @@ const App = (
     RateLimited: (e, reset) =>
       <p>retry in {e.retryAfter}s <button onclick={reset}>retry</button></p>,
   },
+)}
+
+// the all-or-nothing version: omit the arm entirely and EVERY
+// failure rides View<HttpError | RateLimited> to a catch-all Catch
+{Catch(
+  <section>{Async(() => fetchUser(userId.value), { success: … })}</section>,
+  (cause, reset) =>
+    <pre>{Cause.pretty(cause)} <button onclick={reset}>retry</button></pre>,
 )}`,
         file: "AsyncEscalate.vx",
       })}

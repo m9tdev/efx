@@ -1,4 +1,4 @@
-import { Data, Effect } from "effect"
+import { Cause, Data, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { Async, Catch } from "@verrex/core"
 import { Http, HttpError, type User } from "./services.ts"
@@ -13,27 +13,30 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
 
 /**
  * `Async` failure homes (step 08) — **the `failure` arm picks where each
- * error lives, per call site and per tag**.
+ * error lives, per call site and per tag**. Two live blocks share the same
+ * `userId` dep, so every button drives both:
  *
- * The thunk can fail with `HttpError | RateLimited`. Three choices exist:
- * provide a *function* and everything is handled at the leaf (step 03); omit
- * the arm and everything rides the `View<E>` live channel to the nearest
- * `Catch`; or — live below — provide a *tag map* and split per tag:
- *
+ * **Tag-map block** (top): the thunk can fail with `HttpError | RateLimited`.
  * - `HttpError` is handled **at the leaf**: the 404 banner renders in place
  *   and the fetch loop STAYS LIVE — picking another id refetches and recovers
  *   with no boundary involved, and the handler's `retry` re-runs the same
- *   fetch (the leaf analog of `Catch`'s `reset`).
+ *   fetch (the leaf analog of `Catch`'s `reset`; while the re-run is in
+ *   flight the `initial` arm shows).
  * - `RateLimited` is *not* in the map, so it rides the residual —
  *   `View<Exclude<HttpError | RateLimited, { _tag: "HttpError" }>>` =
  *   `View<RateLimited>` — to the page-level `Catch`, whose own tag map
- *   unwraps it (`e.retryAfter` is typed). Escalation swaps the whole section
- *   for the fallback; the boundary's `reset` re-runs construction.
+ *   unwraps it (`e.retryAfter` is typed). Deleting that `Catch` is a compile
+ *   error naming `RateLimited` — and only `RateLimited`: the type already
+ *   knows `HttpError` was handled.
  *
- * Deleting the page `Catch` is a compile error at the demo's mount naming
- * `RateLimited` — and only `RateLimited`: the type already knows `HttpError`
- * was handled. The id buttons live *outside* the boundary so they survive
- * the fallback swap.
+ * **Open-form block** (bottom): the SAME fetch with no `failure` arm at all —
+ * the all-or-nothing version. EVERY failure (`HttpError` included) rides
+ * `View<HttpError | RateLimited>` to its catch-all `Catch` (`Cause.pretty` +
+ * `reset`). Deleting that `Catch` is a compile error naming the full union.
+ *
+ * The id buttons live *outside* both boundaries so they survive the fallback
+ * swaps. (Tag maps only catch errors in the *type* — an untyped defect would
+ * escalate past the page tag-map boundary to the demo harness's catch-all.)
  *
  * Inferred type: `Effect<View, never, Http | Scope>`
  */
@@ -76,13 +79,29 @@ export const AsyncEscalate = Effect.fn("AsyncEscalate")(function* (_props: {} = 
         {
           // The residual — View<RateLimited> — lands here, unwrapped + typed.
           RateLimited: (e, reset) => (
-            <div class="boundary-fallback">
+            <div class="boundary-fallback page-fallback">
               <p class="caught">page boundary caught: RateLimited</p>
               <p class="rate-msg">rate limited — retry in {e.retryAfter}s</p>
               <button class="retry" onclick={reset}>retry</button>
             </div>
           ),
         },
+      )}
+      <p class="contrast-label">same fetch, open form — no failure arm, every failure escalates:</p>
+      {Catch(
+        <section class="contrast">
+          {Async(() => fetchUser(userId.value), {
+            initial: <span class="loading">loading…</span>,
+            success: (user) => <strong class="open-ok">{user.name}</strong>,
+          })}
+        </section>,
+        (cause, reset) => (
+          <div class="boundary-fallback open-fallback">
+            <p class="caught">catch-all caught:</p>
+            <pre class="cause">{Cause.pretty(cause)}</pre>
+            <button class="retry" onclick={reset}>retry</button>
+          </div>
+        ),
       )}
     </div>
   )

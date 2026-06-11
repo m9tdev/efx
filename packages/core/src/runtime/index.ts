@@ -108,8 +108,16 @@ const makeAsyncRef = <A, E, R>(
     // a fresh run (re-running the thunk to pick up new ref values + deps).
     const runs = yield* Queue.unbounded<Effect.Effect<A, E, R>>()
     let unsubs: Array<() => void> = []
+    let closed = false
 
     const schedule = (): void => {
+      // `schedule` escapes this scope as `refetch`/`retry` (handed to failure
+      // arms), so a retained reference can fire after teardown — a stashed
+      // retry in a setTimeout, a click racing a boundary swap. Once the scope
+      // closes this must be a no-op: re-subscribing would register
+      // subscriptions the (already-run) finalizer can never clean, and the
+      // queue's only consumer is dead.
+      if (closed) return
       for (const u of unsubs) u()
       unsubs = []
       const { result: eff, deps } = trackDeps(effect)
@@ -117,7 +125,16 @@ const makeAsyncRef = <A, E, R>(
       Queue.offerUnsafe(runs, eff)
     }
     schedule() // initial run + dep subscriptions
-    yield* Scope.addFinalizer(scope, Effect.sync(() => { for (const u of unsubs) u() }))
+    yield* Scope.addFinalizer(
+      scope,
+      Effect.sync(() => {
+        closed = true
+        for (const u of unsubs) u()
+        // Cleared so nothing can ever replay the already-run unsubscribers —
+        // AtomRef's unsubscribe is not idempotent.
+        unsubs = []
+      }),
+    )
 
     // Supervisor loop on the mount fiber: one child at a time; a new run
     // interrupts the prior. Scope close interrupts loop + live child.
@@ -159,7 +176,7 @@ type Tagged = { readonly _tag: string }
 
 /**
  * Tag-selective handler map over `E`'s tagged members; `Extra` appends the
- * surface-specific trailing params (Catch's `reset`; Async's planned retry).
+ * surface-specific trailing params (Catch's `reset`; Async's `retry`).
  * Both tag-map surfaces instantiate THIS alias so the deliberate trade-offs
  * live once: keys are constrained to the child's tags for per-handler `error`
  * inference, and the exactness guard is omitted on purpose — a typo'd key
@@ -219,7 +236,7 @@ const taggedMatch = (
   handlers: Record<string, unknown>,
   cause: Cause.Cause<unknown>,
 ):
-  | { readonly handler: (error: any, extra?: () => void) => unknown; readonly error: unknown }
+  | { readonly handler: (error: any, extra: () => void) => unknown; readonly error: unknown }
   | undefined => {
   const err = Option.getOrUndefined(Cause.findErrorOption(cause))
   const t =
@@ -227,7 +244,7 @@ const taggedMatch = (
   if (t === undefined || !Object.hasOwn(handlers, t)) return undefined
   const fn = handlers[t]
   return typeof fn === "function"
-    ? { handler: fn as (error: any, extra?: () => void) => unknown, error: err }
+    ? { handler: fn as (error: any, extra: () => void) => unknown, error: err }
     : undefined
 }
 
@@ -292,15 +309,20 @@ interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
  *    can over-discharge, see #91). A typo'd key mixed with ≥1 valid key is
  *    silently dead — its tag stays on the channel. A tag map on an `E` with
  *    no tagged members is rejected at compile time.
- *
- * Every failure handler (catch-all and tag-map) receives `retry: () => void`
- * as its last argument — it re-runs the thunk with a fresh dep snapshot, the
- * leaf analog of `Catch`'s `reset` (which re-runs *construction*).
  *  - **omitted** — the failure **rides the live channel**: the result is
  *    `Effect<View<E>, never, R | Scope>`, the failure (initial fetch *or* any
  *    refetch) routes to the nearest enclosing `Catch`, and `mount`'s
  *    `View<never>` gate makes a missing boundary a compile error naming `E`.
  *    The boundary's `reset` re-runs construction → a fresh fetch.
+ *
+ * Every failure handler (catch-all and tag-map) receives `retry: () => void`
+ * as its last argument — it re-runs the thunk with a fresh dep snapshot, the
+ * leaf analog of `Catch`'s `reset` (which re-runs *construction*). While the
+ * re-run is in flight the `initial` arm renders (a stale error isn't content,
+ * so failure-waiting doesn't get the stale-while-revalidate treatment that
+ * success-waiting does). Call `retry` from event handlers only — calling it
+ * during render (`failure: (c, retry) => { retry(); … }`) refetches in an
+ * infinite loop.
  */
 export function Async<A, E, R>(
   from: () => Effect.Effect<A, E, R>,
@@ -348,6 +370,14 @@ export function Async<A, E, R>(
             // interrupt-only guard already ran in `asyncRef` (teardown never
             // reaches the Failure state).
             onFailure: (f) => {
+              // Retry/refetch in flight (`waiting` flag): render the initial
+              // arm instead of re-invoking the failure arm with the stale
+              // cause. Stale-while-revalidate keeps CONTENT (success-waiting
+              // renders the success arm); a stale error isn't content, and
+              // re-invoking the arm would rebuild its DOM (including any
+              // retry button) mid-flight. Also the observable that makes
+              // "retry is running" testable.
+              if (f.waiting) return arms.initial ?? null
               if (typeof failure === "function") return failure(f.cause, refetch)
               // Truthiness (not === undefined): a nullish `failure` smuggled
               // past the types degrades to the open form instead of crashing
