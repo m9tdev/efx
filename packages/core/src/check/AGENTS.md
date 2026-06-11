@@ -34,6 +34,11 @@ const checker = createChecker({ cwd: "/path/to/project", minimumSeverity: "hint"
 await checker.check()
 checker.fileUpdated("/path/to/project/src/Foo.vx") // after an edit
 await checker.check({ cancel: () => superseded })  // polled between files
+
+// Watch-facing project topology (what cli.ts builds its watcher from):
+checker.getConfigFilePaths()     // tsconfig + extends chain
+checker.getWildcardDirectories() // dirs the include globs expand under
+checker.getTrackedFileNames()    // all program files seen so far (incl. imports)
 ```
 
 CLI:
@@ -88,31 +93,45 @@ LSP protocol.
   can print hints without failing on them and vice versa. Usage
   errors exit 2.
 - **Watch mode** (`--watch`/`-w`): one `createChecker` instance for
-  the process lifetime. chokidar watches the **tsconfig's directory**
-  (the anchor of its include globs — not the invocation cwd, which
-  can differ under `--tsconfig ../app/tsconfig.json`), ignoring
-  `node_modules`/`.git` by **whole path segment** (substring matching
-  would silently kill the watch for e.g. a `user.github.io` checkout),
-  admitting the full set of checkable extensions (the TS family plus
-  `.vx` — not just the extensions present at startup, so a project's
-  first `.tsx` still fires) plus the tsconfig itself (an edit to it
-  re-parses options and includes). Events feed
-  `fileCreated`/`fileUpdated`/`fileDeleted`; a watcher `error`
-  (EPERM dir, inotify ENOSPC) is reported on stderr and watching
-  continues. Re-checks are debounced 100ms; a superseded pass cancels
-  between files and never prints a stale file's diagnostics after its
-  await. The screen clear runs after the debounce (one per executed
-  pass), only on a TTY, and never under `--preserveWatchOutput`.
-  Watch mode never exits non-zero on diagnostics.
+  the process lifetime. chokidar covers **where the program actually
+  lives**, not the invocation cwd: the tsconfig's directory plus
+  every wildcard directory its include globs expand under (they can
+  sit outside it — `"include": ["../shared/**"]`), the config files
+  themselves including the `extends` chain (`tsconfig.base.json`
+  edits re-parse options), and — added file-by-file after each pass —
+  every tracked source the program imported from outside those trees
+  (workspace dependencies: editing `packages/core/src/*` re-checks
+  the demo, the way `tsc --watch` covers its program closure).
+  Ignores match `node_modules`/`.git` by **whole path segment**
+  (substring matching would silently kill the watch for e.g. a
+  `user.github.io` checkout) and admit the full set of checkable
+  extensions (the TS family plus `.vx` — not just the extensions
+  present at startup, so a project's first `.tsx` still fires).
+  Change/unlink events for files that were never part of the project
+  (build output) are skipped without a pass. A watcher `error`
+  (EPERM dir, inotify ENOSPC) and a **failing pass** (tsconfig
+  briefly missing mid-checkout, a transform crash on an
+  unrecoverable mid-edit file) are both reported on stderr and
+  watching continues — no unhandled rejection may escape `lint()`.
+  Re-checks are debounced 100ms; a superseded pass cancels between
+  files and never prints a stale file's diagnostics after its await.
+  The screen clear runs after the debounce, only on a TTY, only once
+  a previous pass has actually printed (ticket ordinality alone
+  would wipe scrollback at startup), and never under
+  `--preserveWatchOutput`. Watch mode never exits non-zero on
+  diagnostics.
   **Upstream caveat:** `fileUpdated` (every save — the hot path) is
   incremental via kit's project-version bump, but kit's root-file
   re-expansion is broken (`getScriptFileNames` caches resolved names
   in a WeakMap keyed by a `ParsedCommandLine` it mutates in place —
-  `@volar/kit` ≤ 2.4.28 and volar main), so create/delete/tsconfig
-  events mark the project stale and the kit checker is rebuilt
-  **lazily at the next `check()`/`getRootFileNames()`** — a burst of
-  N events costs one rebuild, not N. If a kit release fixes that
-  cache, the stale-flag rebuild can go back to forwarding the events.
+  `@volar/kit` ≤ 2.4.28 and volar main), so create/delete/config
+  events mark the project stale and the kit checker is **lazily**
+  re-evaluated at the next `check()`/`getRootFileNames()`: a cheap
+  config re-parse first, a full rebuild only when the root set or
+  options actually changed (build-output churn rebuilds nothing), a
+  parse failure keeps the staleness so the next flush retries. If a
+  kit release fixes that cache, this can go back to forwarding the
+  events.
 - **Colors**: the summary line, watch status, and screen clear only
   when stdout is a TTY (and, for color, `NO_COLOR` unset) — a pipe
   gets plain text and never the `\x1bc` reset. Per-diagnostic output
@@ -127,13 +146,15 @@ LSP protocol.
   virtual-code state, not leftovers from the previous invocation.
   `createChecker` is the deliberate exception: it keeps one checker
   alive so a watch loop pays incremental cost, and *requires* file
-  events to observe disk changes (kit snapshots are re-read only when
-  the project version bumps). This package holds no virtual-code
-  cache of its own: it only *writes* (compiles) `.vx` files through
-  the LanguagePlugin and never reads them back, so there is nothing
-  here to share or leak. (One kit-internal exception: a module-level
-  mtime-keyed snapshot cache, shared across checkers in a process —
-  invisible as long as edits actually change mtimes.)
+  events to observe disk changes — a snapshot is re-read only when
+  the project version bumps **and** kit's module-level mtime-keyed
+  cache sees a changed `getModifiedTime` (both gates must pass; an
+  edit that doesn't tick the mtime — coarse-granularity filesystems,
+  `cp -p`/`rsync -t` restores — is invisible until something else
+  changes it). This package holds no virtual-code cache of its own:
+  it only *writes* (compiles) `.vx` files through the LanguagePlugin
+  and never reads them back, so there is nothing here to share or
+  leak.
 
 ## Coupling
 

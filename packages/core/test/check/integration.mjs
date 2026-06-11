@@ -8,13 +8,18 @@
  *   3. Remove the broken file → back to 0 errors.
  *   4. createChecker: ONE checker instance tracks create/update/delete via
  *      file events — the incremental loop `verrex-check --watch` runs on.
+ *      Includes: tsconfig edits re-parse the project; a failed stale-flush
+ *      (tsconfig briefly missing) rejects with a friendly error AND keeps
+ *      the staleness; the watch-facing topology API (config files, wildcard
+ *      dirs, tracked files).
  *   5. minimumSeverity: hint-severity diagnostics (TS suggestions) are
  *      counted but not printed by default; "hint" prints them.
  *   6. shouldFail: the failing-severity thresholds cascade.
+ *   7. A supplied-but-missing tsconfig rejects with a friendly error.
  *
  * No tsserver subprocess; the check tool is invoked in-process.
  */
-import { writeFileSync, readFileSync, unlinkSync, existsSync } from "node:fs"
+import { writeFileSync, readFileSync, unlinkSync, existsSync, renameSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createChecker, runCheck, shouldFail } from "../../src/check/index.ts"
@@ -51,8 +56,11 @@ const captureStdout = async (fn) => {
 }
 
 const unusedPath = join(fixtureDir, "Unused.vx")
+const fixtureTsconfigPath = join(fixtureDir, "tsconfig.json")
+const hiddenTsconfigPath = fixtureTsconfigPath + ".hidden"
 
 const ensureClean = () => {
+  if (existsSync(hiddenTsconfigPath)) renameSync(hiddenTsconfigPath, fixtureTsconfigPath)
   if (existsSync(brokenPath)) unlinkSync(brokenPath)
   if (existsSync(unusedPath)) unlinkSync(unusedPath)
 }
@@ -110,8 +118,8 @@ console.log("\n4. createChecker: one instance tracks file events incrementally..
     expect(edited.output.includes("Good.vx"), "after fileUpdated break: output should mention Good.vx")
   } finally {
     writeFileSync(goodPath, goodSource)
+    checker.fileUpdated(goodPath)
   }
-  checker.fileUpdated(goodPath)
   const restored = await captureStdout(() => checker.check())
   expect(restored.result.errors === 0, `after fileUpdated restore: expected 0 errors, got ${restored.result.errors}`)
   if (restored.result.errors !== 0) console.error("output was:\n" + restored.output)
@@ -152,8 +160,32 @@ console.log("\n4. createChecker: one instance tracks file events incrementally..
     )
   } finally {
     writeFileSync(tsconfigPath, tsconfigSource)
+    checker.fileUpdated(tsconfigPath)
   }
-  checker.fileUpdated(tsconfigPath)
+
+  // A failed stale-flush must KEEP the staleness: hide the tsconfig so the
+  // flush rejects (friendly error, not a TS-internals TypeError), restore it,
+  // and verify the next check() still sees the pending project change.
+  let rejection = null
+  try {
+    renameSync(fixtureTsconfigPath, hiddenTsconfigPath)
+    try {
+      await checker.check()
+    } catch (error) {
+      rejection = error
+    }
+  } finally {
+    renameSync(hiddenTsconfigPath, fixtureTsconfigPath)
+  }
+  expect(
+    rejection instanceof Error && /tsconfig not found at/.test(rejection.message),
+    `missing tsconfig mid-watch: friendly rejection, got: ${rejection && rejection.message}`,
+  )
+  const afterRestore = await captureStdout(() => checker.check())
+  expect(
+    afterRestore.result.errors >= 1,
+    `staleness survives a failed flush: expected Broken.vx's error, got ${afterRestore.result.errors}`,
+  )
 
   unlinkSync(brokenPath)
   checker.fileDeleted(brokenPath)
@@ -166,6 +198,17 @@ console.log("\n4. createChecker: one instance tracks file events incrementally..
 
   const cancelled = await captureStdout(() => checker.check({ cancel: () => true }))
   expect(cancelled.result.filesChecked === 0, "cancel before the first file: 0 files checked")
+
+  // Watch-facing project topology.
+  expect(checker.getConfigFilePaths().includes(fixtureTsconfigPath), "getConfigFilePaths includes the tsconfig")
+  expect(
+    checker.getWildcardDirectories().includes(fixtureDir),
+    "getWildcardDirectories includes the include-glob root",
+  )
+  expect(
+    checker.getTrackedFileNames().some((f) => f.endsWith("Good.vx")),
+    "getTrackedFileNames observed Good.vx",
+  )
 }
 
 console.log("\n5. minimumSeverity: hints counted but not printed by default...")
@@ -195,6 +238,20 @@ console.log("\n6. shouldFail: failing-severity thresholds cascade...")
   // Untyped JS callers passing a typo'd threshold must still fail on errors.
   expect(shouldFail(only("errors", 1), "bogus") === true, "unknown threshold: errors still fail")
   expect(shouldFail(only("warnings", 1), "bogus") === false, "unknown threshold: falls back to error level")
+}
+
+console.log("\n7. Supplied tsconfig that doesn't exist → friendly rejection...")
+{
+  let rejection = null
+  try {
+    await runCheck({ cwd: fixtureDir, tsconfig: "missing/tsconfig.json" })
+  } catch (error) {
+    rejection = error
+  }
+  expect(
+    rejection instanceof Error && /tsconfig not found at/.test(rejection.message),
+    `expected friendly 'tsconfig not found at' rejection, got: ${rejection && rejection.message}`,
+  )
 }
 
 ensureClean()

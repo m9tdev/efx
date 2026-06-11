@@ -31,17 +31,7 @@ const OPTIONS = {
   minimumSeverity: { type: "string", default: "error" },
   minimumFailingSeverity: { type: "string", default: "error" },
   preserveWatchOutput: { type: "boolean", default: false },
-  help: { type: "boolean", short: "h", default: false },
 } as const
-
-interface ParsedArgs {
-  root: string | undefined
-  tsconfig: string | undefined
-  watch: boolean
-  minimumSeverity: Severity
-  minimumFailingSeverity: Severity
-  preserveWatchOutput: boolean
-}
 
 function usageError(message: string): never {
   console.error(`verrex-check: ${message}`)
@@ -49,20 +39,23 @@ function usageError(message: string): never {
   process.exit(2)
 }
 
-function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
-  let values: ReturnType<typeof parseArgs<{ options: typeof OPTIONS }>>["values"]
-  try {
-    // parseArgs rejects unknown flags, missing option values, and flag-like
-    // values (`--root --watch`) — the failure modes a hand-rolled `argv[++i]`
-    // loop silently swallows.
-    values = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: false }).values
-  } catch (error) {
-    usageError(error instanceof Error ? error.message : String(error))
-  }
-  if (values.help) {
+function parseCliArgs(argv: ReadonlyArray<string>) {
+  // Help wins over everything else on the line, including invalid flags —
+  // `verrex-check --help <candidate-flag>` is a capability probe, not an error.
+  if (argv.includes("--help") || argv.includes("-h")) {
     printHelp()
     process.exit(0)
   }
+  const values = (() => {
+    try {
+      // parseArgs rejects unknown flags, missing option values, and flag-like
+      // values (`--root --watch`) — the failure modes a hand-rolled
+      // `argv[++i]` loop silently swallows.
+      return parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: false }).values
+    } catch (error) {
+      usageError(error instanceof Error ? error.message : String(error))
+    }
+  })()
   const severity = (flag: string, value: string): Severity => {
     if ((SEVERITIES as ReadonlyArray<string>).includes(value)) return value as Severity
     usageError(`${flag} expects one of: ${SEVERITIES.join(", ")}`)
@@ -115,10 +108,13 @@ function formatSummary(result: CheckResult, minimumSeverity: Severity): string {
   const parts = [
     result.errors > 0 ? bold(red(plural(result.errors, "error"))) : dim("0 errors"),
   ]
+  // A nonzero count always surfaces, whatever the print threshold — any
+  // severity can fail the run via --minimumFailingSeverity, and an exit 1
+  // must never come with a summary that reads clean.
   if (minimumSeverity !== "error" || result.warnings > 0) {
     parts.push(result.warnings > 0 ? bold(yellow(plural(result.warnings, "warning"))) : dim("0 warnings"))
   }
-  if (minimumSeverity === "hint") {
+  if (minimumSeverity === "hint" || result.hints > 0) {
     parts.push(dim(plural(result.hints, "hint")))
   }
   return `\n${bold(`Checked ${plural(result.filesChecked, "file")}:`)} ${parts.join(", ")}\n`
@@ -126,11 +122,16 @@ function formatSummary(result: CheckResult, minimumSeverity: Severity): string {
 
 // Every extension the checker can ingest (the TS family plus .vx) — NOT the
 // extensions the project happens to contain at startup, so the first file of
-// a new kind still fires its add event. The tsconfig itself is allowed
-// through separately in the `ignored` predicate.
+// a new kind still fires its add event. Config files are allowed through
+// separately in the `ignored` predicate.
 const WATCHED_EXTENSIONS = new Set(
   [".vx", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
 )
+
+function invocationError(error: unknown): never {
+  console.error(`verrex-check: ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(2)
+}
 
 const args = parseCliArgs(process.argv.slice(2))
 const checkOptions: CheckOptions = { minimumSeverity: args.minimumSeverity }
@@ -140,51 +141,113 @@ if (args.tsconfig !== undefined) checkOptions.tsconfig = args.tsconfig
 if (args.watch) {
   // Loaded lazily: the one-shot path (CI, pre-commit) never pays for it.
   const { watch } = await import("chokidar")
-  const checker = createChecker(checkOptions)
+  const checker = (() => {
+    try {
+      return createChecker(checkOptions)
+    } catch (error) {
+      invocationError(error)
+    }
+  })()
 
-  // Watch the directory the tsconfig anchors its include globs to — not the
-  // invocation cwd, which can be elsewhere (`--tsconfig ../app/tsconfig.json`
-  // from a sibling dir would otherwise watch the wrong tree entirely).
-  const watchRoot = path.dirname(checker.tsconfigPath)
+  // Watch where the program actually lives: the tsconfig's directory plus
+  // every wildcard directory its include globs expand under (which may sit
+  // outside it — `"include": ["../shared/**"]`), plus the config files
+  // themselves (an extends base can sit anywhere). Imported sources outside
+  // these trees (workspace dependencies) are added file-by-file below.
+  const watchDirs = [
+    ...new Set([path.dirname(checker.tsconfigPath), ...checker.getWildcardDirectories()]),
+  ]
+
+  const hasIgnoredSegment = (segments: ReadonlyArray<string>) =>
+    segments.includes("node_modules") || segments.includes(".git")
+
+  const watcher = watch([...new Set([...watchDirs, ...checker.getConfigFilePaths()])], {
+    ignored: (p, stats) => {
+      const abs = path.resolve(p)
+      if (checker.getConfigFilePaths().includes(abs)) return false
+      // Match whole path segments below the containing watch dir — substring
+      // tests would ignore the entire tree of e.g. a `user.github.io`
+      // checkout. Explicitly-added files outside every dir fall through with
+      // their absolute segments.
+      const base = watchDirs.find((d) => abs === d || abs.startsWith(d + path.sep))
+      const segments = (base ? path.relative(base, abs) : abs).split(path.sep)
+      if (hasIgnoredSegment(segments)) return true
+      return stats?.isFile() === true && !WATCHED_EXTENSIONS.has(path.extname(abs))
+    },
+    ignoreInitial: true,
+  })
+
+  // Files the program pulled in from outside the watched trees — workspace
+  // dependency sources (`@verrex/core` dev exports resolve to
+  // packages/core/src/*.ts from the demo). tsc --watch covers these; a watch
+  // that doesn't reports stale results until an unrelated in-tree save.
+  const watchedFiles = new Set<string>()
+  const knownFiles = new Set<string>(checker.getRootFileNames().map((f) => path.resolve(f)))
+  const refreshTrackedFiles = () => {
+    for (const fileName of [...checker.getRootFileNames(), ...checker.getTrackedFileNames()]) {
+      const abs = path.resolve(fileName)
+      knownFiles.add(abs)
+      if (watchedFiles.has(abs)) continue
+      if (watchDirs.some((d) => abs.startsWith(d + path.sep))) continue
+      if (hasIgnoredSegment(abs.split(path.sep))) continue
+      if (!WATCHED_EXTENSIONS.has(path.extname(abs))) continue
+      watchedFiles.add(abs)
+      watcher.add(abs)
+    }
+  }
 
   // Debounced re-check: each trigger bumps `req`; an in-flight pass polls its
   // own ticket and yields as soon as it's superseded. The screen clear sits
-  // after the debounce (one clear per executed pass, none for coalesced
-  // events) and is TTY-gated — a pipe must never receive the reset sequence.
+  // after the debounce, only on a TTY, and only once a previous pass has
+  // actually printed — ticket ordinality alone would wipe the user's
+  // scrollback at startup when the first pass is superseded before printing.
   let req = 0
+  let anyPassCompleted = false
   const lint = async (): Promise<void> => {
     const current = ++req
     await new Promise((resolve) => setTimeout(resolve, 100))
     if (current !== req) return
-    if (current > 1 && !args.preserveWatchOutput && process.stdout.isTTY === true) {
+    if (anyPassCompleted && !args.preserveWatchOutput && process.stdout.isTTY === true) {
       process.stdout.write("\x1bc")
     }
-    const result = await checker.check({ cancel: () => current !== req })
-    if (current !== req) return
-    process.stdout.write(formatSummary(result, args.minimumSeverity))
-    process.stdout.write(dim("Watching for changes...") + "\n")
+    try {
+      const result = await checker.check({ cancel: () => current !== req })
+      if (current !== req) return
+      anyPassCompleted = true
+      refreshTrackedFiles()
+      process.stdout.write(
+        formatSummary(result, args.minimumSeverity) + dim("Watching for changes...") + "\n",
+      )
+    } catch (error) {
+      // A failing pass (tsconfig briefly missing mid-checkout, a transform
+      // crash on an unrecoverable mid-edit file) must not kill the session —
+      // report and keep watching; the project re-checks on the next event.
+      const message = error instanceof Error ? error.message : String(error)
+      process.stderr.write(`verrex-check: ${message}\n`)
+      process.stdout.write(dim("Watching for changes...") + "\n")
+    }
   }
 
-  watch(watchRoot, {
-    ignored: (p, stats) => {
-      if (path.resolve(p) === checker.tsconfigPath) return false
-      // Match whole path segments below the watch root — substring tests
-      // would ignore the entire tree of e.g. a `user.github.io` checkout.
-      const segments = path.relative(watchRoot, p).split(path.sep)
-      if (segments.includes("node_modules") || segments.includes(".git")) return true
-      return stats?.isFile() === true && !WATCHED_EXTENSIONS.has(path.extname(p))
-    },
-    ignoreInitial: true,
-  })
+  // A change/unlink for a file that was never part of the project (build
+  // output, scratch files) can't alter diagnostics — skip the pass. Adds
+  // can join the project, so they always go through (the shape comparison
+  // in the checker keeps irrelevant ones from rebuilding anything).
+  const isRelevant = (abs: string) =>
+    knownFiles.has(abs) || checker.getConfigFilePaths().includes(abs)
+
+  watcher
     .on("add", (fileName) => {
       checker.fileCreated(fileName)
       void lint()
     })
     .on("change", (fileName) => {
-      checker.fileUpdated(fileName)
+      const abs = path.resolve(fileName)
+      if (!isRelevant(abs)) return
+      checker.fileUpdated(abs)
       void lint()
     })
     .on("unlink", (fileName) => {
+      if (!isRelevant(path.resolve(fileName))) return
       checker.fileDeleted(fileName)
       void lint()
     })
@@ -200,7 +263,7 @@ if (args.watch) {
   // afterwards. Watch mode never exits non-zero on diagnostics.
   await lint()
 } else {
-  const result = await runCheck(checkOptions)
+  const result = await runCheck(checkOptions).catch(invocationError)
   // Await the final write's flush callback before exiting: stdout-to-pipe is
   // async on Linux and process.exit() does not drain it — a large diagnostic
   // dump piped to a slow reader would otherwise be truncated. Writes are
