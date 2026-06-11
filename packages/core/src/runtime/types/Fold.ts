@@ -155,16 +155,22 @@ type HandlerChannels<H> =
  * One cached pass over the props object: the union of every `on*` handler's
  * `[E, R]` pair. `FoldPropsLiveE`/`FoldPropsR` read this shared alias, so the
  * mapped type instantiates once per props shape, not once per channel. The
- * leading `[keyof P & `on${string}`]` check is the zero-handler fast path:
- * the vast majority of elements (`{}`, `{ class }`, `data-*`…) bail with one
- * intersection instead of a mapped instantiation.
+ * naked `P extends unknown` head DISTRIBUTES over union-typed props — `keyof`
+ * of a union is the key INTERSECTION, so without it a handler present in only
+ * some members (`{ onclick: H } | { class: string }`, a spread of a
+ * conditional) would silently erase. The `[keyof P & `on${string}`]` check is
+ * the zero-handler fast path: the vast majority of elements (`{}`,
+ * `{ class }`, `data-*`…) bail with one intersection instead of a mapped
+ * instantiation.
  */
-type FoldPropsChannels<P> = [keyof P & `on${string}`] extends [never] ? never
+type FoldPropsChannels<P> = P extends unknown
+  ? [keyof P & `on${string}`] extends [never] ? never
   : {
-    [K in keyof P]-?: K extends "on" ? never
+    [K in keyof P]: K extends "on" ? never
       : K extends `on${string}` ? HandlerChannels<P[K]>
       : never
   }[keyof P]
+  : never
 
 // Read one side of the [E, R] pairs through a NAKED type parameter: the
 // conditional then distributes, so a union of pairs unions the channel and —

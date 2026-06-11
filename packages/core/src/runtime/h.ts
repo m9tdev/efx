@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { coerceAsync, isAtomRef, recordDep, trackDeps } from "./coerce.ts"
+import { coerceAsync, isAtomRef, isHandlerKey, recordDep, trackDeps } from "./coerce.ts"
 import type { FoldE, FoldLiveE, FoldPropsLiveE, FoldPropsR, FoldR } from "./types/Fold.ts"
 import type { IntrinsicProps } from "./types/Html.ts"
 import { type Props, View } from "./View.ts"
@@ -90,16 +90,33 @@ const _h = (
     )
   }
   return Effect.gen(function* () {
-    // Capture the ambient context at construction: event handlers run on it
-    // (see ViewElement.context), so a mid-tree `Effect.provide` reaches them —
-    // keeping the runtime honest about the `R` that FoldPropsR claims here.
-    const context = yield* Effect.context<never>()
+    // Capture the ambient context at construction — but only when a handler
+    // prop exists to consume it (see ViewElement.context; handler dispatch is
+    // the capture's ONLY consumer). Handler-less elements — the majority —
+    // stay pure data: no extra yield, no retained Context.
     const out: View<any>[] = []
     for (const c of children) {
       out.push(yield* coerceAsync(c))
     }
-    return View.Element({ tag, props, children: out, context })
+    if (hasHandlerProp(props)) {
+      const context = yield* Effect.context<never>()
+      return View.Element({ tag, props, children: out, context })
+    }
+    return View.Element({ tag, props, children: out })
   })
+}
+
+// A prop that applyProp would treat as a handler: an `on*` key (the shared
+// `isHandlerKey` gate) holding a function — or an AtomRef (whose unwrapped
+// value applyProp re-applies live, possibly as a handler).
+const hasHandlerProp = (props: Props): boolean => {
+  for (const k in props) {
+    if (isHandlerKey(k)) {
+      const v = props[k]
+      if (typeof v === "function" || isAtomRef(v)) return true
+    }
+  }
+  return false
 }
 
 // Errors split by phase across the two channels: CONSTRUCTION errors

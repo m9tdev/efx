@@ -3,7 +3,18 @@ import { describe, expect, it } from "vitest"
 import { Cause, Context, Effect, Layer, Logger } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { h, list } from "@verrex/core"
-import { render } from "./index.ts"
+import { render, untracked } from "./index.ts"
+
+// One Step service for every context test below — each test builds its own
+// Layer with the increment it expects (the fixtures.ts factory pattern; a
+// fresh tag per test buys nothing since each render gets an isolated context).
+class Step extends Context.Service<Step, { readonly by: number }>()("test/Step") {}
+const stepLayer = (by: number) => Layer.succeed(Step, { by })
+const stepClick = (count: AtomRef.AtomRef<number>) => () =>
+  Effect.gen(function* () {
+    const step = yield* Step
+    count.set(count.value + step.by)
+  })
 
 // PR1 fix: an event handler that returns an Effect used to be added as a raw DOM
 // listener and the returned Effect was DROPPED unexecuted. Now applyProp detects
@@ -39,21 +50,11 @@ describe("event handlers — Effect-returning", () => {
   })
 
   it("runs on the captured context — handler Effect can yield* a service", async () => {
-    class Step extends Context.Service<Step, { readonly by: number }>()("test/Step") {}
-    const StepLive = Layer.succeed(Step, { by: 10 })
-
     const ServiceClicker = Effect.fn("ServiceClicker")(function* (_props: {} = {}) {
       const count = AtomRef.make(0)
       return yield* h(
         "button",
-        {
-          class: "btn",
-          onClick: () =>
-            Effect.gen(function* () {
-              const step = yield* Step
-              count.set(count.value + step.by)
-            }),
-        },
+        { class: "btn", onClick: stepClick(count) },
         "count: ",
         count,
       )
@@ -61,7 +62,7 @@ describe("event handlers — Effect-returning", () => {
 
     // If the handler ran on the default runtime (no captured context), `yield* Step`
     // would fail and the count would never move — so this asserts context capture.
-    const ui = await render(ServiceClicker(), StepLive)
+    const ui = await render(ServiceClicker(), stepLayer(10))
     expect(ui.text(".btn")).toBe("count: 0")
 
     ui.click(".btn")
@@ -94,25 +95,10 @@ describe("event handlers — Effect-returning", () => {
     // the ambient context at construction and runHandlerEffect runs on it —
     // NOT on the root context, which never saw this Layer. render() is called
     // WITHOUT the layer (the type allows it: R = never after the provide).
-    class Step extends Context.Service<Step, { readonly by: number }>()("test/MidStep") {}
-    const StepLive = Layer.succeed(Step, { by: 7 })
-
     const Provided = Effect.fn("Provided")(function* (_props: {} = {}) {
       const count = AtomRef.make(0)
-      const btn = h(
-        "button",
-        {
-          class: "btn",
-          onClick: () =>
-            Effect.gen(function* () {
-              const step = yield* Step
-              count.set(count.value + step.by)
-            }),
-        },
-        "count: ",
-        count,
-      )
-      return yield* h("div", {}, Effect.provide(btn, StepLive))
+      const btn = h("button", { class: "btn", onClick: stepClick(count) }, "count: ", count)
+      return yield* h("div", {}, Effect.provide(btn, stepLayer(7)))
     })
 
     const ui = await render(Provided())
@@ -122,13 +108,119 @@ describe("event handlers — Effect-returning", () => {
     await ui.unmount()
   })
 
-  it("list rows see the app context — a row handler's service resolves (construction too)", async () => {
-    // Rows are built post-mount via coerceSync, which now runs them on
-    // mount's captured context: a row's construction `yield* Step` resolves,
-    // and the h() inside captures a real context for its handler.
-    class Step extends Context.Service<Step, { readonly by: number }>()("test/RowStep") {}
-    const StepLive = Layer.succeed(Step, { by: 5 })
+  it("a mid-tree Effect.provide reaches LIST ROWS — construction and handler (#110 round 2)", async () => {
+    // list() captures its construction context (ViewList.context) and every
+    // row builds on it — without the capture, rows materialize at reconcile
+    // time on mount's ROOT context and this whole test type-checks but dies
+    // at runtime (the hole the round-2 review found).
+    const coll = AtomRef.collection<string>(["a"])
+    const Provided = Effect.fn("ProvidedRows")(function* (_props: {} = {}) {
+      const count = AtomRef.make(0)
+      const rows = h(
+        "ul",
+        {},
+        list(coll, (item) =>
+          Effect.gen(function* () {
+            yield* Step // construction-time read — must resolve in rows too
+            return yield* h(
+              "li",
+              {},
+              h("button", { class: "row-btn", onClick: stepClick(count) }, item),
+            )
+          })),
+        h("span", { class: "total" }, "total: ", count),
+      )
+      return yield* h("div", {}, Effect.provide(rows, stepLayer(3)))
+    })
 
+    const ui = await render(Provided())
+    expect(ui.all(".row-btn").length).toBe(1) // construction yield* Step resolved
+    ui.click(".row-btn")
+    await ui.tick()
+    expect(ui.text(".total")).toBe("total: 3")
+
+    // A row inserted AFTER mount builds on the same captured context.
+    coll.push("b")
+    await ui.tick()
+    expect(ui.all(".row-btn").length).toBe(2)
+    ui.all(".row-btn")[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    await ui.tick()
+    expect(ui.text(".total")).toBe("total: 6")
+    await ui.unmount()
+  })
+
+  it("a mid-tree Effect.provide reaches reactive REBUILDS (#110 round 2)", async () => {
+    // The Reactive node captures its construction context, so a subtree swapped
+    // in long after mount still builds (and captures for its handlers) the
+    // mid-tree-provided context — not just the first paint.
+    const count = AtomRef.make(0)
+    const makeBtn = () => h("button", { class: "btn", onClick: stepClick(count) }, "go")
+    const slot = AtomRef.make<unknown>(makeBtn())
+
+    const Provided = Effect.fn("ProvidedReactive")(function* (_props: {} = {}) {
+      return yield* h(
+        "div",
+        {},
+        Effect.provide(
+          h("section", {}, slot as AtomRef.AtomRef<Effect.Effect<unknown, never, Step>>),
+          stepLayer(4),
+        ),
+        h("span", { class: "total" }, "total: ", count),
+      )
+    })
+
+    const ui = await render(Provided())
+    // REBUILD the slot post-mount, then click the rebuilt button.
+    slot.set(makeBtn())
+    await ui.tick()
+    ui.click(".btn")
+    await ui.tick()
+    expect(ui.text(".total")).toBe("total: 4")
+    await ui.unmount()
+  })
+
+  it("a handler's acquireRelease releases when the element is removed (#110 round 2)", async () => {
+    // runHandlerEffect provides the element's DOM scope INTO the handler
+    // effect (mirroring coerceSync), so Effect.addFinalizer/acquireRelease
+    // bind to the element's lifetime — not the app's.
+    const log: string[] = []
+    const makeView = (on: boolean) =>
+      on
+        ? h(
+          "button",
+          {
+            class: "btn",
+            onClick: () =>
+              Effect.acquireRelease(
+                Effect.sync(() => log.push("acquire")),
+                () => Effect.sync(() => log.push("release")),
+              ),
+          },
+          "go",
+        )
+        : h("p", {}, "gone")
+    const slot = AtomRef.make<unknown>(makeView(true))
+
+    const App = Effect.fn("ScopedHandler")(function* (_props: {} = {}) {
+      return yield* h("div", {}, slot as AtomRef.AtomRef<Effect.Effect<unknown, never, never>>)
+    })
+
+    const ui = await render(App())
+    ui.click(".btn")
+    await ui.tick()
+    expect(log).toEqual(["acquire"])
+
+    // Swap the button away — its render scope closes, the release must fire.
+    slot.set(makeView(false))
+    await ui.tick()
+    expect(log).toEqual(["acquire", "release"])
+    await ui.unmount()
+  })
+
+  it("list rows see the app context — a row handler's service resolves (construction too)", async () => {
+    // Rows are built post-mount via coerceSync on the list's captured context
+    // (root-provided here): a row's construction `yield* Step` resolves, and
+    // the h() inside captures a real context for its handler.
     const Rows = (coll: AtomRef.Collection<string>) =>
       Effect.gen(function* () {
         const count = AtomRef.make(0)
@@ -141,18 +233,7 @@ describe("event handlers — Effect-returning", () => {
               return yield* h(
                 "li",
                 {},
-                h(
-                  "button",
-                  {
-                    class: "row-btn",
-                    onClick: () =>
-                      Effect.gen(function* () {
-                        const step = yield* Step
-                        count.set(count.value + step.by)
-                      }),
-                  },
-                  item,
-                ),
+                h("button", { class: "row-btn", onClick: stepClick(count) }, item),
               )
             })),
           h("span", { class: "total" }, "total: ", count),
@@ -160,7 +241,7 @@ describe("event handlers — Effect-returning", () => {
       })
 
     const coll = AtomRef.collection<string>(["a"])
-    const ui = await render(Rows(coll), StepLive)
+    const ui = await render(Rows(coll), stepLayer(5))
     ui.click(".row-btn")
     await ui.tick()
     expect(ui.text(".total")).toBe("total: 5")
@@ -186,17 +267,17 @@ describe("event handlers — Effect-returning", () => {
 
     const Mixed = Effect.fn("Mixed")(function* (_props: {} = {}) {
       const count = AtomRef.make(0)
-      // The cast models an UNTRACKED live failure — a handler that lies about
-      // its channels. Since #72 a typed failing handler stamps `View<E>` and
-      // can't reach `render`/`mount` at all (pinned in channels.test-d.ts);
-      // the runtime containment below must hold regardless of what the types
-      // claimed, so this test deliberately drops the `E` on the floor.
+      // The handler is typed HONESTLY (it fails with a string, so this
+      // component stamps View<string>); `untracked` below is the harness's
+      // sanctioned hatch for mounting it — since #72 a typed failing handler
+      // can't reach `render`/`mount` otherwise (pinned in channels.test-d.ts).
+      // The runtime containment must hold regardless of what the types track.
       return yield* h(
         "div",
         {},
         h(
           "button",
-          { class: "bad", onClick: () => Effect.fail("boom-marker") as unknown as Effect.Effect<void> },
+          { class: "bad", onClick: () => Effect.fail("boom-marker") },
           "fail",
         ),
         h(
@@ -208,7 +289,7 @@ describe("event handlers — Effect-returning", () => {
       )
     })
 
-    const ui = await render(Mixed(), CapturingLogger)
+    const ui = await render(untracked(Mixed()), CapturingLogger)
 
     // A failing handler must not throw out of dispatch nor break the app, and the
     // ACTUAL cause must reach the sink (not just "something logged"). The sink logs

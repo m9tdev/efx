@@ -76,19 +76,30 @@ export interface ViewReactive {
   readonly _tag: "Reactive"
   // Source can carry any value; mount() normalizes it into a View at render time.
   readonly source: Atom.Atom<unknown> | AtomRef.ReadonlyRef<unknown>
+  /**
+   * Ambient context captured at construction — every re-render of this node
+   * runs on it (`buildScopedChild` via the node-scoped `BuildCtx`), so a
+   * mid-tree `Effect.provide` reaches dynamic REBUILDS, not just the first
+   * paint. Same contract as `ViewElement.context`; absent on hand-built
+   * nodes (mount falls back to its own capture).
+   */
+  readonly context?: Context.Context<never>
 }
 export interface ViewList {
   readonly _tag: "List"
   readonly source: AtomRef.Collection<unknown>
   // Returns a View or a sync Effect of one — mount's coerceSync materializes
-  // each row on mount's context (so row channels claimed by `list`'s
-  // signature are genuinely available).
+  // each row on this node's captured context (fallback: mount's), so row
+  // channels claimed by `list`'s signature are genuinely available, including
+  // under a mid-tree Effect.provide.
   // `index` is a reactive ref: mount pushes each row's current position into it
   // on reorder/shift, so `{index.value}` in a row updates without re-rendering.
   readonly render: (
     item: AtomRef.AtomRef<unknown>,
     index: AtomRef.ReadonlyRef<number>,
   ) => unknown
+  /** Construction-captured context — rows build on it. See ViewReactive.context. */
+  readonly context?: Context.Context<never>
 }
 export interface ViewEmpty {
   readonly _tag: "Empty"

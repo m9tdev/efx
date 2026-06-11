@@ -12,9 +12,10 @@ Public surface (from `index.ts`):
   error discharged), returns `Effect<void, never, R | AtomRegistry | Scope>`
 - `list` — keyed reactive list helper (`View.List` IR node). Folds row
   channels (#72 review): a row's live `E` and `R` surface on `list`'s
-  result (`Effect<View<E>, never, Exclude<R, Scope>>` — an
-  already-resolved Effect whose shell exists to carry the channels; the
-  per-row `Scope` is the list runtime's own and stays excluded)
+  result (`Effect<View<E>, never, Exclude<R, Scope>>`; the per-row `Scope`
+  is the list runtime's own and stays excluded). The Effect shell carries
+  the channels AND captures the construction context onto the node, so
+  rows genuinely build on the provided services (`ViewList.context`)
 - `Async` / `asyncRef` / `AsyncHandle` — async render boundary + primitive returning `{ state, refetch }` (errors-as-values; see "`asyncRef` / `Async`" below)
 - `Catch` — view-level error boundary (one overloaded helper: function 2nd-arg = catch-all, object 2nd-arg = tag-selective; mirrors `Effect.catch*`; see "`Catch`" below)
 - `Fragment` — `<>...</>` compile target (a direct-call component since
@@ -70,7 +71,7 @@ the editor margin. If you rename them, update the regex.
 |---|---|
 | `h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`) |
 | `Component.ts` | `Component.make` — the canonical component constructor (traced `Effect.fn` seam + compiler-filled name slot). `Component.test.ts` pins the span-in-Cause; `Component.test-d.ts` pins the channel inference and generic preservation |
-| `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Async`) |
+| `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`; takes a `SyncRunner` — runs on the owning node's context, with an `Exit` fast path so `Effect.succeed` children don't spin a fiber). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`), `isHandlerKey` (THE handler-key gate, shared with `applyProp` + `h()`'s capture predicate, mirrored by the type fold), and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Async`) |
 | `View.ts` | `View<E>` IR. The runtime shape is `ViewNode` — a hand-written union of 7 phantom-free named interfaces (`ViewText`…`ViewBoundary`, `ViewEmpty`); constructors via `Data.taggedEnum<ViewNode>()`. `View<E = never> = ViewNode & ViewErr<E>` layers the runtime-error channel on via a covariant phantom (`ViewErr`), so `View<HttpError>` ⊄ `View<never>` (mount can require it) while a `ViewNode` ⊂ any `View<E>` (constructors need no casts). Plus `isView`, `VIEW_TAGS` |
 | `mount.ts` | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink }`), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures) |
 | `reconcile.ts` | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops |
@@ -525,21 +526,32 @@ own lifetime). On scope close, parent-fork cascade tears everything down.
 There is no `{ node, cleanup }` wrapper return type — closing the surrounding
 scope IS the cleanup.
 
-**Per-element context capture (#72 review).** `h()` captures the ambient
-Effect context at construction (`yield* Effect.context()`) into
-`ViewElement.context`, and event handlers run on THAT context (`buildDom`'s
-Element case swaps it into the `BuildCtx` passed to `applyProps`) — falling
-back to mount's capture for hand-built nodes. This is what makes a mid-tree
-`Effect.provide(subtree, SvcLive)` sound: `FoldPropsR` claims the handler's
-`R` on the construction Effect, `provide` discharges it there, and the
-handler genuinely sees the service at click time. Symmetrically,
-**`coerceSync` runs render-time Effects ON mount's context**
-(`Effect.runSyncExitWith(context)`, with the per-render `scope` provided
-inside the run so it wins over any stale Scope entry): a dynamically-built
-subtree — a reactive re-render, a list row — resolves construction-time
-services and its `h()` calls capture a real context for their handlers.
-Don't revert either side to the bare runners: the types now promise both.
-Pinned by `testing/event-handlers.test.ts` (mid-tree provide; list rows).
+**Per-NODE context capture (#72 review, rounds 1+2).** Three IR nodes capture
+the ambient Effect context at construction (`yield* Effect.context()`):
+`Element` (in `h()`, ONLY when a handler prop exists — `hasHandlerProp` over
+the shared `isHandlerKey` gate; handler-less elements stay pure data),
+`Reactive` (in `coerceAsync`'s Atom/AtomRef branches and in `Async`), and
+`List` (in `list()`, which is an Effect precisely so it can capture). Mount
+derives a node-scoped `BuildCtx` via `withContext` (reference-equal captures
+keep the parent ctx — no allocation on the static path): handlers run on the
+Element's capture, and every Reactive re-render / List row builds on its
+node's capture. That closes the whole mid-tree-provide story: `FoldPropsR` /
+`list`'s row `R` are claims on the construction Effect, `Effect.provide`
+discharges them there, and the runtime genuinely runs handlers, rebuilds,
+and rows on the provided context — first paint AND every later build.
+`BuildCtx` also carries `runSyncExit` (a partially-applied
+`Effect.runSyncExitWith(context)`, built once per context — the curried
+runner allocates per application) and `runHandlerEffect` provides the
+element's DOM `scope` INTO the handler effect (mirroring `coerceSync`'s
+scope provision), so a handler's `acquireRelease`/`addFinalizer` releases
+when the element is removed, not at app teardown. Don't revert any of these
+to the bare runners or to mount's root context: the types now promise all of
+it. Pinned by `testing/event-handlers.test.ts` (mid-tree provide → static
+element, list rows incl. post-mount inserts, reactive rebuilds; handler
+acquireRelease released on element removal). Known limit: a View built
+OUTSIDE mount (`Effect.runSync(h(...))` at module level) carries its own —
+possibly poorer — capture, and ambient reads (`Effect.serviceOption`,
+default-bearing References) resolve against it, not mount's.
 
 **Runtime error routing — the sink.** A post-mount failure has no Effect `E`
 channel to land on (the component's build Effect already succeeded), so it is

@@ -44,12 +44,12 @@ export type { EventHandler, HtmlEventHandlers, IntrinsicProps } from "./types/Ht
  * Row channels fold through (#72 review): a row's live `E` (a typed failing
  * handler, an open `Async`) rides `View<E>` out of the list, and a row's `R`
  * (a service-using handler, a construction `yield*`) surfaces on the result —
- * rows are built with mount's context (`coerceSync` runs them on it), so the
- * Layer demanded here is genuinely the one the row sees. The per-row `Scope`
- * is supplied by the list runtime and excluded from the folded `R`, so a
- * parent rendering the list stays Scope-free. The result is an
- * already-resolved Effect (`Effect.succeed` underneath) — the Effect shell
- * exists to carry `E`/`R` through the child fold.
+ * the node captures the construction context (`ViewList.context`) and every
+ * row builds on it, so the Layer demanded here is genuinely the one the rows
+ * see, including under a mid-tree `Effect.provide`. The per-row `Scope` is
+ * supplied by the list runtime and excluded from the folded `R`, so a parent
+ * rendering the list stays Scope-free. The Effect shell carries `E`/`R`
+ * through the child fold (and performs the capture).
  */
 export const list = <T, E = never, R = never>(
   from: AtomRef.Collection<T>,
@@ -58,15 +58,15 @@ export const list = <T, E = never, R = never>(
     index: AtomRef.ReadonlyRef<number>,
   ) => View<E> | Effect.Effect<View<E>, never, R>,
 ): Effect.Effect<View<E>, never, Exclude<R, Scope.Scope>> =>
-  Effect.succeed(
+  Effect.map(Effect.context<never>(), (context) =>
     View.List({
+      context,
       source: from as AtomRef.Collection<unknown>,
       render: render as (
         item: AtomRef.AtomRef<unknown>,
         index: AtomRef.ReadonlyRef<number>,
       ) => unknown,
-    }),
-  )
+    }))
 
 /**
  * What `asyncRef` returns: the reactive result plus a manual `refetch`.
@@ -404,9 +404,13 @@ export function Async<A, E, R = never>(
   if (typeof from !== "function" && !isAtomRef(from.state)) {
     throw new TypeError("Async: `from` is neither a thunk nor an AsyncHandle (`state` is not an AtomRef)")
   }
-  return (typeof from === "function" ? asyncRef(from) : Effect.succeed(from)).pipe(
+  // Capture the construction context onto the Reactive node so every arm
+  // render (incl. post-refetch re-renders) runs on it — see ViewReactive.context.
+  return Effect.flatMap(Effect.context<never>(), (context) =>
+    (typeof from === "function" ? asyncRef(from) : Effect.succeed(from)).pipe(
     Effect.map(({ refetch, state }) =>
       View.Reactive({
+        context,
         source: state.map((r) =>
           AsyncResult.match(r, {
             onInitial: () => arms.initial ?? null,
@@ -439,7 +443,7 @@ export function Async<A, E, R = never>(
         ) as AtomRef.ReadonlyRef<unknown>,
       }),
     ),
-  )
+  ))
 }
 
 // ─── Error boundary (Catch) ────────────────

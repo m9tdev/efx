@@ -75,6 +75,19 @@ export const render = <E, R>(
   return renderImpl(app as Effect.Effect<View, unknown, never>, layer)
 }
 
+/**
+ * Type-erase an app's LIVE error channel so a sink-containment test can mount
+ * it. This is the one sanctioned lie in the harness: `mount`'s `View<never>`
+ * gate makes an undischarged live error a compile error (the thesis), but
+ * tests of the runtime sink — "a failing handler is contained, the app keeps
+ * working" — need exactly such an app. Route every such test through this
+ * named, greppable hatch instead of ad-hoc `as unknown as` casts on handler
+ * effects; anything else using it is a smell.
+ */
+export const untracked = <V extends View<any>, E, R>(
+  app: Effect.Effect<V, E, R>,
+): Effect.Effect<View, E, R> => app as unknown as Effect.Effect<View, E, R>
+
 const renderImpl = async (
   app: Effect.Effect<View, unknown, never>,
   layer: Layer.Layer<never>,

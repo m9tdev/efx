@@ -1,10 +1,21 @@
-import { Cause, Chunk, type Context, Effect, Exit, Option, Result, Scope } from "effect"
+import { Cause, Chunk, Effect, Exit, Option, Result, Scope } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { ChildE, ChildR } from "./types/Fold.ts"
 import { isView, View } from "./View.ts"
 
 export const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
   typeof u === "object" && u !== null && AtomRef.TypeId in u
+
+/**
+ * THE handler-key gate, shared by every consumer so they can't drift:
+ * `applyProp` (attach listener + run returned Effects), `h()`'s
+ * capture-context predicate, and — mirrored at the type level —
+ * `FoldPropsChannels` in types/Fold.ts (`on${string}` minus the bare `"on"`,
+ * which this `length > 2` excludes). If you change this, change the fold's
+ * key conditional in the same commit; `types/Fold.test-d.ts` pins the type
+ * side of the matrix and `coerce.test.ts` pins this side.
+ */
+export const isHandlerKey = (key: string): boolean => key.length > 2 && key.startsWith("on")
 
 /**
  * Where a runtime (post-mount) failure is routed instead of being swallowed.
@@ -71,11 +82,16 @@ export function coerceAsync(v: unknown): Effect.Effect<View, any, any> {
   }
   if (Chunk.isChunk(v)) return coerceChildren(Chunk.toReadonlyArray(v))
   if (Array.isArray(v)) return coerceChildren(v)
+  // Reactive nodes capture the construction context so their re-renders run
+  // on it — a mid-tree Effect.provide reaches every rebuild, not just the
+  // first paint (see ViewReactive.context).
   if (Atom.isAtom(v)) {
-    return Effect.succeed(View.Reactive({ source: v as Atom.Atom<View> }))
+    return Effect.map(Effect.context<never>(), (context) =>
+      View.Reactive({ source: v as Atom.Atom<View>, context }))
   }
   if (isAtomRef(v)) {
-    return Effect.succeed(View.Reactive({ source: v as AtomRef.ReadonlyRef<View> }))
+    return Effect.map(Effect.context<never>(), (context) =>
+      View.Reactive({ source: v as AtomRef.ReadonlyRef<View>, context }))
   }
   return Effect.succeed(View.Text({ value: String(v) }))
 }
@@ -92,17 +108,23 @@ function coerceChildren(cs: ReadonlyArray<unknown>): Effect.Effect<View, any, an
 }
 
 /**
+ * Runs a ready Effect to an Exit on a fixed context — a partially-applied
+ * `Effect.runSyncExitWith(context)`, built ONCE where the context is chosen
+ * (mount root / a context-carrying IR node) and reused for every render,
+ * instead of re-applying the curried runner per coercion.
+ */
+export type SyncRunner = <A, E>(effect: Effect.Effect<A, E, never>) => Exit.Exit<A, E>
+
+/**
  * Synchronously coerce an arbitrary value (typically read from a reactive
  * source at render time) into a View. `scope` is provided to any Effect-shaped
  * value via `Effect.provideService`, so `Effect.acquireRelease` /
- * `Effect.addFinalizer` inside the effect register releases against it.
- * `context` is the app context the effect runs ON (`Effect.runSyncExitWith`) —
- * mount's captured context, threaded down so a dynamically-built subtree (a
- * reactive re-render, a list row) sees the same services its construction-time
- * counterpart would: a row's `yield* Http` resolves, and the `h()` calls
- * inside capture a real context for their event handlers. The `scope`
- * provision is applied INSIDE the run, so the per-render scope wins over any
- * stale `Scope` entry the context may carry.
+ * `Effect.addFinalizer` inside the effect register releases against it — INSIDE
+ * the run, so the per-render scope wins over any stale `Scope` entry the
+ * runner's context may carry. `run` executes the effect on the right ambient
+ * context (see `SyncRunner` and ViewReactive/ViewList `.context`), which is
+ * what lets a dynamically-built subtree resolve construction services and
+ * capture real contexts for its handlers.
  *
  * **Asymmetric vs. coerceAsync**: this path does NOT peel
  * Option/Result/Chunk/Atom/AtomRef. At render-time those containers have
@@ -118,7 +140,7 @@ export const coerceSync = (
   v: unknown,
   scope: Scope.Scope,
   sink: ErrorSink,
-  context: Context.Context<never>,
+  run: SyncRunner,
 ): View => {
   if (v == null || v === false || v === true) return Empty
   if (typeof v === "string") return View.Text({ value: v })
@@ -127,14 +149,27 @@ export const coerceSync = (
   }
   if (isView(v)) return v
   if (Effect.isEffect(v)) {
+    // An already-resolved Effect (an Exit — e.g. Effect.succeed) needs no
+    // scope, no context, and no fiber: unwrap it directly. Wrapping it in
+    // provideService first would defeat effect's own Exit fast path and spin
+    // a full fiber per re-render just to read a constant.
+    if (Exit.isExit(v)) {
+      return Exit.match(v as Exit.Exit<unknown, unknown>, {
+        onSuccess: (val) => coerceSync(val, scope, sink, run),
+        onFailure: (cause) => {
+          if (!Cause.hasInterruptsOnly(cause)) sink(cause)
+          return Empty
+        },
+      })
+    }
     const provided = Effect.provideService(
       v as Effect.Effect<unknown, unknown, Scope.Scope>,
       Scope.Scope,
       scope,
     )
-    const exit = Effect.runSyncExitWith(context)(provided)
+    const exit = run(provided)
     return Exit.match(exit, {
-      onSuccess: (val) => coerceSync(val, scope, sink, context),
+      onSuccess: (val) => coerceSync(val, scope, sink, run),
       onFailure: (cause) => {
         if (!Cause.hasInterruptsOnly(cause)) sink(cause)
         return Empty
@@ -142,7 +177,7 @@ export const coerceSync = (
     })
   }
   if (Array.isArray(v)) {
-    return View.Fragment({ children: v.map((x) => coerceSync(x, scope, sink, context)) })
+    return View.Fragment({ children: v.map((x) => coerceSync(x, scope, sink, run)) })
   }
   return View.Text({ value: String(v) })
 }

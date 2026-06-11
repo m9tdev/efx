@@ -160,6 +160,23 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
     expect(out).not.toContain(`h.track`)
   })
 
+  it("cast-wrapped function attrs are still recognized (as / satisfies / non-null)", () => {
+    // `(arrow) as EventHandler<…>` evaluates to the function unchanged — the
+    // wrap would be just as dead, and would erase exactly the annotation the
+    // docs recommend for extracted handlers.
+    const asOut = compile(`
+      const x = <button onclick={((e) => count.set(count.value + 1)) as EventHandler<MouseEvent>}>+</button>
+    `)
+    expect(asOut).toContain(`h.read(count)`)
+    expect(asOut).not.toContain(`h.track`)
+
+    const satisfiesOut = compile(`
+      const y = <button onclick={((e) => count.set(count.value + 1)) satisfies EventHandler<MouseEvent>}>+</button>
+    `)
+    expect(satisfiesOut).toContain(`h.read(count)`)
+    expect(satisfiesOut).not.toContain(`h.track`)
+  })
+
   it("a `.value` read OUTSIDE the function value still wraps (untyped-JS reactive path)", () => {
     // `cond.value ? a : b` reads during tracking, so the wrap is emitted and
     // applyProp's AtomRef branch re-binds the listener when `cond` flips —

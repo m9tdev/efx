@@ -128,6 +128,27 @@ interface RewriteState {
  * `h.track`-wrapped and lose its channels (a loud type error at the call site).
  * Import these unaliased.
  */
+/**
+ * Strip expression wrappers that change only the TYPE (or grouping) of their
+ * operand, never its runtime value: `x as T`, `x satisfies T`, `x!`, `<T>x`,
+ * `(x)`. Used by `wrapTracked`'s function-skip so a cast-wrapped handler
+ * (`onclick={(e => …) as EventHandler<…>}`) is recognized as the function it
+ * is at runtime.
+ */
+const peelTypeWrappers = (expr: t.Expression): t.Expression => {
+  let cur = expr
+  while (
+    t.isTSAsExpression(cur) ||
+    t.isTSSatisfiesExpression(cur) ||
+    t.isTSNonNullExpression(cur) ||
+    t.isTSTypeAssertion(cur) ||
+    t.isParenthesizedExpression(cur)
+  ) {
+    cur = cur.expression
+  }
+  return cur
+}
+
 const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set(["Async", "Catch"])
 const isSelfTrackingCall = (expr: t.Expression): boolean =>
   t.isCallExpression(expr) &&
@@ -164,7 +185,11 @@ const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
   if (isSelfTrackingCall(rewritten)) return rewritten
   // A top-level function value can't read deps while being tracked — skip the
   // dead wrap so the function's type (an event handler's channels) survives.
-  if (t.isArrowFunctionExpression(rewritten) || t.isFunctionExpression(rewritten)) return rewritten
+  // Peel type-level wrappers first: `(arrow) as EventHandler<…>`, `satisfies`,
+  // `!`, parens — they evaluate to the function unchanged, so the wrap is just
+  // as dead, and wrapping would erase exactly the annotation the docs
+  // recommend (`as EventHandler<Ev, E, R>`).
+  if (t.isFunction(peelTypeWrappers(rewritten))) return rewritten
   return t.callExpression(
     t.memberExpression(t.identifier("h"), t.identifier("track")),
     [t.arrowFunctionExpression([], rewritten)],

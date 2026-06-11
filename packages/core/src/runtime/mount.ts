@@ -1,6 +1,6 @@
 import { Cause, Context, Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { coerceSync, type ErrorSink, isAtomRef } from "./coerce.ts"
+import { coerceSync, type ErrorSink, isAtomRef, isHandlerKey, type SyncRunner } from "./coerce.ts"
 import { plan } from "./reconcile.ts"
 import { type BoundaryState, type Props, View, type ViewNode } from "./View.ts"
 
@@ -13,24 +13,45 @@ interface BuildCtx {
   readonly registry: AtomRegistry.AtomRegistry
   readonly context: Context.Context<never>
   readonly sink: ErrorSink
+  // `Effect.runSyncExitWith(context)`, partially applied ONCE per context —
+  // the curried runner allocates per application, so rebuilding it per render
+  // would waste the hot path. Always derived from `context`; swap them together.
+  readonly runSyncExit: SyncRunner
 }
 
-// Fire-and-forget an event-handler Effect on the mount's captured context, so it
-// sees the app's services. Failures route to the sink; pure-interrupt causes
-// (teardown) are dropped. Forked INTO the element's `scope` (via `Effect.forkIn`)
-// so a long-lived handler (a poll, a subscription, a slow service) is interrupted
-// when the element is removed — upholding the "Scope owns cleanup" invariant — and
-// a torn-down handler can't report a stale failure back to a reset boundary.
+// Derive a node-scoped BuildCtx for an IR node that captured its construction
+// context (Element handlers, Reactive re-renders, List rows). Reference-equal
+// captures (same fiber, no mid-tree provide) keep the parent ctx — no
+// allocation on the common path.
+const withContext = (ctx: BuildCtx, context: Context.Context<never> | undefined): BuildCtx =>
+  context === undefined || context === ctx.context
+    ? ctx
+    : { ...ctx, context, runSyncExit: Effect.runSyncExitWith(context) }
+
+// The per-dispatch runner a listener uses for handler Effects: built once at
+// listener-attach time (see applyProp) over the element's captured context.
+type ForkRunner = (effect: Effect.Effect<unknown, never, never>) => unknown
+
+// Fire-and-forget an event-handler Effect. Runs on the element's captured
+// context (so it sees the services ambient at construction — incl. a mid-tree
+// Effect.provide), with the element's DOM `scope` provided INSIDE the effect:
+// a handler's `Effect.addFinalizer`/`acquireRelease` releases when the element
+// is removed, not at app teardown (mirrors coerceSync's scope provision).
+// Failures route to the sink; pure-interrupt causes (teardown) are dropped.
+// Forked INTO the element's `scope` (via `Effect.forkIn`) so a long-lived
+// handler is interrupted when the element is removed — and a torn-down handler
+// can't report a stale failure back to a reset boundary.
 const runHandlerEffect = (
   effect: Effect.Effect<unknown, unknown, never>,
-  ctx: BuildCtx,
+  runFork: ForkRunner,
+  sink: ErrorSink,
   scope: Scope.Scope,
 ): void => {
-  Effect.runForkWith(ctx.context)(
+  runFork(
     Effect.forkIn(
-      Effect.matchCause(effect, {
+      Effect.matchCause(Effect.provideService(effect, Scope.Scope, scope), {
         onFailure: (cause) => {
-          if (!Cause.hasInterruptsOnly(cause)) ctx.sink(cause)
+          if (!Cause.hasInterruptsOnly(cause)) sink(cause)
         },
         onSuccess: () => {},
       }),
@@ -89,18 +110,23 @@ const applyProp = (
   }
 
   if (value == null || value === false) return
-  // Event handler: onClick, onInput, etc. The handler may return an Effect —
-  // run it (on the captured context, so it gets the app's services) and route
-  // its failure to the sink. A handler that returns anything else (a plain
-  // imperative `ref.set(...)`) just runs as before; non-Effect results are
-  // ignored. Today a returned Effect was dropped unexecuted — this is the fix.
-  if (key.startsWith("on") && key.length > 2 && typeof value === "function") {
+  // Event handler: onClick, onInput, etc. (`isHandlerKey` — the gate shared
+  // with h()'s capture predicate and mirrored by the type fold). The handler
+  // may return an Effect — run it (on the element's captured context, so it
+  // gets the services ambient at construction) and route its failure to the
+  // sink. A handler that returns anything else (a plain imperative
+  // `ref.set(...)`) just runs as before; non-Effect results are ignored.
+  if (isHandlerKey(key) && typeof value === "function") {
     const event = key.slice(2).toLowerCase()
     const userHandler = value as (event: Event) => unknown
+    // Partially applied once per listener — the context is fixed for the
+    // listener's lifetime; re-applying the curried runner per dispatch would
+    // allocate on every event (mousemove, input…).
+    const runFork: ForkRunner = Effect.runForkWith(ctx.context)
     const listener: EventListener = (e) => {
       const result = userHandler(e)
       if (Effect.isEffect(result)) {
-        runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, ctx, scope)
+        runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, runFork, ctx.sink, scope)
       }
     }
     el.addEventListener(event, listener)
@@ -149,7 +175,7 @@ const buildScopedChild = (
   ctx: BuildCtx,
 ): { readonly node: Node; readonly scope: Scope.Closeable } => {
   const scope = Scope.forkUnsafe(parent, "sequential")
-  const node = buildDom(coerceSync(value, scope, ctx.sink, ctx.context), ctx, scope)
+  const node = buildDom(coerceSync(value, scope, ctx.sink, ctx.runSyncExit), ctx, scope)
   return { node, scope }
 }
 
@@ -168,12 +194,12 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 
     case "Element": {
       const el = document.createElement(view.tag)
-      // Handlers run on the context captured when h() built this element, so
-      // a mid-tree Effect.provide is honored at click time (the runtime side
-      // of FoldPropsR). Children keep the ambient ctx — each element carries
+      // Handlers run on the context captured when h() built this element
+      // (h captures only when a handler prop exists), so a mid-tree
+      // Effect.provide is honored at click time (the runtime side of
+      // FoldPropsR). Children keep the ambient ctx — each element carries
       // its own capture. Hand-built nodes (no capture) fall back to mount's.
-      const propsCtx = view.context !== undefined ? { ...ctx, context: view.context } : ctx
-      applyProps(el, view.props, propsCtx, scope)
+      applyProps(el, view.props, withContext(ctx, view.context), scope)
       for (const child of view.children) {
         el.appendChild(buildDom(child, ctx, scope))
       }
@@ -198,13 +224,17 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       // On parent close, the fork-cascade closes whatever is current — no
       // explicit teardown needed here.
       let renderChildScope: Scope.Closeable | null = null
+      // Every emission builds on this node's construction-captured context
+      // (mid-tree provides reach REBUILDS, not just first paint). Once per
+      // node, reused per emission.
+      const nodeCtx = withContext(ctx, view.context)
 
       const render = (next: unknown): void => {
         // Build NEW subtree first (subscribing any refs it needs), THEN tear
         // down the OLD subtree. The reverse order would unsubscribe many
         // listeners and resubscribe many — the documented "diff, not
         // unsub-all-then-resub" hazard (see h.ts AGENTS.md) extends here.
-        const { node, scope: newScope } = buildScopedChild(next, scope, ctx)
+        const { node, scope: newScope } = buildScopedChild(next, scope, nodeCtx)
         if (currentNode.parentNode) {
           currentNode.parentNode.replaceChild(node, currentNode)
         }
@@ -242,6 +272,9 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
         readonly indexRef: AtomRef.AtomRef<number>
       }
       const rendered = new Map<AtomRef.AtomRef<unknown>, Row>()
+      // Rows build on the list's construction-captured context — the runtime
+      // side of list()'s folded row R (see ViewList.context).
+      const nodeCtx = withContext(ctx, view.context)
       // Snapshot the array (not just the reference!) — CollectionImpl mutates
       // its internal array in place on push/remove, so comparing references
       // would never detect structural changes. This is the planner's `prev`.
@@ -276,7 +309,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
               const { node, scope: rowScope } = buildScopedChild(
                 view.render(op.key, indexRef),
                 scope,
-                ctx,
+                nodeCtx,
               )
               rendered.set(op.key, { node, rowScope, indexRef })
               wrapper.insertBefore(node, nodeBefore(op.before))
@@ -384,7 +417,7 @@ export const mount = <R>(
     const sink: ErrorSink = (cause) => {
       Effect.runForkWith(context)(Effect.logError(cause))
     }
-    const ctx: BuildCtx = { registry, context, sink }
+    const ctx: BuildCtx = { registry, context, sink, runSyncExit: Effect.runSyncExitWith(context) }
     const view = yield* app
     const scope = yield* Effect.scope
     const node = buildDom(view, ctx, scope)

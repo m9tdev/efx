@@ -165,7 +165,24 @@ assertEquals<FoldPropsR<{ onclick: any }>, never>()
 assertEquals<FoldPropsLiveE<{ on: () => Effect.Effect<void, HttpError> }>, never>()
 assertEquals<FoldPropsR<{ on: () => Effect.Effect<void, never, HttpService> }>, never>()
 
-// 23) An AtomRef-valued handler folds THROUGH the ref to the inner function —
+// 23) UNION-typed props fold each member independently (a spread of a
+//     conditional: `{...(cond ? withHandler : plain)}`). `keyof` of a union is
+//     the key INTERSECTION, so without the distributive head a handler present
+//     in only some members would silently erase.
+type UnionProps =
+  | { onclick: (e: MouseEvent) => Effect.Effect<void, HttpError, HttpService> }
+  | { class: string }
+assertEquals<FoldPropsLiveE<UnionProps>, HttpError>()
+assertEquals<FoldPropsR<UnionProps>, HttpService>()
+
+// 24) Key-gate parity matrix with the runtime's `isHandlerKey` (length > 2 &&
+//     startsWith("on")) — `coerce.test.ts` pins the same table on the runtime
+//     side. Minimum handler key is THREE chars ("onx"); "on" is inert.
+assertEquals<FoldPropsLiveE<{ onx: () => Effect.Effect<void, HttpError> }>, HttpError>()
+assertEquals<FoldPropsLiveE<{ on: () => Effect.Effect<void, HttpError> }>, never>()
+assertEquals<FoldPropsLiveE<{ click: () => Effect.Effect<void, HttpError> }>, never>()
+
+// 25) An AtomRef-valued handler folds THROUGH the ref to the inner function —
 //     applyProp's AtomRef branch unwraps and re-applies it as a live listener,
 //     so the wrapper must not hide the channels (custom `on*` keys admit refs
 //     via the index signature).

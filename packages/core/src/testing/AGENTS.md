@@ -6,7 +6,12 @@ the type-level proof (`apps/demo/src/channels.test-d.ts`) and the
 browser probes (`scripts/probe-*.mjs`): a deterministic, fast middle
 layer for "does this component actually render and react?"
 
-Public surface: `render(app, layer?)` returning a `RenderResult`.
+Public surface: `render(app, layer?)` returning a `RenderResult`, plus
+`untracked(app)` — the ONE sanctioned type-erasure hatch for mounting an app
+with an undischarged LIVE error (`View<E≠never>`), needed by sink-containment
+tests ("a failing handler is contained, the app keeps working"). Route every
+such test through it; an ad-hoc `as unknown as` cast on a handler effect or
+app is a smell — the hatch exists to be greppable.
 
 ## What it does
 
