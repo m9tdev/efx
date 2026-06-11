@@ -20,14 +20,31 @@ export interface TypeScriptConfig {
   resolveHiddenExtensions?: boolean
 }
 
+export interface VerrexLanguagePluginOptions {
+  /**
+   * What to do when the compiler throws on unparseable source. Babel's
+   * `errorRecovery` absorbs most mid-edit states, but some token sequences
+   * are unrecoverable and throw — and an editor host recompiles on every
+   * keystroke, so a throw here fails the whole tsserver request the user
+   * just made (surfaced as `-32603 ... SyntaxError` noise in the editor).
+   *
+   * - `"recover"` (default — editor hosts): degrade to the file's last good
+   *   compile, so cross-file types stay stable and in-file features go
+   *   slightly stale until the source parses again; an empty module if the
+   *   file has never compiled.
+   * - `"throw"` (batch hosts: verrex-check): propagate, keeping failures
+   *   loud — a checker must never silently report against stale output.
+   */
+  readonly onTransformError?: "recover" | "throw"
+}
+
 /**
  * Build a Volar LanguagePlugin describing `.vx` files for a given Volar host.
  *
  * The factory takes `asFileName` because different Volar hosts identify scripts
  * differently: tsserver passes string paths, `@volar/kit` (used by verrex-check)
  * passes `URI` instances. Internally we always pass to the compiler by
- * file-path string, so the host-specific identity collapses here. This is the
- * plugin's only axis of variation.
+ * file-path string, so the host-specific identity collapses here.
  *
  * The `VerrexVirtualCode` instance returned from `createVirtualCode` is the one
  * Volar owns and indexes (`language.scripts.get(id).generated.root`). Downstream
@@ -38,7 +55,16 @@ export interface TypeScriptConfig {
  */
 export function createVerrexLanguagePlugin<T>(
   asFileName: (scriptId: T) => string,
+  options: VerrexLanguagePluginOptions = {},
 ): LanguagePlugin<T, VerrexVirtualCode> & { typescript: TypeScriptConfig } {
+  const onTransformError = options.onTransformError ?? "recover"
+  // Last successful compile per file, the "recover" fallback. Bounded by the
+  // project's .vx file count; entries are the size of the compiled output.
+  const lastGood = new Map<
+    string,
+    Pick<VerrexVirtualCode, "compiled" | "mappings" | "jsxRanges">
+  >()
+
   return {
     getLanguageId(scriptId) {
       if (asFileName(scriptId).endsWith(".vx")) {
@@ -54,9 +80,24 @@ export function createVerrexLanguagePlugin<T>(
 
       const fileName = asFileName(scriptId)
       const source = snapshot.getText(0, snapshot.getLength())
-      const result = transformVerrex(source, fileName)
-      const mappings = convertSourceMap(result.mappings)
-      return new VerrexVirtualCode(source, result.code, mappings, result.jsxRanges)
+      try {
+        const result = transformVerrex(source, fileName)
+        const mappings = convertSourceMap(result.mappings)
+        lastGood.set(fileName, { compiled: result.code, mappings, jsxRanges: result.jsxRanges })
+        return new VerrexVirtualCode(source, result.code, mappings, result.jsxRanges)
+      } catch (error) {
+        if (onTransformError === "throw") throw error
+        const cached = lastGood.get(fileName)
+        if (cached) {
+          // The cached mappings refer to the previous source text; mid-edit
+          // they're off by at most the edit delta, and Volar drops lookups
+          // that fall outside a mapped span — degraded, never corrupt.
+          return new VerrexVirtualCode(source, cached.compiled, [...cached.mappings], cached.jsxRanges)
+        }
+        // Never compiled successfully (file created mid-edit): an empty
+        // module keeps the script in the project with no false claims.
+        return new VerrexVirtualCode(source, "export {}\n", [], [])
+      }
     },
 
     typescript: {

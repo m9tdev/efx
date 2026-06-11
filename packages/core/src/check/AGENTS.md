@@ -160,8 +160,12 @@ LSP protocol.
 
 - **`@verrex/core/language`** — provides `createVerrexLanguagePlugin`. The CLI
   instantiates the plugin with `<URI>(uri => uri.fsPath)` because kit
-  uses `URI` as its script-id type. No registry is threaded: the kit
-  checker owns the virtual-code lifetime per `runCheck` call.
+  uses `URI` as its script-id type, and passes
+  `onTransformError: "throw"` — a checker must fail loudly on
+  unparseable source, never report against the editor-oriented
+  last-good fallback (the watch loop catches per-pass). No registry is
+  threaded: the kit checker owns the virtual-code lifetime per
+  `runCheck` call.
 - **`@volar/kit`** — `createTypeScriptChecker`,
   `createTypeScriptInferredChecker` (not currently used; would be
   needed for "no tsconfig" mode).

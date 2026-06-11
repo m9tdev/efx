@@ -571,15 +571,18 @@ export const transformVerrex = (
 ): TransformResult => {
   const ast = parse(source, {
     ...PARSER_OPTIONS,
-    // The editor/language-service path (default) needs error recovery: it
+    // The editor/language-service path (default) wants error recovery: it
     // calls this on every keystroke over routinely-unparseable mid-edit
-    // source (`count.` with no property yet). Without recovery Babel throws →
-    // createVirtualCode propagates → Volar has no virtual code → tsserver
-    // returns the global scope for completions. With recovery Babel emits a
-    // partial AST and attaches errors to `ast.errors` (which we don't read —
-    // tsc surfaces the real errors). The build path passes `false` so a
-    // genuine syntax error throws loudly here instead of silently emitting a
-    // recovered/garbage module that the bundler would then ship.
+    // source. With recovery Babel emits a partial AST for RECOVERABLE errors
+    // and attaches them to `ast.errors` (which we don't read — tsc surfaces
+    // the real errors). But recovery is not a no-throw guarantee: Babel still
+    // hard-throws on fatal states, including the most common mid-edit ones
+    // (`count.` at EOF, an unterminated tag → "Unexpected token"). Callers
+    // that must survive those wrap this call — the language plugin degrades
+    // to the file's last good compile (`onTransformError: "recover"`). The
+    // build path passes `false` so a genuine syntax error throws loudly here
+    // instead of silently emitting a recovered/garbage module that the
+    // bundler would then ship.
     errorRecovery: options.errorRecovery ?? true,
     sourceFilename: filename,
   })
