@@ -177,9 +177,9 @@ assertEquals<FoldPropsR<UnionProps>, HttpService>()
 
 // 24) Key-gate parity matrix with the runtime's `isHandlerKey` (length > 2 &&
 //     startsWith("on")) — `coerce.test.ts` pins the same table on the runtime
-//     side. Minimum handler key is THREE chars ("onx"); "on" is inert.
+//     side. Minimum handler key is THREE chars ("onx"); the bare-"on"
+//     exclusion is case 22's pin.
 assertEquals<FoldPropsLiveE<{ onx: () => Effect.Effect<void, HttpError> }>, HttpError>()
-assertEquals<FoldPropsLiveE<{ on: () => Effect.Effect<void, HttpError> }>, never>()
 assertEquals<FoldPropsLiveE<{ click: () => Effect.Effect<void, HttpError> }>, never>()
 
 // 25) An AtomRef-valued handler folds THROUGH the ref to the inner function —

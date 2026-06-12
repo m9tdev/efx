@@ -105,9 +105,9 @@ function coerceChildren(cs: ReadonlyArray<unknown>): Effect.Effect<View, any, an
 
 /**
  * Runs a ready Effect to an Exit on a fixed context — a partially-applied
- * `Effect.runSyncExitWith(context)`, built ONCE where the context is chosen
- * (mount root / a context-carrying IR node) and reused for every render,
- * instead of re-applying the curried runner per coercion.
+ * `Effect.runSyncExitWith(context)`, built once per BuildCtx (mount root /
+ * a `withContext` derivation for a context-carrying IR node) and reused for
+ * every render, instead of re-applying the curried runner per coercion.
  */
 export type SyncRunner = <A, E>(effect: Effect.Effect<A, E, never>) => Exit.Exit<A, E>
 

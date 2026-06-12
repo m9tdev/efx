@@ -22,25 +22,19 @@ interface BuildCtx {
 // Derive a node-scoped BuildCtx for an IR node that captured its construction
 // context (Element handlers, Reactive re-renders, List rows, Boundary
 // fallbacks). Reference-equal captures (same fiber, no mid-tree provide) keep
-// the parent ctx — no allocation on that path. The runner is a LAZY memoized
-// getter: the Element path consumes only `context`/`sink` (handlers), so it
-// must not pay for a runner it never calls; the Reactive/List/Boundary paths
-// force it on their first coerceSync and reuse it after.
-const withContext = (ctx: BuildCtx, context: Context.Context<never> | undefined): BuildCtx => {
-  if (context === undefined || context === ctx.context) return ctx
-  let run: SyncRunner | undefined
-  return {
-    registry: ctx.registry,
-    sink: ctx.sink,
-    context,
-    get runSyncExit() {
-      return (run ??= Effect.runSyncExitWith(context))
-    },
-  }
-}
+// the parent ctx — no allocation on that path. The runner is built eagerly:
+// every non-Element consumer forces it on its first render anyway, and the
+// two closures it costs are about what a lazy getter's machinery would —
+// while a getter makes BuildCtx spread-hostile (`{ ...ctx }` would force and
+// snapshot it; the Boundary case spreads).
+const withContext = (ctx: BuildCtx, context: Context.Context<never> | undefined): BuildCtx =>
+  context === undefined || context === ctx.context
+    ? ctx
+    : { registry: ctx.registry, sink: ctx.sink, context, runSyncExit: Effect.runSyncExitWith(context) }
 
-// The per-dispatch runner a listener uses for handler Effects: built once at
-// listener-attach time (see applyProp) over the element's captured context.
+// The per-dispatch runner a listener uses for handler Effects: built on the
+// FIRST Effect-returning dispatch and reused for the listener's lifetime
+// (see applyProp) over the element's captured context.
 type ForkRunner = (effect: Effect.Effect<unknown, never, never>) => unknown
 
 // Fire-and-forget an event-handler Effect. Runs on the element's captured

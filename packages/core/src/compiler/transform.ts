@@ -110,24 +110,20 @@ interface RewriteState {
   wroteList: boolean
   usedH: boolean
   usedFragment: boolean
+  /**
+   * Helper names from SELF_TRACKING_HELPERS that this FILE shadows with its
+   * own binding (a local `const list = …`, an import from elsewhere, a
+   * function param). A shadowed name is NOT skip-listed: the call is the
+   * user's function, not ours, and skipping it would silently kill its
+   * reactivity (`{list(tags.value)}` evaluating once, forever stale). A
+   * binding imported FROM `@verrex/core` is the real helper and keeps the
+   * skip. File-level over-approximation: any shadowing anywhere in the file
+   * disables the skip for the whole file — erring toward the wrap, whose
+   * failure mode (erased channels) is at least consistent and documented.
+   */
+  disabledHelpers: ReadonlySet<string>
 }
 
-/**
- * True when `expr` is a top-level call to a self-tracking boundary helper —
- * `Async(...)` or `Catch(...)`. Both return an `Effect<View, never, R | …>`
- * that must reach the `h()` fold intact, and both manage their own reactivity
- * (`Async` tracks its `from` thunk; `Catch` drives its state from a forked
- * loop). Wrapping either in `h.track` is redundant *and* harmful: `h.track` is
- * typed `(thunk) => unknown`, which erases the channels and drops them from the
- * fold. Same reason `.value.map(...)` → `list(...)` is left unwrapped. The inner
- * `.value` reads are still rewritten to `h.read` (e.g. a `.value` read in a
- * `Catch` fallback or an `Async` thunk).
- *
- * Matched purely by callee name (the compiler has no types). So
- * `import { Async as A }` defeats the skip — `A(...)` would be wrongly
- * `h.track`-wrapped and lose its channels (a loud type error at the call site).
- * Import these unaliased.
- */
 /**
  * Strip expression wrappers that change only the TYPE of their operand, never
  * its runtime value: `x as T`, `x satisfies T`, `x!`. Used by `wrapTracked`'s
@@ -150,16 +146,105 @@ const peelTypeWrappers = (expr: t.Expression): t.Expression => {
   return cur
 }
 
-// `list` belongs here too: a MANUAL `list(coll, row)` call (not just the
-// `.value.map` rewrite) self-subscribes inside mount, and since #72 its
-// return type carries the folded row channels — an `h.track` wrap would
-// erase them, recreating at the type level exactly the rows-die-at-runtime
-// lie the per-node capture work closed.
+/**
+ * Calls that must NOT be `h.track`-wrapped: each returns an
+ * `Effect<View…, never, R | …>` that has to reach the `h()` fold intact, and
+ * each manages its own reactivity — `Async` tracks its `from` thunk, `Catch`
+ * drives its state from a forked loop, `list` self-subscribes inside mount
+ * (and since #72 carries the folded row channels). Wrapping any of them is
+ * redundant *and* harmful: `h.track` is typed `(thunk) => unknown`, which
+ * erases the channels from the fold. The inner `.value` reads are still
+ * rewritten to `h.read` (a read in a `Catch` fallback or an `Async` thunk).
+ *
+ * Matched by callee name (the compiler has no types), with two guards:
+ * - SHADOW-AWARE: a file that binds one of these names itself (a local
+ *   `const list = …`, an import from elsewhere) drops that name from the
+ *   skip set — see `collectShadowedHelpers`. Aliasing the verrex import
+ *   (`import { Async as A }`) still defeats the skip the loud way: `A(...)`
+ *   gets wrapped and its channels erase as a type error. Import unaliased.
+ * - EAGER-READ REJECTION: a `.value` read that executes in the skipped
+ *   call's argument position (outside any function) is a compile error —
+ *   see `wrapTracked` — because it would silently evaluate once.
+ */
 const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set(["Async", "Catch", "list"])
-const isSelfTrackingCall = (expr: t.Expression): boolean =>
+const isSelfTrackingCall = (expr: t.Expression, state: RewriteState): boolean =>
   t.isCallExpression(expr) &&
   t.isIdentifier(expr.callee) &&
-  SELF_TRACKING_HELPERS.has(expr.callee.name)
+  SELF_TRACKING_HELPERS.has(expr.callee.name) &&
+  !state.disabledHelpers.has(expr.callee.name)
+
+/**
+ * Scan the file for bindings that SHADOW a skip-listed helper name —
+ * `const list = …`, `function Catch(…)`, an import of `list` from a package
+ * that isn't `@verrex/core`, a parameter named `Async`. Calls to a shadowed
+ * name are the user's own function: skipping their `h.track` wrap would
+ * silently de-reactivize them (the failure direction with NO diagnostic),
+ * so a shadowed name drops out of the skip set for this file. An import
+ * from `@verrex/core` itself is the real helper and keeps the skip.
+ */
+const collectShadowedHelpers = (ast: t.Node): ReadonlySet<string> => {
+  const shadowed = new Set<string>()
+  const note = (name: string): void => {
+    if (SELF_TRACKING_HELPERS.has(name)) shadowed.add(name)
+  }
+  const noteBindings = (node: t.Node): void => {
+    for (const name of Object.keys(t.getBindingIdentifiers(node))) note(name)
+  }
+  traverse(ast, {
+    ImportDeclaration(path: NodePath<t.ImportDeclaration>) {
+      if (path.node.source.value === "@verrex/core") return
+      for (const spec of path.node.specifiers) note(spec.local.name)
+    },
+    VariableDeclarator(path: NodePath<t.VariableDeclarator>) {
+      noteBindings(path.node.id)
+    },
+    FunctionDeclaration(path: NodePath<t.FunctionDeclaration>) {
+      if (path.node.id) note(path.node.id.name)
+    },
+    ClassDeclaration(path: NodePath<t.ClassDeclaration>) {
+      if (path.node.id) note(path.node.id.name)
+    },
+    Function(path: NodePath<t.Function>) {
+      for (const param of path.node.params) noteBindings(param)
+    },
+    CatchClause(path: NodePath<t.CatchClause>) {
+      if (path.node.param) noteBindings(path.node.param)
+    },
+  })
+  return shadowed
+}
+
+/** A compiled `h.read(x)` call — the rewritten form of a `.value` read. */
+const isHReadCall = (node: t.Node): boolean =>
+  t.isCallExpression(node) &&
+  t.isMemberExpression(node.callee) &&
+  t.isIdentifier(node.callee.object, { name: "h" }) &&
+  t.isIdentifier(node.callee.property, { name: "read" })
+
+/**
+ * True when `node` contains an `h.read(...)` that would EXECUTE while the
+ * node is evaluated — i.e. one not nested inside a function body. Used to
+ * reject dead reads in skip-listed call arguments (see `wrapTracked`).
+ */
+const containsEagerRead = (node: t.Node): boolean => {
+  if (t.isFunction(node)) return false
+  if (isHReadCall(node)) return true
+  for (const key of t.VISITOR_KEYS[node.type] ?? []) {
+    const child = (node as unknown as Record<string, unknown>)[key] as
+      | t.Node
+      | t.Node[]
+      | null
+      | undefined
+    if (Array.isArray(child)) {
+      for (const c of child) {
+        if (c != null && typeof c.type === "string" && containsEagerRead(c)) return true
+      }
+    } else if (child != null && typeof child.type === "string" && containsEagerRead(child)) {
+      return true
+    }
+  }
+  return false
+}
 
 /**
  * Wrap a JSX-expression's value in a `h.track(() => expr)` call **only when
@@ -198,7 +283,27 @@ const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
   // Async / Catch / manual list self-track (or self-subscribe); the
   // `.value`→`h.read` rewrite inside them is kept, but the outer `h.track`
   // wrap is skipped so their channels survive the fold.
-  if (isSelfTrackingCall(peeled)) return rewritten
+  if (isSelfTrackingCall(peeled, state)) {
+    // A `.value` read that executes while the skipped call's ARGUMENTS are
+    // evaluated (outside any thunk/arm/row function) would run exactly once
+    // and never re-evaluate — `{list(showDone.value ? a : b, row)}` looks
+    // reactive and silently isn't. Fail loudly instead: reads belong inside
+    // the helper's function arguments, or hoisted to a statement
+    // (`const c = ref.value`) where one-time eager reads are the documented
+    // semantics.
+    const callee = ((peeled as t.CallExpression).callee as t.Identifier).name
+    for (const arg of (peeled as t.CallExpression).arguments) {
+      if (containsEagerRead(arg)) {
+        throw new Error(
+          `verrex: a .value read in the arguments of ${callee}(...) runs ONCE at construction ` +
+            `and never re-evaluates (${callee} is not wrapped in a tracking scope — it carries ` +
+            `its own channels). Move the read inside the thunk/row/handler function, or hoist it ` +
+            `to a statement (const x = ref.value) to make the one-time read explicit.`,
+        )
+      }
+    }
+    return rewritten
+  }
   // A top-level function value can't read deps while being tracked — skip the
   // dead wrap so the function's type (an event handler's channels) survives.
   if (t.isFunction(peeled)) return rewritten
@@ -718,7 +823,12 @@ export const transformVerrex = (
     },
   })
 
-  const state: RewriteState = { wroteList: false, usedH: false, usedFragment: false }
+  const state: RewriteState = {
+    wroteList: false,
+    usedH: false,
+    usedFragment: false,
+    disabledHelpers: collectShadowedHelpers(ast),
+  }
 
   traverse(ast, {
     JSXElement(path: NodePath<t.JSXElement>) {

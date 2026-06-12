@@ -108,10 +108,13 @@ const _h = (
 
 // A prop that applyProp would treat as a handler: an `on*` key (the shared
 // `isHandlerKey` gate) holding a function — or an AtomRef (whose unwrapped
-// value applyProp re-applies live, possibly as a handler).
+// value applyProp re-applies live, possibly as a handler). OWN keys only
+// (`Object.hasOwn`): applyProps consumes props via Object.entries, so an
+// inherited/prototype-polluted `on*` key would make this gate capture a
+// context applyProps never consumes — the two must agree.
 const hasHandlerProp = (props: Props): boolean => {
   for (const k in props) {
-    if (isHandlerKey(k)) {
+    if (Object.hasOwn(props, k) && isHandlerKey(k)) {
       const v = props[k]
       if (typeof v === "function" || isAtomRef(v)) return true
     }

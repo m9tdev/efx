@@ -215,6 +215,14 @@ a variant is a coordinated edit across two files:
   - `coerce.ts` — `coerceAsync` if it can be authored from JSX,
     and/or `coerceSync` if it can be emitted from a Reactive
     source. Often one of the two is enough.
+  - **Context capture** — if the variant runs user code AFTER
+    construction (re-renders, rows, fallbacks, handlers), it MUST
+    capture the construction context and mount must build through
+    `withContext` — see the variant matrix in "Per-NODE context
+    capture" below. Nothing forces this (the `context` field is
+    optional and mount silently falls back to the root context), so
+    a missed capture is the rows-die-under-mid-tree-provide bug
+    class all over again.
 
 Channels are unaffected — they're folded at the `h()` call site
 via `FoldE`/`FoldR`, which operate on input child *shapes*
@@ -526,43 +534,42 @@ own lifetime). On scope close, parent-fork cascade tears everything down.
 There is no `{ node, cleanup }` wrapper return type — closing the surrounding
 scope IS the cleanup.
 
-**Per-NODE context capture (#72 review, rounds 1–3).** Four IR nodes capture
-the ambient Effect context at construction (`yield* Effect.context()`):
-`Element` (in `h()`, ONLY when a handler prop exists — `hasHandlerProp` over
-the shared `isHandlerKey` gate; handler-less elements stay pure data),
-`Reactive` (in `coerceAsync`'s reactive-source branch and in `Async`),
-`List` (in `list()`, which is an Effect precisely so it can capture), and
-`Boundary` (in `makeBoundary`, for the FALLBACK arm only — the ok content
-is rebuilt by the boundary's drain fiber, which inherits the construction
-context natively). Mount derives a node-scoped `BuildCtx` via `withContext`
-(reference-equal captures keep the parent ctx; the derived ctx's
-`runSyncExit` is a LAZY memoized getter, since the Element path consumes
-only `context`/`sink`): handlers run on the Element's capture, and every
-Reactive re-render / List row / Catch fallback builds on its node's
-capture. That closes the whole mid-tree-provide story: `FoldPropsR` /
-`list`'s row `R` are claims on the construction Effect, `Effect.provide`
-discharges them there, and the runtime genuinely runs handlers, rebuilds,
-rows, and fallbacks on the provided context. `runHandlerEffect` provides
-the element's DOM `scope` INTO the handler effect (mirroring `coerceSync`),
-so a handler's `acquireRelease`/`addFinalizer` releases when the element is
-removed, not at app teardown — meaning handlers have NO ambient route to
-the app scope; app-lifetime work needs a scope captured during construction
-(or a daemon fork). For a REACTIVE handler prop (an AtomRef value), the
-"element" scope is the binding's rolling child scope: an in-flight handler
-Effect is interrupted when the handler re-binds, not only on element
-removal. Don't revert any of this to the bare runners or to mount's root
-context: the types now promise all of it. Pinned by
-`testing/event-handlers.test.ts` (mid-tree provide → static element, list
-rows incl. post-mount inserts, reactive rebuilds, Catch fallbacks; handler
-acquireRelease released on element removal). Two known limits: (1) a View
+**Per-NODE context capture (#72 review, rounds 1–4).** The invariant: every
+path that runs user code AFTER construction must run it on the context that
+was ambient WHERE the node was constructed — that's what makes a mid-tree
+`Effect.provide` sound against the channels the fold claims (`FoldPropsR`,
+`list`'s row `R`). The variant matrix (get this right when adding an IR
+variant — the "new variant" checklist below points here):
+
+| Variant | Captures where | Consumed by | Why / why not |
+|---|---|---|---|
+| `Element` | `h()`, ONLY when a handler prop exists (`hasHandlerProp` over the shared `isHandlerKey` gate, own keys only) | handler dispatch (`applyProps` via `withContext`) | handler-less elements stay pure data |
+| `Reactive` | `coerceAsync`'s reactive-source branch; `Async` | every re-render (`buildScopedChild` with the node-scoped ctx) | re-renders run through `coerceSync`, not the construction fiber |
+| `List` | `list()` (an Effect precisely so it can capture) | every row build, incl. post-mount inserts | rows materialize at reconcile time |
+| `Boundary` | `makeBoundary` | the FALLBACK arm only | ok content is rebuilt by the drain fiber, which inherits the construction context natively |
+| `Text`/`Fragment`/`Empty` | — | — | no post-construction user code |
+
+Mechanics live at the definition sites: `withContext` (mount.ts — derives
+the node-scoped `BuildCtx`; reference-equal captures keep the parent ctx),
+`SyncRunner` (coerce.ts), the per-variant `context` docs in View.ts.
+Handler-scope semantics: `runHandlerEffect` provides the element's DOM
+`scope` INTO the handler effect (mirroring `coerceSync`), so a handler's
+`acquireRelease`/`addFinalizer` releases when the element is removed, not
+at app teardown — handlers have NO ambient route to the app scope
+(app-lifetime work needs a scope captured during construction). For a
+REACTIVE handler prop (an AtomRef value), the "element" scope is the
+binding's rolling child scope: an in-flight handler Effect is interrupted
+when the handler re-binds. Don't revert any of this to bare runners or to
+mount's root context: the types promise all of it. Pinned by
+`testing/context-capture.test.ts` (one test per capture-consuming path in
+the matrix, plus the handler acquireRelease lifetime pin); handler DISPATCH
+pins stay in `testing/event-handlers.test.ts`. Two known limits: (1) a View
 built OUTSIDE mount (`Effect.runSync(h(...))` at module level) carries its
 own — possibly poorer — capture for ambient reads; (2) a SCOPED mid-tree
 layer (`Effect.provide(subtree, Layer.scoped(...))`) closes its scope when
-the subtree's CONSTRUCTION completes (that is `Effect.provide`'s own
-semantics), so captured contexts hold the service past its resources'
-release — sound for resource-free layers (`Layer.succeed`); provide
-resource-backed layers at the root, where mount's lifetime sits inside
-them.
+the subtree's CONSTRUCTION completes (`Effect.provide`'s own semantics) —
+sound for resource-free layers (`Layer.succeed`); provide resource-backed
+layers at the root (#125).
 
 **Runtime error routing — the sink.** A post-mount failure has no Effect `E`
 channel to land on (the component's build Effect already succeeded), so it is
@@ -571,7 +578,7 @@ swallowed. Two producers: (1) a **reactive re-render** whose Effect fails —
 `coerceSync` calls `sink(cause)` and renders `Empty` (it no longer stringifies
 `[effect failed: …]` into the DOM); (2) an **event handler** that returns an
 Effect — `applyProp` runs it on the element's captured context (falling back
-to mount's; see "Per-element context capture") forked into the element's DOM `scope`
+to mount's; see "Per-NODE context capture") forked into the element's DOM `scope`
 (`Effect.forkIn(scope)`, so the fiber is interrupted when the element is removed),
 with `Effect.matchCause` routing its failure to the same sink.
 Both guard with `Cause.hasInterruptsOnly` — a pure-interrupt cause is scope

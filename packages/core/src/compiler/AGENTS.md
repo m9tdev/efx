@@ -52,8 +52,14 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    passes through with no wrap. The `.value.map → list(...)` rewrite
    (#3) also does **not** trigger a wrap — `list()` subscribes inside
    `mount`, so wrapping in `h.track` would be a redundant layer. Same
-   for `Async(...)` and `Catch(...)` calls (`isSelfTrackingCall`):
-   they self-track and must reach the `h()` fold un-erased. And same
+   for `Async(...)`, `Catch(...)`, and MANUAL `list(...)` calls
+   (`SELF_TRACKING_HELPERS`): they self-track/self-subscribe and must
+   reach the `h()` fold un-erased. The skip is **shadow-aware** (a file
+   binding one of those names itself drops it from the set — the user's
+   own `list` stays reactive) and **rejects eager reads**: a `.value`
+   read in a skipped call's argument position (outside any function)
+   would silently evaluate once, so it's a compile error pointing at
+   the fix. And same
    for a **whole-expression function value**
    (`onclick={() => count.value + 1}`): evaluating a function expression
    executes no reads, so the wrap's dep set is provably always empty — a

@@ -160,6 +160,55 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
     expect(out).not.toContain(`h.track`)
   })
 
+  it("a SHADOWED helper name keeps the wrap — the user's own `list` stays reactive", () => {
+    // `list` is a common identifier; the skip is shadow-aware. A local
+    // binding (const/function/param/import-from-elsewhere) means the call is
+    // the user's function — skipping it would silently de-reactivize
+    // `{list(tags.value)}` with no diagnostic.
+    const local = compile(`
+      const list = (xs) => xs.join(", ")
+      const x = <p>{list(tags.value)}</p>
+    `)
+    expect(local).toContain(`h.track(() =>`)
+    expect(local).toContain(`h.read(tags)`)
+
+    const imported = compile(`
+      import { list } from "rambda"
+      const x = <p>{list(tags.value)}</p>
+    `)
+    expect(imported).toContain(`h.track(() =>`)
+
+    // An import from @verrex/core IS the helper — the skip stays.
+    const verrex = compile(`
+      import { list } from "@verrex/core"
+      const x = <ul>{list(todos, (item) => <li>{item.value}</li>)}</ul>
+    `)
+    expect(verrex).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
+  })
+
+  it("an EAGER .value read in a skip-listed call's arguments is a loud compile error", () => {
+    // `{list(showDone.value ? a : b, row)}` looks reactive and silently
+    // isn't (the skipped call's arguments evaluate once) — reject it with an
+    // actionable message instead of shipping a frozen view. Reads inside the
+    // helper's FUNCTION arguments (thunks, rows, handlers) are fine.
+    expect(() =>
+      compile(`
+      const x = <ul>{list(showDone.value ? doneColl : todoColl, (item) => <li>{item}</li>)}</ul>
+    `)).toThrow(/runs ONCE at construction/)
+
+    expect(() =>
+      compile(`
+      const x = <div>{Async(cond.value ? thunkA : thunkB, { success: (u) => <p>{u}</p> })}</div>
+    `)).toThrow(/runs ONCE at construction/)
+
+    // Inside the thunk: tracked by Async itself — no error.
+    expect(
+      compile(`
+      const x = <div>{Async(() => http.getUser(id.value), { success: (u) => <p>{u}</p> })}</div>
+    `),
+    ).toContain(`h.read(id)`)
+  })
+
   it("MANUAL list() calls are not h.track-wrapped (self-subscribing, channel-carrying)", () => {
     // The `.value.map → list` rewrite was always unwrapped; a hand-written
     // list() with `.value` reads in its row arrow must get the same treatment
