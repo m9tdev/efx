@@ -52,9 +52,10 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    passes through with no wrap. The `.value.map → list(...)` rewrite
    (#3) also does **not** trigger a wrap — `list()` subscribes inside
    `mount`, so wrapping in `h.track` would be a redundant layer. Same
-   for `Async(...)`, `Catch(...)`, and MANUAL `list(...)` calls
-   (`SELF_TRACKING_HELPERS`): they self-track/self-subscribe and must
-   reach the `h()` fold un-erased. **Which calls skip is decided
+   for `Async(...)`, `Catch(...)`, `streamRef(...)`, and MANUAL `list(...)`
+   calls (`SELF_TRACKING_HELPERS`): they self-track/self-subscribe and must
+   reach the `h()` fold un-erased (for `streamRef` a tracked re-run would
+   additionally spawn a fresh stream per dep change). **Which calls skip is decided
    scope-correctly** by `resolveHelperCalls` — only a call whose callee
    binds to the `@verrex/core` import (or is unresolved: the injected
    `list`, or a forgotten import that's a TS error anyway) skips; a call

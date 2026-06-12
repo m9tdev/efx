@@ -169,6 +169,7 @@ const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set([
   "Async",
   "Catch",
   "list",
+  "streamRef",
 ])
 
 const isSelfTrackingCall = (expr: t.Expression, state: RewriteState): boolean =>
