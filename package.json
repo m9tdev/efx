@@ -11,7 +11,7 @@
     "test": "pnpm -r --workspace-concurrency=1 test"
   },
   "devDependencies": {
-    "@types/node": "^25.9.2",
+    "@types/node": "^25.9.3",
     "playwright-core": "^1.60.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
