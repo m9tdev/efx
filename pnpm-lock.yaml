@@ -77,8 +77,8 @@ importers:
         version: 3.1.0
     devDependencies:
       '@effect/vitest':
-        specifier: 4.0.0-beta.78
-        version: 4.0.0-beta.78(effect@4.0.0-beta.78)(vitest@4.1.8(@types/node@25.9.2)(happy-dom@20.10.2)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(yaml@2.9.0)))
+        specifier: 4.0.0-beta.83
+        version: 4.0.0-beta.83(effect@4.0.0-beta.78)(vitest@4.1.8(@types/node@25.9.2)(happy-dom@20.10.2)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(yaml@2.9.0)))
       '@types/babel__generator':
         specifier: ^7
         version: 7.27.0
@@ -104,8 +104,8 @@ importers:
   packages/ts-plugin:
     devDependencies:
       '@effect/vitest':
-        specifier: 4.0.0-beta.78
-        version: 4.0.0-beta.78(effect@4.0.0-beta.78)(vitest@4.1.8(@types/node@25.9.2)(happy-dom@20.10.2)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(yaml@2.9.0)))
+        specifier: 4.0.0-beta.83
+        version: 4.0.0-beta.83(effect@4.0.0-beta.78)(vitest@4.1.8(@types/node@25.9.2)(happy-dom@20.10.2)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(yaml@2.9.0)))
       '@verrex/core':
         specifier: workspace:*
         version: link:../core
@@ -161,10 +161,10 @@ packages:
     resolution: {integrity: sha512-4zBIxpPzowiZpusoFkyGVwakdRJUyuH5PxQ/PrqghfdFWWasvnCdPfQXHrenDai+gyLARulZjZowCOj6fjT4pA==}
     engines: {node: '>=6.9.0'}
 
-  '@effect/vitest@4.0.0-beta.78':
-    resolution: {integrity: sha512-5KQsQYrQ/o7mfOVAxRtNnfD9M0W4OI6yQd0n/m2N7OOLxTdX4FwN4s/X4obykBC7ZEwH+bzMrFJiB4pq9lrQKQ==}
+  '@effect/vitest@4.0.0-beta.83':
+    resolution: {integrity: sha512-HKGnBkIAPEIDWwmwQtmGTVLN5txlB3M1lVS+BBsPt6M2CeLJ53cyc/2SBUldZM/HQ/aM7s/siiBOXsB9arRdKg==}
     peerDependencies:
-      effect: ^4.0.0-beta.78
+      effect: ^4.0.0-beta.83
       vitest: ^3.0.0 || ^4.0.0
 
   '@emnapi/core@1.10.0':
@@ -1032,7 +1032,7 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@effect/vitest@4.0.0-beta.78(effect@4.0.0-beta.78)(vitest@4.1.8(@types/node@25.9.2)(happy-dom@20.10.2)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(yaml@2.9.0)))':
+  '@effect/vitest@4.0.0-beta.83(effect@4.0.0-beta.78)(vitest@4.1.8(@types/node@25.9.2)(happy-dom@20.10.2)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(yaml@2.9.0)))':
     dependencies:
       effect: 4.0.0-beta.78
       vitest: 4.1.8(@types/node@25.9.2)(happy-dom@20.10.2)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(yaml@2.9.0))
