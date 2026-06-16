@@ -114,7 +114,7 @@
     "vscode-uri": "^3.1.0"
   },
   "peerDependencies": {
-    "effect": "4.0.0-beta.78",
+    "effect": "4.0.0-beta.83",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   },
@@ -130,7 +130,7 @@
     "@effect/vitest": "4.0.0-beta.78",
     "@types/babel__generator": "^7",
     "@types/babel__traverse": "^7",
-    "effect": "4.0.0-beta.78",
+    "effect": "4.0.0-beta.83",
     "happy-dom": "^20.10.2",
     "typescript": "^6.0.3",
     "vite": "^8.0.16",
