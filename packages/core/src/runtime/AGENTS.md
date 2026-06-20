@@ -368,7 +368,10 @@ captures a snapshot and won't refetch — ordinary eager-read semantics.
 in the compiler — the same guard covers `Catch`) — `Async` self-tracks, and
 `h.track`'s `unknown` return would erase its `Effect<View, never, R | Scope>`
 channels from the `h()` fold. The inner `.value`→`h.read` rewrite is kept (the
-tracker needs it). Matched by callee name, so import `Async`/`Catch` unaliased.
+tracker needs it). Which calls skip is decided **scope-correctly**
+(`resolveHelperCalls`): a call whose callee binds to the `@verrex/core` import
+skips *regardless of alias* (`import { Async as A }` → `A(...)` skips); a
+same-named call bound to the user's own function keeps its wrap.
 
 Neither is a View IR variant. `asyncRef` builds an `AtomRef<AsyncResult>`; `Async`
 maps it through `AsyncResult.match` and returns a `View.Reactive` — the existing
@@ -476,7 +479,8 @@ overloads that front it.
 Unlike `Async`, this **is** a View IR variant (`Boundary`) — the sink-swap for
 the child subtree is a `buildDom`-time concern an existing `Reactive` can't
 express. The compiler skips the `h.track` wrap for `Catch(...)` calls (in
-`isSelfTrackingCall` alongside `Async`); import `Catch` unaliased.
+`isSelfTrackingCall` alongside `Async`; scope-correct, so an aliased
+`@verrex/core` import is fine — see the `Async` section above).
 
 **Scope/fiber lifetime is uniform across the runtime** — internalize this when
 touching any of it: construction effects bind to a per-build scope (above),

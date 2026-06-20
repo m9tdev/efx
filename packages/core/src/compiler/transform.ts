@@ -110,29 +110,101 @@ interface RewriteState {
   wroteList: boolean
   usedH: boolean
   usedFragment: boolean
+  /**
+   * The exact `Async`/`Catch` CALL NODES that resolve to the `@verrex/core`
+   * helper (scope-correct — see `resolveHelperCalls`). Only these skip the
+   * `h.track` wrap; a same-named call bound to the user's own function (a
+   * local `const Async = …`, an import from elsewhere) is absent and keeps
+   * its wrap. Identity is stable: the JSX→`h()` transform mutates a call's
+   * children but never the call node itself, so the node marked here is the
+   * one `wrapTracked` later peels to.
+   */
+  verrexHelperCalls: ReadonlySet<t.Node>
 }
 
 /**
- * True when `expr` is a top-level call to a self-tracking boundary helper —
- * `Async(...)` or `Catch(...)`. Both return an `Effect<View, never, R | …>`
- * that must reach the `h()` fold intact, and both manage their own reactivity
- * (`Async` tracks its `from` thunk; `Catch` drives its state from a forked
- * loop). Wrapping either in `h.track` is redundant *and* harmful: `h.track` is
- * typed `(thunk) => unknown`, which erases the channels and drops them from the
- * fold. Same reason `.value.map(...)` → `list(...)` is left unwrapped. The inner
- * `.value` reads are still rewritten to `h.read` (e.g. a `.value` read in a
- * `Catch` fallback or an `Async` thunk).
+ * Strip expression wrappers that change only the TYPE of their operand, never
+ * its runtime value: `x as T`, `x satisfies T`, `x!`. Used by `wrapTracked`'s
+ * skip check so a cast-wrapped boundary (`{Async(…) satisfies …}` — how a user
+ * pins its channel) is recognized for the call it is at runtime. (No `<T>x`
+ * branch — the jsx parser plugin makes angle-bracket assertions unparseable;
+ * no ParenthesizedExpression — Babel only emits those under
+ * `createParenthesizedExpressions`, which we don't set: parens arrive as the
+ * bare inner node.)
+ */
+const peelTypeWrappers = (expr: t.Expression): t.Expression => {
+  let cur = expr
+  while (
+    t.isTSAsExpression(cur) ||
+    t.isTSSatisfiesExpression(cur) ||
+    t.isTSNonNullExpression(cur)
+  ) {
+    cur = cur.expression
+  }
+  return cur
+}
+
+/**
+ * Calls that must NOT be `h.track`-wrapped: `Async(...)` and `Catch(...)` each
+ * return an `Effect<View, never, R | …>` that has to reach the `h()` fold
+ * intact, and each manages its own reactivity (`Async` tracks its `from`
+ * thunk; `Catch` drives its state from a forked loop). Wrapping either is
+ * redundant *and* harmful: `h.track` is typed `(thunk) => unknown`, which
+ * erases the channels from the fold. (Same reason `.value.map(...)` →
+ * `list(...)` is left unwrapped.) The inner `.value` reads are still rewritten
+ * to `h.read` (a read in a `Catch` fallback or an `Async` thunk).
  *
- * Matched purely by callee name (the compiler has no types). So
- * `import { Async as A }` defeats the skip — `A(...)` would be wrongly
- * `h.track`-wrapped and lose its channels (a loud type error at the call site).
- * Import these unaliased.
+ * WHICH calls skip is decided SCOPE-CORRECTLY, up front, by
+ * `resolveHelperCalls`: only a call whose callee binds to the `@verrex/core`
+ * import is the real helper. So an ALIASED import (`import { Async as A }`)
+ * skips correctly, and a same-named call bound to the user's own function (a
+ * local `const Async = …`, an import from elsewhere) keeps its wrap — its
+ * reactivity survives.
  */
 const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set(["Async", "Catch"])
-const isSelfTrackingCall = (expr: t.Expression): boolean =>
-  t.isCallExpression(expr) &&
-  t.isIdentifier(expr.callee) &&
-  SELF_TRACKING_HELPERS.has(expr.callee.name)
+
+const isSelfTrackingCall = (expr: t.Expression, state: RewriteState): boolean =>
+  t.isCallExpression(expr) && state.verrexHelperCalls.has(expr)
+
+/**
+ * The self-tracking helper a binding refers to (by its IMPORTED name, so an
+ * alias resolves correctly), or `null`. Only a NAMED import from
+ * `@verrex/core` qualifies — a default/namespace import isn't one of these
+ * helpers, and a local binding (const/function/param) is the user's own.
+ */
+const importedHelperName = (path: NodePath): string | null => {
+  if (!path.isImportSpecifier()) return null
+  const decl = path.parentPath
+  if (!decl.isImportDeclaration() || decl.node.source.value !== "@verrex/core") return null
+  const imported = path.node.imported
+  const name = t.isIdentifier(imported) ? imported.name : imported.value
+  return SELF_TRACKING_HELPERS.has(name) ? name : null
+}
+
+/**
+ * Collect the exact `Async`/`Catch` call NODES that resolve to the
+ * `@verrex/core` helper, resolving each callee's binding in its own scope
+ * (`path.scope.getBinding`). A call is the helper when its callee binds to a
+ * `@verrex/core` import of a helper name (by IMPORTED name — `import { Async
+ * as A }` ⇒ `A(...)` qualifies), OR is UNRESOLVED with a helper name (a
+ * forgotten import — a TS error regardless, so skip-vs-wrap is moot). A LOCAL
+ * binding, or an import of the name from elsewhere, is the user's own
+ * function: not a helper, keeps its `h.track` wrap.
+ */
+const resolveHelperCalls = (ast: t.Node): Set<t.Node> => {
+  const helpers = new Set<t.Node>()
+  traverse(ast, {
+    CallExpression(path: NodePath<t.CallExpression>) {
+      const callee = path.node.callee
+      if (!t.isIdentifier(callee)) return
+      const binding = path.scope.getBinding(callee.name)
+      if (binding ? importedHelperName(binding.path) !== null : SELF_TRACKING_HELPERS.has(callee.name)) {
+        helpers.add(path.node)
+      }
+    },
+  })
+  return helpers
+}
 
 /**
  * Wrap a JSX-expression's value in a `h.track(() => expr)` call **only when
@@ -146,15 +218,20 @@ const isSelfTrackingCall = (expr: t.Expression): boolean =>
  *   - `.value.map(arrow → JSX)` → `list(...)` (flips `state.wroteList` for the
  *     `list` auto-import; subscribes inside `mount`).
  *   - `Async(() => …, arms)` and `Catch(child, …)` calls — these
- *     self-track (see `isSelfTrackingCall`).
+ *     self-track (see `isSelfTrackingCall` / `resolveHelperCalls`). The skip
+ *     looks through type-only wrappers (`peelTypeWrappers`), so
+ *     `{Async(…) satisfies X}` keeps its channels too.
  */
 const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
   const { expr: rewritten, rewroteRead } = rewriteTrackedExpression(expr, state)
   if (!rewroteRead) return rewritten
   state.usedH = true // the rewrite emitted h.read (and below, possibly h.track)
   // Async / Catch self-track; the `.value`→`h.read` rewrite inside them is
-  // kept, but the outer `h.track` wrap is skipped so their channels survive the fold.
-  if (isSelfTrackingCall(rewritten)) return rewritten
+  // kept, but the outer `h.track` wrap is skipped so their channels survive the
+  // fold. Peel type-only wrappers first: `{Async(…) satisfies X}` evaluates to
+  // the bare call at runtime, and wrapping it would erase the channels the
+  // assertion was written to pin.
+  if (isSelfTrackingCall(peelTypeWrappers(rewritten), state)) return rewritten
   return t.callExpression(
     t.memberExpression(t.identifier("h"), t.identifier("track")),
     [t.arrowFunctionExpression([], rewritten)],
@@ -671,7 +748,12 @@ export const transformVerrex = (
     },
   })
 
-  const state: RewriteState = { wroteList: false, usedH: false, usedFragment: false }
+  const state: RewriteState = {
+    wroteList: false,
+    usedH: false,
+    usedFragment: false,
+    verrexHelperCalls: resolveHelperCalls(ast),
+  }
 
   traverse(ast, {
     JSXElement(path: NodePath<t.JSXElement>) {

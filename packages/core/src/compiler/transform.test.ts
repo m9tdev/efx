@@ -356,6 +356,65 @@ describe("Catch calls are not h.track-wrapped", () => {
   })
 })
 
+describe("self-tracking-helper skip is scope-correct + cast-transparent", () => {
+  // The skip resolves each Async/Catch callee's binding in its own scope
+  // (resolveHelperCalls), so it keys on what the name ACTUALLY refers to, not
+  // the bare string.
+
+  it("an ALIASED @verrex/core import still skips (binding-resolved, not name-matched)", () => {
+    const out = compile(`
+      import { Async as A } from "@verrex/core"
+      const x = <div>{A(() => client.get(id.value), { success: (v) => <span>{v}</span> })}</div>
+    `)
+    expect(out).toContain(`h.read(id)`)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*A\(/)
+  })
+
+  it("a LOCAL function named Async/Catch keeps its h.track wrap (user's own, stays reactive)", () => {
+    const local = compile(`
+      const Async = (x) => x
+      const y = <p>{Async(tag.value)}</p>
+    `)
+    expect(local).toContain(`h.track(() =>`)
+    expect(local).toContain(`h.read(tag)`)
+
+    // An import of the name from ELSEWHERE is likewise the user's function.
+    const imported = compile(`
+      import { Catch } from "some-other-lib"
+      const y = <p>{Catch(tag.value)}</p>
+    `)
+    expect(imported).toContain(`h.track(() =>`)
+  })
+
+  it("an unrelated local `Async` binding does not disable a real verrex Async elsewhere in the file", () => {
+    // Scope-correct: a binding in one scope never touches a call in another.
+    const out = compile(`
+      import { Async } from "@verrex/core"
+      const handlers = items.map(Async => Async.id)
+      const x = <div>{Async(() => client.get(id.value), { success: (v) => <span>{v}</span> })}</div>
+    `)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Async\(\(\)/)
+  })
+
+  it("a cast/satisfies-wrapped Async/Catch keeps the skip (peeled before the check)", () => {
+    // `{Async(…) satisfies Effect<View<E>, …>}` is how a user pins a boundary's
+    // channel — the wrap would erase the very channel being asserted.
+    const sat = compile(`
+      import { Async } from "@verrex/core"
+      const x = <div>{Async(() => client.get(id.value), { success: (v) => <p>{v}</p> }) satisfies E}</div>
+    `)
+    expect(sat).toContain(`h.read(id)`)
+    expect(sat).not.toMatch(/h\.track\(\(\)\s*=>\s*Async\(/)
+
+    const asCast = compile(`
+      import { Catch } from "@verrex/core"
+      const x = <div>{Catch(<Child />, (c) => <span>{label.value}</span>) as C}</div>
+    `)
+    expect(asCast).toContain(`h.read(label)`)
+    expect(asCast).not.toMatch(/h\.track\(\(\)\s*=>\s*Catch\(/)
+  })
+})
+
 describe("whole-body `.value` reads (tracking outside JSX)", () => {
   // The JSX pass only rewrites `.value` inside JSX expressions. A third pass
   // rewrites `.value` reads that survive in *statements* — extracted Async

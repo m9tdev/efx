@@ -53,7 +53,15 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    (#3) also does **not** trigger a wrap — `list()` subscribes inside
    `mount`, so wrapping in `h.track` would be a redundant layer. Same
    for `Async(...)` and `Catch(...)` calls (`isSelfTrackingCall`):
-   they self-track and must reach the `h()` fold un-erased.
+   they self-track and must reach the `h()` fold un-erased. **Which
+   calls skip is decided scope-correctly** by `resolveHelperCalls` —
+   only a call whose callee binds to the `@verrex/core` import (by
+   *imported* name, so `import { Async as A }` ⇒ `A(...)` skips); a
+   call bound to the user's own `Async`/`Catch` (a local `const`, an
+   import from elsewhere) keeps its wrap, so its reactivity survives.
+   The skip looks through type-only wrappers (`as`/`satisfies`/`!`,
+   see `peelTypeWrappers`), so `{Async(…) satisfies X}` keeps its
+   channels too.
 
 2. **`x.value` → `h.read(x)`** inside the wrapped expression. Tracks
    AtomRef reads. (The *same* read rewrite also runs over the whole
@@ -177,7 +185,8 @@ visitor in `transformVerrex`). Deliberately narrow and additive:
   argument, bound by a plain identifier declarator (`const X = …`,
   exported or not). A second argument already present (an explicit name)
   is left alone.
-- Matched by name, like `isSelfTrackingCall` — an aliased import
+- Matched by name on the `Component.make` member shape (unlike
+  `isSelfTrackingCall`, which is scope-correct) — an aliased import
   (`import { Component as C }`) defeats it, which **fails soft**: the
   component still works, its span is just anonymous. No diagnostic.
 - `Component` is NOT auto-imported (it only appears in this rewrite when
