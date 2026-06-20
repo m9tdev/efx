@@ -96,6 +96,14 @@ describe("per-node context capture", () => {
     ui.click(".row-btn")
     await ui.tick()
     expect(ui.text(".total")).toBe("total: 5")
+
+    // A row inserted post-mount resolves its construction `yield* Step` and
+    // handler against the ROOT-provided context too (not only mid-tree).
+    coll.push("b")
+    await ui.tick()
+    ui.all(".row-btn")[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    await ui.tick()
+    expect(ui.text(".total")).toBe("total: 10")
     await ui.unmount()
   })
 

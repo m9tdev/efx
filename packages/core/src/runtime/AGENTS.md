@@ -543,15 +543,18 @@ variant — the "new variant" checklist below points here):
 
 | Variant | Captures where | Consumed by | Why / why not |
 |---|---|---|---|
-| `Element` | `h()`, ONLY when a handler prop exists (`hasHandlerProp` over the shared `isHandlerKey` gate, own keys only) | handler dispatch (`applyProps` via `withContext`) | handler-less elements stay pure data |
+| `Element` | `h()`, ONLY when a handler prop exists (`hasHandlerProp` over the shared `isHandlerKey` gate, own keys only) | handler dispatch — `applyProps` gets `context`/`sink` DIRECTLY (handlers need only those; the static-element path derives no node ctx/runner) | handler-less elements stay pure data |
 | `Reactive` | `coerceAsync`'s reactive-source branch; `Async` | every re-render (`buildScopedChild` with the node-scoped ctx) | re-renders run through `coerceSync`, not the construction fiber |
 | `List` | `list()` (an Effect precisely so it can capture) | every row build, incl. post-mount inserts | rows materialize at reconcile time |
 | `Boundary` | `makeBoundary` | the FALLBACK arm only | ok content is rebuilt by the drain fiber, which inherits the construction context natively |
 | `Text`/`Fragment`/`Empty` | — | — | no post-construction user code |
 
 Mechanics live at the definition sites: `withContext` (mount.ts — derives
-the node-scoped `BuildCtx`; reference-equal captures keep the parent ctx),
-`SyncRunner` (coerce.ts), the per-variant `context` docs in View.ts.
+the node-scoped `BuildCtx` for the DYNAMIC-render variants that go through
+`coerceSync`; reference-equal captures keep the parent ctx; its `runSyncExit`
+is a per-context cache that stays paired with `context` — only mount-root and
+`withContext` set it), `SyncRunner` (coerce.ts), the per-variant `context`
+docs in View.ts.
 Handler-scope semantics: `runHandlerEffect` provides the element's DOM
 `scope` INTO the handler effect (mirroring `coerceSync`), so a handler's
 `acquireRelease`/`addFinalizer` releases when the element is removed, not

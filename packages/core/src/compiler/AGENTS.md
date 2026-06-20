@@ -54,12 +54,18 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    `mount`, so wrapping in `h.track` would be a redundant layer. Same
    for `Async(...)`, `Catch(...)`, and MANUAL `list(...)` calls
    (`SELF_TRACKING_HELPERS`): they self-track/self-subscribe and must
-   reach the `h()` fold un-erased. The skip is **shadow-aware** (a file
-   binding one of those names itself drops it from the set — the user's
-   own `list` stays reactive) and **rejects eager reads**: a `.value`
-   read in a skipped call's argument position (outside any function)
-   would silently evaluate once, so it's a compile error pointing at
-   the fix. And same
+   reach the `h()` fold un-erased. **Which calls skip is decided
+   scope-correctly** by `resolveHelperCalls` — only a call whose callee
+   binds to the `@verrex/core` import (or is unresolved: the injected
+   `list`, or a forgotten import that's a TS error anyway) skips; a call
+   bound to the user's own `list`/`Async`/`Catch` (a local const, a
+   `.map(list => …)` param, an import from elsewhere) keeps its wrap, so
+   its reactivity survives. A `.value` read sitting in a skipped call's
+   *argument* (rather than inside its thunk/row/handler function) reads
+   ONCE at construction — the same eager one-time semantics a statement
+   read has (#3 below); not special-cased (reactive source selection
+   belongs inside the function; manual-`list` source reactivity is #128).
+   And same
    for a **whole-expression function value**
    (`onclick={() => count.value + 1}`): evaluating a function expression
    executes no reads, so the wrap's dep set is provably always empty — a

@@ -13,20 +13,22 @@ interface BuildCtx {
   readonly registry: AtomRegistry.AtomRegistry
   readonly context: Context.Context<never>
   readonly sink: ErrorSink
-  // `Effect.runSyncExitWith(context)`, partially applied ONCE per context —
-  // the curried runner allocates per application, so rebuilding it per render
-  // would waste the hot path. Always derived from `context`; swap them together.
+  // `Effect.runSyncExitWith(context)`, partially applied ONCE per context (the
+  // curried runner allocates per application). It is a cache of `context`, so
+  // it MUST stay paired with it — only the two BuildCtx constructors set it:
+  // `mount` (root) and `withContext`. Don't hand-build a `{ ...ctx, context }`
+  // that changes `context` without recomputing this; go through `withContext`.
+  // The Element handler path never reads it (handlers consume only
+  // `context`/`sink`), so that path doesn't derive a BuildCtx at all.
   readonly runSyncExit: SyncRunner
 }
 
-// Derive a node-scoped BuildCtx for an IR node that captured its construction
-// context (Element handlers, Reactive re-renders, List rows, Boundary
-// fallbacks). Reference-equal captures (same fiber, no mid-tree provide) keep
-// the parent ctx — no allocation on that path. The runner is built eagerly:
-// every non-Element consumer forces it on its first render anyway, and the
-// two closures it costs are about what a lazy getter's machinery would —
-// while a getter makes BuildCtx spread-hostile (`{ ...ctx }` would force and
-// snapshot it; the Boundary case spreads).
+// Derive a node-scoped BuildCtx for a DYNAMIC-RENDER IR node that captured its
+// construction context (Reactive re-renders, List rows, Boundary fallbacks) —
+// these render through `coerceSync`, which needs the paired `runSyncExit`.
+// Reference-equal captures (same fiber, no mid-tree provide) keep the parent
+// ctx — no allocation on that path. (Static elements DON'T come here: their
+// handlers need only context+sink, passed straight to `applyProps`.)
 const withContext = (ctx: BuildCtx, context: Context.Context<never> | undefined): BuildCtx =>
   context === undefined || context === ctx.context
     ? ctx
@@ -90,11 +92,16 @@ const subscribeAtomScoped = <A>(
   Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
 }
 
+// Handlers consume only the captured `context` (the runtime side of
+// FoldPropsR — a mid-tree provide is honored at dispatch) and the `sink`; they
+// never touch the full `BuildCtx`, so the static-Element path passes these two
+// directly instead of deriving a node-scoped ctx + runner it would never use.
 const applyProp = (
   el: Element,
   key: string,
   value: unknown,
-  ctx: BuildCtx,
+  context: Context.Context<never>,
+  sink: ErrorSink,
   scope: Scope.Scope,
 ): void => {
   // Reactive prop: AtomRef → subscribe and re-apply on changes.
@@ -107,7 +114,7 @@ const applyProp = (
         if (e) Effect.runFork(e)
       }
       lastChildScope = Scope.forkUnsafe(scope, "sequential")
-      applyProp(el, key, v, ctx, lastChildScope)
+      applyProp(el, key, v, context, sink, lastChildScope)
     }
     apply(ref.value)
     subscribeRefScoped(ref, apply, scope)
@@ -133,8 +140,8 @@ const applyProp = (
     const listener: EventListener = (e) => {
       const result = userHandler(e)
       if (Effect.isEffect(result)) {
-        runFork ??= Effect.runForkWith(ctx.context)
-        runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, runFork, ctx.sink, scope)
+        runFork ??= Effect.runForkWith(context)
+        runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, runFork, sink, scope)
       }
     }
     el.addEventListener(event, listener)
@@ -165,10 +172,16 @@ const applyProp = (
   el.setAttribute(key, String(value))
 }
 
-const applyProps = (el: Element, props: Props, ctx: BuildCtx, scope: Scope.Scope): void => {
+const applyProps = (
+  el: Element,
+  props: Props,
+  context: Context.Context<never>,
+  sink: ErrorSink,
+  scope: Scope.Scope,
+): void => {
   for (const [k, v] of Object.entries(props)) {
     if (k === "children") continue
-    applyProp(el, k, v, ctx, scope)
+    applyProp(el, k, v, context, sink, scope)
   }
 }
 
@@ -205,9 +218,11 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       // Handlers run on the context captured when h() built this element
       // (h captures only when a handler prop exists), so a mid-tree
       // Effect.provide is honored at click time (the runtime side of
-      // FoldPropsR). Children keep the ambient ctx — each element carries
-      // its own capture. Hand-built nodes (no capture) fall back to mount's.
-      applyProps(el, view.props, withContext(ctx, view.context), scope)
+      // FoldPropsR). Pass context+sink straight through — handlers need only
+      // those, so the static-element path never derives a node ctx/runner.
+      // Children keep the ambient ctx. Hand-built nodes (no capture) fall
+      // back to mount's context.
+      applyProps(el, view.props, view.context ?? ctx.context, ctx.sink, scope)
       for (const child of view.children) {
         el.appendChild(buildDom(child, ctx, scope))
       }

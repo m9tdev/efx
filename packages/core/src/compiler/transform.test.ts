@@ -160,11 +160,10 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
     expect(out).not.toContain(`h.track`)
   })
 
-  it("a SHADOWED helper name keeps the wrap — the user's own `list` stays reactive", () => {
-    // `list` is a common identifier; the skip is shadow-aware. A local
-    // binding (const/function/param/import-from-elsewhere) means the call is
-    // the user's function — skipping it would silently de-reactivize
-    // `{list(tags.value)}` with no diagnostic.
+  it("the skip is SCOPE-CORRECT — only a @verrex/core-bound call skips the wrap", () => {
+    // `list` is a common identifier. A call bound to the user's OWN function
+    // (a local const, an import from elsewhere) keeps its h.track wrap so its
+    // reactivity survives; only a call bound to the @verrex/core import skips.
     const local = compile(`
       const list = (xs) => xs.join(", ")
       const x = <p>{list(tags.value)}</p>
@@ -186,27 +185,42 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
     expect(verrex).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
   })
 
-  it("an EAGER .value read in a skip-listed call's arguments is a loud compile error", () => {
-    // `{list(showDone.value ? a : b, row)}` looks reactive and silently
-    // isn't (the skipped call's arguments evaluate once) — reject it with an
-    // actionable message instead of shipping a frozen view. Reads inside the
-    // helper's FUNCTION arguments (thunks, rows, handlers) are fine.
-    expect(() =>
-      compile(`
+  it("an unrelated local `list` binding does NOT disable a real verrex list in the same file", () => {
+    // The round-4 file-level shadow over-approximated: a `.map(list => …)`
+    // param anywhere disabled the file's real verrex list. Scope-correct
+    // resolution keys on the CALL's binding, so the param (scoped to the
+    // arrow) never touches the module-scope verrex `list(...)`.
+    const out = compile(`
+      import { list } from "@verrex/core"
+      const labels = tags.map(list => list.label)
+      const x = <ul>{list(todos, (item) => <li>{item.value}</li>)}</ul>
+    `)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(todos/)
+  })
+
+  it("an eager .value read in a skip-listed call's argument compiles as a one-time read", () => {
+    // No special-casing: `{list(showDone.value ? …)}` reads ONCE at
+    // construction — the same eager semantics a statement read has. It is not
+    // a compile error (round-4 threw here, which also rejected valid
+    // construction-time reads in Catch/Async children — see the test below).
+    const out = compile(`
+      import { list } from "@verrex/core"
       const x = <ul>{list(showDone.value ? doneColl : todoColl, (item) => <li>{item}</li>)}</ul>
-    `)).toThrow(/runs ONCE at construction/)
+    `)
+    expect(out).toContain(`h.read(showDone)`)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
+  })
 
-    expect(() =>
-      compile(`
-      const x = <div>{Async(cond.value ? thunkA : thunkB, { success: (u) => <p>{u}</p> })}</div>
-    `)).toThrow(/runs ONCE at construction/)
-
-    // Inside the thunk: tracked by Async itself — no error.
-    expect(
-      compile(`
-      const x = <div>{Async(() => http.getUser(id.value), { success: (u) => <p>{u}</p> })}</div>
-    `),
-    ).toContain(`h.read(id)`)
+  it("a construction-time .value read in a Catch/Async first-arg child compiles (snapshot)", () => {
+    // A boundary/async child is built once; a `.value` read in its props or
+    // text is a legitimate construction snapshot. Round-4's eager-read throw
+    // wrongly rejected these — they must compile.
+    const catchChild = compile(`
+      import { Catch } from "@verrex/core"
+      const x = <div>{Catch(<h1>{title.value}</h1>, (c) => <p>err</p>)}</div>
+    `)
+    expect(catchChild).toContain(`h.read(title)`)
+    expect(catchChild).not.toMatch(/h\.track\(\(\)\s*=>\s*Catch\(/)
   })
 
   it("MANUAL list() calls are not h.track-wrapped (self-subscribing, channel-carrying)", () => {
