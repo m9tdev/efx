@@ -1,6 +1,13 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { coerceAsync, isAtomRef, makeDepSubscription, recordDep, trackDeps } from "./coerce.ts"
+import {
+  coerceAsync,
+  isAtomRef,
+  makeDepSubscription,
+  recordDep,
+  setTrackDispose,
+  trackDeps,
+} from "./coerce.ts"
 import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
 import type { IntrinsicProps } from "./types/Html.ts"
 import { type Props, View } from "./View.ts"
@@ -35,6 +42,9 @@ const trackImpl = (thunk: () => unknown): unknown => {
     sub.resubscribe(nextDeps)
   }
   const sub = makeDepSubscription(rerun)
+  // h.track has no scope to register a finalizer on; stash dispose so the
+  // mounting subtree's scope (via subscribeRefScoped) tears these subs down.
+  setTrackDispose(derived, sub.dispose)
 
   sub.resubscribe(deps)
   return derived

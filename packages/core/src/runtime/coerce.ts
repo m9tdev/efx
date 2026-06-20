@@ -58,6 +58,31 @@ export const recordDep = (ref: AtomRef.ReadonlyRef<unknown>): void => {
  * its scope tears down), and `closed` lets a caller surface that to its own
  * callers.
  */
+/**
+ * A `h.track` derived `AtomRef` stashes its `makeDepSubscription.dispose` here
+ * so the subtree that mounts it can tear down the derived→underlying-ref
+ * subscriptions on scope close. `h.track` has no scope of its own to register a
+ * finalizer on (it's a plain sync call in a compiled component body), so the
+ * one place that *does* scope the subscription — `subscribeRefScoped` in
+ * `mount.ts` — disposes it via `getTrackDispose`. User refs and `asyncRef`'s
+ * `state` (which owns its own teardown) carry no such tag, so the dispose is
+ * `h.track`-only by construction.
+ */
+const TrackDisposeId = Symbol.for("verrex/trackDispose")
+
+/** Tag `ref` with the `dispose` that tears down its tracked subscriptions. */
+export const setTrackDispose = (
+  ref: AtomRef.ReadonlyRef<unknown>,
+  dispose: () => void,
+): void => {
+  ;(ref as { [TrackDisposeId]?: () => void })[TrackDisposeId] = dispose
+}
+
+/** The tracked-subscription dispose for `ref`, if it is a `h.track` derived. */
+export const getTrackDispose = (
+  ref: AtomRef.ReadonlyRef<unknown>,
+): (() => void) | undefined => (ref as { [TrackDisposeId]?: () => void })[TrackDisposeId]
+
 export const makeDepSubscription = (
   onChange: () => void,
 ): {

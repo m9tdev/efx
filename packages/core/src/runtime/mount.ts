@@ -1,6 +1,6 @@
 import { Cause, Context, Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { coerceSync, type ErrorSink, isAtomRef } from "./coerce.ts"
+import { coerceSync, type ErrorSink, getTrackDispose, isAtomRef } from "./coerce.ts"
 import { plan } from "./reconcile.ts"
 import { type BoundaryState, type Props, View, type ViewNode } from "./View.ts"
 
@@ -48,7 +48,19 @@ const subscribeRefScoped = <A>(
   scope: Scope.Scope,
 ): void => {
   const dispose = ref.subscribe(fn)
-  Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
+  // If `ref` is a `h.track` derived, also tear down its own
+  // derived→underlying-ref subscriptions on scope close — `h.track` has no
+  // scope to do it itself. No-op for user refs / asyncRef state (untagged).
+  const trackDispose = getTrackDispose(ref as AtomRef.ReadonlyRef<unknown>)
+  Effect.runSync(
+    Scope.addFinalizer(
+      scope,
+      Effect.sync(() => {
+        dispose()
+        trackDispose?.()
+      }),
+    ),
+  )
 }
 
 // AtomRegistry uses a different subscribe shape (registry.subscribe(atom, fn))
