@@ -166,33 +166,43 @@ const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set(["Async", "Catch", "l
 const isSelfTrackingCall = (expr: t.Expression, state: RewriteState): boolean =>
   t.isCallExpression(expr) && state.verrexHelperCalls.has(expr)
 
-/** True for a binding introduced by an `import … from "@verrex/core"`. */
-const isVerrexImportBinding = (path: NodePath): boolean =>
-  (path.isImportSpecifier() || path.isImportDefaultSpecifier() ||
-    path.isImportNamespaceSpecifier()) &&
-  // An import specifier's parent is always its ImportDeclaration; this guard
-  // is the type-narrow that makes `.node.source` reachable, not a real branch.
-  path.parentPath.isImportDeclaration() &&
-  path.parentPath.node.source.value === "@verrex/core"
+/**
+ * The self-tracking helper a binding refers to (by its IMPORTED name, so an
+ * alias resolves correctly), or `null`. Only a NAMED import from
+ * `@verrex/core` qualifies — a default/namespace import isn't one of these
+ * helpers, and a local binding (const/function/param) is the user's own.
+ */
+const importedHelperName = (path: NodePath): string | null => {
+  if (!path.isImportSpecifier()) return null
+  const decl = path.parentPath
+  if (!decl.isImportDeclaration() || decl.node.source.value !== "@verrex/core") return null
+  const imported = path.node.imported
+  const name = t.isIdentifier(imported) ? imported.name : imported.value
+  return SELF_TRACKING_HELPERS.has(name) ? name : null
+}
 
 /**
  * Collect the exact `Async`/`Catch`/`list` call NODES that resolve to the
  * `@verrex/core` helper, resolving each callee's binding in its own scope
  * (`path.scope.getBinding`) — so a `list` param inside one arrow never
  * disables the real verrex `list` elsewhere in the same file. A call is the
- * helper when its callee binds to a `@verrex/core` import, OR is UNRESOLVED
- * (the compiler-injected `list` from the `.value.map` rewrite, or a name the
- * user forgot to import — a TS error regardless, so skip-vs-wrap is moot).
- * A LOCAL binding means the user's own function: not a helper.
+ * helper when its callee binds to a `@verrex/core` import of a helper name
+ * (by IMPORTED name — `import { Async as A }` ⇒ `A(...)` qualifies), OR is
+ * UNRESOLVED with a helper name (the compiler-injected `list` from the
+ * `.value.map` rewrite, or a name the user forgot to import — a TS error
+ * regardless, so skip-vs-wrap is moot). A LOCAL binding, or an import of the
+ * name from elsewhere, is the user's own function: not a helper.
  */
 const resolveHelperCalls = (ast: t.Node): Set<t.Node> => {
   const helpers = new Set<t.Node>()
   traverse(ast, {
     CallExpression(path: NodePath<t.CallExpression>) {
       const callee = path.node.callee
-      if (!t.isIdentifier(callee) || !SELF_TRACKING_HELPERS.has(callee.name)) return
+      if (!t.isIdentifier(callee)) return
       const binding = path.scope.getBinding(callee.name)
-      if (!binding || isVerrexImportBinding(binding.path)) helpers.add(path.node)
+      if (binding ? importedHelperName(binding.path) !== null : SELF_TRACKING_HELPERS.has(callee.name)) {
+        helpers.add(path.node)
+      }
     },
   })
   return helpers

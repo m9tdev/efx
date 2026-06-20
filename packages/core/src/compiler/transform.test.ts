@@ -183,6 +183,14 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
       const x = <ul>{list(todos, (item) => <li>{item.value}</li>)}</ul>
     `)
     expect(verrex).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
+
+    // An ALIASED @verrex/core import resolves by the IMPORTED name → skips.
+    const aliased = compile(`
+      import { Async as A } from "@verrex/core"
+      const x = <div>{A(() => http.get(id.value), { success: (v) => <span>{v}</span> })}</div>
+    `)
+    expect(aliased).toContain(`h.read(id)`)
+    expect(aliased).not.toMatch(/h\.track\(\(\)\s*=>\s*A\(/)
   })
 
   it("an unrelated local `list` binding does NOT disable a real verrex list in the same file", () => {
