@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Fiber, Layer, Option, Queue, Scope, type Types } from "effect"
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { coerceAsync, type ErrorSink, isAtomRef, trackDeps } from "./coerce.ts"
+import { coerceAsync, type ErrorSink, isAtomRef, makeDepSubscription, trackDeps } from "./coerce.ts"
 import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
 import { type BoundaryState, type Props, View } from "./View.ts"
 
@@ -116,17 +116,20 @@ export const asyncRef = <A, E, R>(
     // running the thunk under dep-tracking; each tracked ref's change enqueues
     // a fresh run (re-running the thunk to pick up new ref values + deps).
     const runs = yield* Queue.unbounded<Effect.Effect<A, E, R>>()
-    let unsubs: Array<() => void> = []
-    let closed = false
+    // `sub` owns the dep-subscription bookkeeping (resubscribe-fresh per run,
+    // the non-idempotent-unsubscribe guard, the closed-after-teardown gate);
+    // its `onChange` fires `schedule`, defined below.
+    let schedule: () => boolean
+    const sub = makeDepSubscription(() => schedule())
 
-    const schedule = (): boolean => {
+    schedule = (): boolean => {
       // `schedule` escapes this scope as `refetch`/`retry` (handed to failure
       // arms), so a retained reference can fire after teardown — a stashed
       // retry in a setTimeout, a click racing a boundary swap. Once the scope
       // closes this must be a no-op: re-subscribing would register
       // subscriptions the (already-run) finalizer can never clean, and the
       // queue's only consumer is dead. `false` is the caller's only signal.
-      if (closed) return false
+      if (sub.closed) return false
       // Flip to waiting SYNCHRONOUSLY, before the run is even enqueued: a
       // rebuild in the same tick — `refetch(); reset()` in either order —
       // must observe waiting, not re-escalate the stale non-waiting Failure.
@@ -135,24 +138,13 @@ export const asyncRef = <A, E, R>(
       // between. At construction the state is already Initial(waiting) — the
       // set dedups to a no-op.)
       state.set(AsyncResult.waitingFrom(Option.some(state.value)))
-      for (const u of unsubs) u()
-      unsubs = []
       const { result: eff, deps } = trackDeps(effect)
-      for (const dep of deps) unsubs.push(dep.subscribe(schedule))
+      sub.resubscribe(deps)
       Queue.offerUnsafe(runs, eff)
       return true
     }
     schedule() // initial run + dep subscriptions
-    yield* Scope.addFinalizer(
-      scope,
-      Effect.sync(() => {
-        closed = true
-        for (const u of unsubs) u()
-        // Cleared so nothing can ever replay the already-run unsubscribers —
-        // AtomRef's unsubscribe is not idempotent.
-        unsubs = []
-      }),
-    )
+    yield* Scope.addFinalizer(scope, Effect.sync(() => sub.dispose()))
 
     // Supervisor loop on the mount fiber: one child at a time; a new run
     // interrupts the prior. Scope close interrupts loop + live child.
