@@ -170,6 +170,8 @@ const isSelfTrackingCall = (expr: t.Expression, state: RewriteState): boolean =>
 const isVerrexImportBinding = (path: NodePath): boolean =>
   (path.isImportSpecifier() || path.isImportDefaultSpecifier() ||
     path.isImportNamespaceSpecifier()) &&
+  // An import specifier's parent is always its ImportDeclaration; this guard
+  // is the type-narrow that makes `.node.source` reachable, not a real branch.
   path.parentPath.isImportDeclaration() &&
   path.parentPath.node.source.value === "@verrex/core"
 

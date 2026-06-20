@@ -73,7 +73,7 @@ the editor margin. If you rename them, update the regex.
 | `Component.ts` | `Component.make` — the canonical component constructor (traced `Effect.fn` seam + compiler-filled name slot). `Component.test.ts` pins the span-in-Cause; `Component.test-d.ts` pins the channel inference and generic preservation |
 | `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`; takes a `SyncRunner` — runs on the owning node's context, with an `Exit` fast path so `Effect.succeed` children don't spin a fiber). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`), `isHandlerKey` (THE handler-key gate, shared with `applyProp` + `h()`'s capture predicate, mirrored by the type fold), and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Async`) |
 | `View.ts` | `View<E>` IR. The runtime shape is `ViewNode` — a hand-written union of 7 phantom-free named interfaces (`ViewText`…`ViewBoundary`, `ViewEmpty`); constructors via `Data.taggedEnum<ViewNode>()`. `View<E = never> = ViewNode & ViewErr<E>` layers the runtime-error channel on via a covariant phantom (`ViewErr`), so `View<HttpError>` ⊄ `View<never>` (mount can require it) while a `ViewNode` ⊂ any `View<E>` (constructors need no casts). Plus `isView`, `VIEW_TAGS` |
-| `mount.ts` | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink }`), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures) |
+| `mount.ts` | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink, runSyncExit }` — `runSyncExit` is a context-paired `Effect.runSyncExitWith` cache for `coerceSync`; the Element handler path takes `context`/`sink` directly, never the ctx), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures) |
 | `reconcile.ts` | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops |
 | `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`, `VerrexLive` |
 | `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
@@ -217,12 +217,14 @@ a variant is a coordinated edit across two files:
     source. Often one of the two is enough.
   - **Context capture** — if the variant runs user code AFTER
     construction (re-renders, rows, fallbacks, handlers), it MUST
-    capture the construction context and mount must build through
-    `withContext` — see the variant matrix in "Per-NODE context
-    capture" below. Nothing forces this (the `context` field is
-    optional and mount silently falls back to the root context), so
-    a missed capture is the rows-die-under-mid-tree-provide bug
-    class all over again.
+    capture the construction context. A DYNAMIC-render variant (built
+    via `coerceSync`) builds through `withContext`; the Element
+    handler path instead passes `view.context`/`sink` straight to
+    `applyProps` (handlers need only those) — see the variant matrix
+    in "Per-NODE context capture" below. Nothing forces this (the
+    `context` field is optional and mount silently falls back to the
+    root context), so a missed capture is the
+    rows-die-under-mid-tree-provide bug class all over again.
 
 Channels are unaffected — they're folded at the `h()` call site
 via `FoldE`/`FoldR`, which operate on input child *shapes*
@@ -397,10 +399,16 @@ into a local *before* it (`const id = userId.value; Async(() => http.getUser(id)
 captures a snapshot and won't refetch — ordinary eager-read semantics.
 
 **The compiler skips the `h.track` wrap for `Async(...)` calls** (`isSelfTrackingCall`
-in the compiler — the same guard covers `Catch`) — `Async` self-tracks, and
+in the compiler — the same guard covers `Catch` and manual `list()`, whose
+return carries the folded row channels) — `Async` self-tracks, and
 `h.track`'s `unknown` return would erase its `Effect<View, never, R | Scope>`
 channels from the `h()` fold. The inner `.value`→`h.read` rewrite is kept (the
-tracker needs it). Matched by callee name, so import `Async`/`Catch`/`list` unaliased (manual `list()` calls are skip-listed too — their return carries the folded row channels).
+tracker needs it). Which calls skip is decided **scope-correctly**
+(`resolveHelperCalls`): a call whose callee binds to the `@verrex/core` import
+is skipped *regardless of alias* (`import { Async as A }` → `A(...)` skips),
+and a same-named call bound to the user's own function keeps its wrap. (An
+`@verrex/core` helper re-exported through a user barrel is the one miss —
+single-file resolution can't follow the chain.)
 
 Neither is a View IR variant. `asyncRef` builds an `AtomRef<AsyncResult>`; `Async`
 maps it through `AsyncResult.match` and returns a `View.Reactive` — the existing
@@ -508,7 +516,8 @@ overloads that front it.
 Unlike `Async`, this **is** a View IR variant (`Boundary`) — the sink-swap for
 the child subtree is a `buildDom`-time concern an existing `Reactive` can't
 express. The compiler skips the `h.track` wrap for `Catch(...)` calls (in
-`isSelfTrackingCall` alongside `Async`); import `Catch` unaliased.
+`isSelfTrackingCall` alongside `Async`/`list`; scope-correct, so an aliased
+`@verrex/core` import is fine — see the `Async` section above).
 
 **Scope/fiber lifetime is uniform across the runtime** — internalize this when
 touching any of it: construction effects bind to a per-build scope (above),

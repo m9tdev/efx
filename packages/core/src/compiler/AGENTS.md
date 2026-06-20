@@ -204,7 +204,8 @@ visitor in `transformVerrex`). Deliberately narrow and additive:
   argument, bound by a plain identifier declarator (`const X = …`,
   exported or not). A second argument already present (an explicit name)
   is left alone.
-- Matched by name, like `isSelfTrackingCall` — an aliased import
+- Matched by name on the `Component.make` member shape (unlike
+  `isSelfTrackingCall`, which is now scope-correct) — an aliased import
   (`import { Component as C }`) defeats it, which **fails soft**: the
   component still works, its span is just anonymous. No diagnostic.
 - `Component` is NOT auto-imported (it only appears in this rewrite when
