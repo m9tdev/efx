@@ -31,7 +31,7 @@
     "@volar/language-core": "^2.4.28",
     "@volar/typescript": "^2.4.28",
     "@effect/vitest": "4.0.0-beta.78",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "typescript": "^6.0.3"
   }
 }
