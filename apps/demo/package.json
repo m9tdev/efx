@@ -16,6 +16,6 @@
   },
   "devDependencies": {
     "@verrex/ts-plugin": "workspace:*",
-    "vite": "^8.0.16"
+    "vite": "^8.1.3"
   }
 }
