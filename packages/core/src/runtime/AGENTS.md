@@ -166,7 +166,12 @@ derived→underlying-ref subscriptions outlived the subtree, re-running the
 thunk for the life of the underlying ref. Pinned by
 `testing/track-teardown.test.ts`. Assumes one derived is mounted at one
 site (one body-eval → one derived → one Reactive/prop node); a rebuild
-reruns the body and produces a fresh derived.
+reruns the body and produces a fresh derived. **Guarantee boundary:** the
+dispose only fires for deriveds that reach `subscribeRefScoped` — a
+derived that is created but never mounted (e.g. `buildDom` throws partway
+through a subtree after some `h.track` calls already ran) still leaks its
+subs. Acceptable for now; revisit if a tracked expression can be
+evaluated without its node attaching.
 
 ## View IR
 
