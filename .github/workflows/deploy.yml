@@ -11,7 +11,8 @@ on:
 permissions:
   contents: read
 
-# One Pages deploy at a time; let an in-flight deploy finish.
+# One deploy to gh-pages at a time; let an in-flight deploy finish so it
+# isn't cut off mid-push (which could leave the branch inconsistent).
 concurrency:
   group: github-pages
   cancel-in-progress: false
@@ -21,12 +22,11 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      # Publishing to the gh-pages branch is a git push, not a Pages-artifact
+      # upload — so we need contents:write here (and nothing else). The Pages
+      # source is set to "Deploy from a branch: gh-pages", which is what lets
+      # PR previews live as subpaths of the same site (see preview.yml).
+      contents: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -51,10 +51,19 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - run: pnpm --filter verrex-demo exec vite build --base=/verrex/
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+
+      - name: Publish to gh-pages
+        uses: JamesIves/github-pages-deploy-action@d92aa235d04922e8f08b40ce78cc5442fcfbfa2f # v4.8.0
         with:
-          path: apps/demo/dist
-      - id: deploy
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+          branch: gh-pages
+          folder: apps/demo/dist
+          # clean:true purges the branch of last deploy's stale hashed assets,
+          # but clean-exclude keeps the previews umbrella so a production
+          # deploy never deletes an open PR's preview. force:false rebases
+          # instead of force-pushing, so it doesn't clobber a preview push
+          # that landed concurrently.
+          clean: true
+          clean-exclude: |
+            pr-preview/
+          force: false
