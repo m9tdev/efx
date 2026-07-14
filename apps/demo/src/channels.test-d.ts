@@ -6,7 +6,7 @@
  */
 import type { Cause, Chunk, Option, Result, Scope } from "effect"
 import { Effect } from "effect"
-import type { AtomRef, AtomRegistry } from "effect/unstable/reactivity"
+import type { AtomRef } from "effect/unstable/reactivity"
 import { Async, type AsyncHandle, Catch, type EventHandler, h, list, mount, type View } from "@verrex/core"
 import { AsyncEscalate } from "./AsyncEscalate.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
