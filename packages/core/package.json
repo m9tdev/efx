@@ -100,7 +100,7 @@
     "test": "vitest run && node --experimental-strip-types test/check/integration.mjs"
   },
   "dependencies": {
-    "@babel/generator": "^7.29.7",
+    "@babel/generator": "^8.0.0",
     "@babel/parser": "^7.29.7",
     "@babel/traverse": "^7.29.7",
     "@babel/types": "^7.29.7",
