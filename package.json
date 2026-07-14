@@ -12,9 +12,9 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.2",
-    "playwright-core": "^1.60.0",
+    "playwright-core": "^1.61.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@11.3.0"
 }

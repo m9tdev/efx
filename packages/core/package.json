@@ -116,7 +116,7 @@
   "peerDependencies": {
     "effect": "4.0.0-beta.98",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.1.4"
   },
   "peerDependenciesMeta": {
     "typescript": {
@@ -131,9 +131,9 @@
     "@types/babel__generator": "^7",
     "@types/babel__traverse": "^7",
     "effect": "4.0.0-beta.98",
-    "happy-dom": "^20.10.2",
+    "happy-dom": "^20.10.6",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16",
-    "vitest": "^4.1.8"
+    "vite": "^8.1.4",
+    "vitest": "^4.1.10"
   }
 }
