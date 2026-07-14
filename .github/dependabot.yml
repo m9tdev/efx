@@ -15,6 +15,14 @@ updates:
     schedule:
       interval: weekly
     groups:
+      # The Babel family must move as a unit: @babel/* self-type since v8, so a
+      # partial bump (e.g. only @babel/types) leaves a second, mismatched
+      # @babel/types in the tree and breaks tsc. Listed first so babel updates
+      # of ANY level (incl. majors) land in one PR instead of per-package ones.
+      babel:
+        patterns:
+          - "@babel/*"
+          - "@types/babel__*"
       minor-and-patch:
         update-types:
           - minor
