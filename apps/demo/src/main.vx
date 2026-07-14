@@ -448,23 +448,30 @@ const setupDemo = <E,>(
     // instead of a compile error here — and to discharge the `E` channel uniformly
     // (UserPage carries HttpError). The happy paths don't fail, so they render
     // through unchanged; this is also where the boundary itself gets exercised.
+    // Build APP_LAYER INTO the demo's scope (not `Effect.provide`, which scopes
+    // it to the mount effect — an effect that completes once the DOM attaches).
+    // The AtomRegistry must outlive the mounted UI: reactive expressions
+    // (`h.track` deriveds) and Atom sources live in it, and disposing it severs
+    // every subscription. Closing the demo scope on ↻ reset disposes it.
     Effect.runFork(
       Scope.provide(
-        mount(
-          Catch(make(), (cause) => (
-            <div class="demo-error">
-              <strong>this demo failed:</strong>
-              <pre>{Cause.pretty(cause)}</pre>
-            </div>
-          )),
-          container,
-        ).pipe(
-          Effect.catchCause((cause) =>
-            Effect.sync(() =>
-              console.error(`[verrex demo: ${id}]`, Cause.pretty(cause)),
+        Effect.flatMap(Layer.build(APP_LAYER), (ctx) =>
+          mount(
+            Catch(make(), (cause) => (
+              <div class="demo-error">
+                <strong>this demo failed:</strong>
+                <pre>{Cause.pretty(cause)}</pre>
+              </div>
+            )),
+            container,
+          ).pipe(
+            Effect.catchCause((cause) =>
+              Effect.sync(() =>
+                console.error(`[verrex demo: ${id}]`, Cause.pretty(cause)),
+              ),
             ),
+            Effect.provideContext(ctx),
           ),
-          Effect.provide(APP_LAYER),
         ),
         scope,
       ),
