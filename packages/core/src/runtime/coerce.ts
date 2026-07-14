@@ -44,6 +44,49 @@ export const recordDep = (ref: AtomRef.ReadonlyRef<unknown>): void => {
   if (currentTracker) currentTracker.add(ref)
 }
 
+/**
+ * Owns the subscribe/resubscribe/teardown bookkeeping that `h.track` and
+ * `asyncRef` both need: a fresh set of dependency subscriptions on every run,
+ * each firing `onChange`. Both callers re-run a thunk under `trackDeps` and
+ * must re-subscribe to whatever refs that run read (a ternary's other branch,
+ * an effect's new deps), so the prior subscriptions are dropped first.
+ *
+ * The `unsubs` array is nulled after each teardown because `AtomRef`'s
+ * unsubscribe is **not idempotent** — replaying a stale unsubscriber would
+ * corrupt a later subscription's bookkeeping. Once `dispose`d the manager is
+ * inert: `resubscribe` is a no-op (a retained `refetch`/derived can fire after
+ * its scope tears down), and `closed` lets a caller surface that to its own
+ * callers.
+ */
+export const makeDepSubscription = (
+  onChange: () => void,
+): {
+  resubscribe: (deps: Iterable<AtomRef.ReadonlyRef<unknown>>) => void
+  dispose: () => void
+  readonly closed: boolean
+} => {
+  let unsubs: Array<() => void> = []
+  let closed = false
+  const unsubscribeAll = () => {
+    for (const u of unsubs) u()
+    unsubs = []
+  }
+  return {
+    resubscribe: (deps) => {
+      if (closed) return
+      unsubscribeAll()
+      for (const dep of deps) unsubs.push(dep.subscribe(onChange))
+    },
+    dispose: () => {
+      closed = true
+      unsubscribeAll()
+    },
+    get closed() {
+      return closed
+    },
+  }
+}
+
 const Empty = View.Empty()
 
 export function coerceAsync<C>(v: C): Effect.Effect<View, ChildE<C>, ChildR<C>>
