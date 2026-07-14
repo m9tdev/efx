@@ -106,11 +106,15 @@ const renderImpl = async (
   const discharged = Effect.catchCause(app, (cause) =>
     Effect.die(Cause.squash(cause)),
   )
+  // Build the layers INTO the harness scope (not `Effect.provide`, which would
+  // scope them to the mount effect — an effect that completes as soon as the
+  // DOM attaches). The AtomRegistry must outlive the mounted UI: `h.track`
+  // deriveds and Atom sources live in it, and disposing it severs every
+  // subscription. Closing the harness scope in `unmount()` disposes it.
   await Effect.runPromise(
     Scope.provide(
-      mount(discharged, container).pipe(
-        Effect.provide(layer),
-        Effect.provide(VerrexLive),
+      Effect.flatMap(Layer.build(Layer.merge(layer, VerrexLive)), (ctx) =>
+        Effect.provideContext(mount(discharged, container), ctx),
       ),
       scope,
     ),

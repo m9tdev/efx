@@ -75,9 +75,9 @@ and keeps its hint. If you rename a slot, update the regex.
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `h.ts`                 | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `Component.ts`         | `Component.make` — the canonical component constructor (traced `Effect.fn` seam + compiler-filled name slot). `Component.test.ts` pins the span-in-Cause; `Component.test-d.ts` pins the channel inference and generic preservation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `coerce.ts`            | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`; takes a `SyncRunner` — runs on the owning node's context, with an `Exit` fast path so `Effect.succeed` children don't spin a fiber). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`), `isHandlerKey` (THE handler-key gate, shared with `applyProp` + `h()`'s capture predicate, mirrored by the type fold), the shared dependency tracker `trackDeps`/`recordDep` and the subscription-lifecycle manager `makeDepSubscription` (both used by `h.track` and `Async`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `coerce.ts`            | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`; takes a `SyncRunner` — runs on the owning node's context, with an `Exit` fast path so `Effect.succeed` children don't spin a fiber). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`), `isHandlerKey` (THE handler-key gate, shared with `applyProp` + `h()`'s capture predicate, mirrored by the type fold), the shared dependency tracker `trackDeps`/`recordDep` (used by `h.track` and `Async`), `bridgeAtom` (the AtomRef→Atom bridge `h.track` deriveds depend through), and `makeDepSubscription` (the manual subscription manager, now `asyncRef`-only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `View.ts`              | `View<E>` IR. The runtime shape is `ViewNode` — a hand-written union of 7 phantom-free named interfaces (`ViewText`…`ViewBoundary`, `ViewEmpty`); constructors via `Data.taggedEnum<ViewNode>()`. `View<E = never> = ViewNode & ViewErr<E>` layers the runtime-error channel on via a covariant phantom (`ViewErr`), so `View<HttpError>` ⊄ `View<never>` (mount can require it) while a `ViewNode` ⊂ any `View<E>` (constructors need no casts). Plus `isView`, `VIEW_TAGS`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `mount.ts`             | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink, runSyncExit }` — `runSyncExit` is a context-paired `Effect.runSyncExitWith` cache for `coerceSync`; the Element handler path takes `context`/`sink` directly, never the ctx), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures). Form-control props (`value`/`checked`/`selected`/`indeterminate`) write DOM _properties_ — post-dirty-flag, attributes stop mirroring — with initial writes deferred past the children loop (`select.value` needs its `<option>`s) and guarded against no-op writes (caret); pins in `testing/form-props.test.ts`. **Known limitation (#156):** options arriving _after_ the value write silently reset the select to its first option |
+| `mount.ts`             | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink, runSyncExit }` — `runSyncExit` is a context-paired `Effect.runSyncExitWith` cache for `coerceSync`; the Element handler path takes `context`/`sink`/`registry` directly, never the ctx), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures). Form-control props (`value`/`checked`/`selected`/`indeterminate`) write DOM _properties_ — post-dirty-flag, attributes stop mirroring — with initial writes deferred past the children loop (`select.value` needs its `<option>`s) and guarded against no-op writes (caret); pins in `testing/form-props.test.ts`. **Known limitation (#156):** options arriving _after_ the value write silently reset the select to its first option |
 | `reconcile.ts`         | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `index.ts`             | Public exports + `list`, `Async`, `asyncRef`, `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`, `VerrexLive`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `coerce.test.ts`       | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -159,41 +159,60 @@ The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
 1. `trackDeps` sets a module-level collector to a fresh dep set.
 2. Runs the thunk; `h.read`→`recordDep` adds to the set per AtomRef.
 3. **If the set is empty**, returns the thunk's result directly
-   (no AtomRef wrap, no reactivity overhead — and the caller's
+   (no Atom wrap, no reactivity overhead — and the caller's
    static typing is preserved).
-4. **If the set is non-empty**, creates a derived `AtomRef`, sets
-   its initial value to the thunk's result, subscribes to every
-   tracked ref, re-runs the thunk on change.
-5. Deps are re-collected on every rerun (a ternary may read
-   different refs on its other branch). Old subs are dropped first.
+4. **If the set is non-empty**, returns a **demand-driven derived
+   `Atom`** (`Atom.readable`): its read re-runs the thunk and declares
+   each ref the run read as a graph dependency via `bridgeAtom` (the
+   AtomRef→Atom bridge in `coerce.ts` — an Atom that subscribes to the
+   ref, pushes changes via `setSelf`, unsubscribes in its node
+   finalizer; memoized per ref in a WeakMap because the graph keys deps
+   by atom object identity).
+5. The **`AtomRegistry` owns the whole subscription lifecycle by
+   refcount** — no manual teardown anywhere: deps switching between
+   runs (a ternary's other branch) drop the unused bridge; unmounting
+   the subtree (the registry-subscribe finalizer on the subtree's
+   `Scope`) drops everything; a derived that is created but **never
+   mounted never subscribes to anything** (laziness — the old
+   "created-but-unmounted leaks" boundary is gone by construction);
+   multi-site mounting is just refcount. Pinned by
+   `testing/track-teardown.test.ts` (unmount + subtree-churn cases).
 
 **Invariant: the empty-deps early return is load-bearing.** Without
 it, every `<Row item={item} />` would erase `item`'s generic type to
 `unknown`.
 
-**The resubscribe-fresh bookkeeping is `makeDepSubscription` (in
-`coerce.ts`), shared by `h.track` and `asyncRef`.** It owns the one
-thing both got identically wrong-prone: drop-all-then-resubscribe per
-run, the **non-idempotent AtomRef unsubscribe** guard (null the array
-after teardown), and a `closed` gate so a retained `refetch`/derived is
-inert after its scope tears down. Each caller still runs its own
-`trackDeps` and handles its own result — only the subscription lifecycle
-lives behind the seam. Unit-tested directly in
-`dep-subscription.test.ts`. **Teardown asymmetry, resolved:** `asyncRef`
-calls `dispose()` in its finalizer; `h.track` has no scope to hang one
-on, so it stashes `dispose` on the derived via `setTrackDispose` and the
-mounting subtree's `subscribeRefScoped` (mount.ts) disposes it on scope
-close via `getTrackDispose`. Without this the derived's
-derived→underlying-ref subscriptions outlived the subtree, re-running the
-thunk for the life of the underlying ref. Pinned by
-`testing/track-teardown.test.ts`. Assumes one derived is mounted at one
-site (one body-eval → one derived → one Reactive/prop node); a rebuild
-reruns the body and produces a fresh derived. **Guarantee boundary:** the
-dispose only fires for deriveds that reach `subscribeRefScoped` — a
-derived that is created but never mounted (e.g. `buildDom` throws partway
-through a subtree after some `h.track` calls already ran) still leaks its
-subs. Acceptable for now; revisit if a tracked expression can be
-evaluated without its node attaching.
+**Invariant: the registry never executes user Effects.** The derived's
+read is the sync thunk; a value it produces that happens to be an
+Effect is executed by mount (`coerceSync`), same as any reactive
+emission. All user-Effect execution stays in mount/construction where
+`R` is provided and type-tracked — `Atom.make`'s effectful overload is
+pinned to `R = Scope | AtomRegistry` by effect itself, so this can't
+regress silently.
+
+**Invariant: the `AtomRegistry` must outlive the mount's `Scope`.**
+`h.track` deriveds and Atom sources live in the registry; disposing it
+severs every subscription silently. `Effect.provide(VerrexLive)` around
+a mount effect is WRONG — the mount effect completes once the DOM
+attaches, and the layer's finalizer disposes the registry out from
+under the live UI. Build the layer into the long-lived scope instead
+(`Layer.build` under `Scope.provide`; see `testing/index.ts` and the
+demo's `setupDemo`).
+
+**Timing:** dep-change propagation (bridge `setSelf` → derived recompute
+→ mount listener) is **synchronous** — DOM update timing is unchanged.
+Orphaned-node **disposal is scheduled** (`scheduleTask(..., 0)`), so a
+dropped derived's bridge unsubscribes a tick after the subtree goes away
+— tests asserting teardown await a tick (full registry dispose at scope
+close is synchronous).
+
+**`asyncRef` still uses `makeDepSubscription`** (in `coerce.ts`) — the
+manual drop-all-then-resubscribe manager with the non-idempotent
+AtomRef-unsubscribe guard and the `closed` gate (a retained `refetch`
+must be inert after its scope tears down). It disposes in its own scope
+finalizer. Unit-tested in `dep-subscription.test.ts`. Migrating it onto
+the registry is possible but is its own design question (its read is
+effectful — see the registry-never-executes-user-Effects invariant).
 
 ## View IR
 
@@ -789,9 +808,9 @@ not a generics workaround (the compiler still rewrites
 
 The caveat: a **tracked attr** still widens. An attr value containing a
 `.value` read gets wrapped in `h.track(() => …)`, whose return type is
-`T | ReadonlyRef<T>` — the honest union of its two runtime paths (the
-value when nothing was read, a derived ref when something was) — so
-`<Row item={ref.value}/>` passes `item: string | ReadonlyRef<string>`
+`T | Atom<T>` — the honest union of its two runtime paths (the
+value when nothing was read, a derived Atom when something was) — so
+`<Row item={ref.value}/>` passes `item: string | Atom<string>`
 rather than the `string` the prop wants. It was `unknown` until #159,
 which is why an unlisted `on*` handler could launder its channels away;
 both members of the union now fold. Static
@@ -803,7 +822,7 @@ _body_ reads `.value` — which is what lets a handler's `E`/`R` reach the
 props fold. The erasure is now scoped to non-function reactive attrs
 (`item={ref.value}`). Note the distinct case of a reactive attr on a
 DECLARED handler key — `onclick={cond.value ? a : b}` — which doesn't
-erase but is _rejected_: `h.track`'s `ReadonlyRef` member fails the
+erase but is _rejected_: `h.track`'s `Atom` member fails the
 declared `HandlerSlot<Ev>`. Since #159 that rejection is uniform: the
 old `unknown` return was invisible on unlisted `on*` keys, which pass
 through the `Record<string, unknown>` half of the intersection — so the

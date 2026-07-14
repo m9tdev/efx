@@ -57,11 +57,13 @@ export const recordDep = (ref: AtomRef.ReadonlyRef<unknown>): void => {
 }
 
 /**
- * Owns the subscribe/resubscribe/teardown bookkeeping that `h.track` and
- * `asyncRef` both need: a fresh set of dependency subscriptions on every run,
- * each firing `onChange`. Both callers re-run a thunk under `trackDeps` and
- * must re-subscribe to whatever refs that run read (a ternary's other branch,
- * an effect's new deps), so the prior subscriptions are dropped first.
+ * Owns the subscribe/resubscribe/teardown bookkeeping `asyncRef` needs: a
+ * fresh set of dependency subscriptions on every run, each firing `onChange`.
+ * The caller re-runs a thunk under `trackDeps` and must re-subscribe to
+ * whatever refs that run read (an effect's new deps), so the prior
+ * subscriptions are dropped first. (`h.track` used to share this; it is now
+ * a demand-driven `Atom` — see `bridgeAtom` — whose registry owns the same
+ * lifecycle by refcount.)
  *
  * The `unsubs` array is nulled after each teardown because `AtomRef`'s
  * unsubscribe is **not idempotent** — replaying a stale unsubscriber would
@@ -100,30 +102,30 @@ export const makeDepSubscription = (
 }
 
 /**
- * A `h.track` derived `AtomRef` stashes its `makeDepSubscription.dispose` here
- * so the subtree that mounts it can tear down the derived→underlying-ref
- * subscriptions on scope close. `h.track` has no scope of its own to register a
- * finalizer on (it's a plain sync call in a compiled component body), so the
- * one place that *does* scope the subscription — `subscribeRefScoped` in
- * `mount.ts` — disposes it via `getTrackDispose`. User refs and `asyncRef`'s
- * `state` (which owns its own teardown) carry no such tag, so the dispose is
- * `h.track`-only by construction.
+ * The AtomRef→Atom bridge. An `Atom`'s read context tracks only `Atom`
+ * dependencies, so a tracked thunk's `AtomRef` deps enter the reactive graph
+ * through this: an Atom that subscribes to the ref (pushing changes via
+ * `setSelf`) and unsubscribes in its node finalizer — the same
+ * external-source pattern effect uses internally. The registry refcounts the
+ * node, so the ref subscription exists exactly while something downstream
+ * (a mounted `h.track` derived) is subscribed — no manual teardown anywhere.
+ *
+ * Memoized per ref: the graph keys dependencies by atom object identity, so
+ * every `h.track` derived reading the same ref must `get` the same bridge.
  */
-const TrackDisposeId = Symbol.for("verrex/trackDispose")
+const bridgeCache = new WeakMap<AtomRef.ReadonlyRef<unknown>, Atom.Atom<unknown>>()
 
-/** Tag `ref` with the `dispose` that tears down its tracked subscriptions. */
-export const setTrackDispose = (
-  ref: AtomRef.ReadonlyRef<unknown>,
-  dispose: () => void,
-): void => {
-  ;(ref as { [TrackDisposeId]?: () => void })[TrackDisposeId] = dispose
+export const bridgeAtom = (ref: AtomRef.ReadonlyRef<unknown>): Atom.Atom<unknown> => {
+  let atom = bridgeCache.get(ref)
+  if (atom === undefined) {
+    atom = Atom.readable((get) => {
+      get.addFinalizer(ref.subscribe((v) => get.setSelf(v)))
+      return ref.value
+    })
+    bridgeCache.set(ref, atom)
+  }
+  return atom
 }
-
-/** The tracked-subscription dispose for `ref`, if it is a `h.track` derived. */
-export const getTrackDispose = (
-  ref: AtomRef.ReadonlyRef<unknown>,
-): (() => void) | undefined =>
-  (ref as { [TrackDisposeId]?: () => void })[TrackDisposeId]
 
 const Empty = View.Empty()
 

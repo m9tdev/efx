@@ -3,7 +3,6 @@ import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import {
   coerceSync,
   type ErrorSink,
-  getTrackDispose,
   isAtomRef,
   isHandlerKey,
   type SyncRunner,
@@ -49,15 +48,19 @@ const withContext = (
         runSyncExit: Effect.runSyncExitWith(context),
       }
 
-// The two deps a prop application consumes: the element's construction-captured
+// The deps a prop application consumes: the element's construction-captured
 // `context` (the runtime side of FoldPropsR — a mid-tree provide is honored at
-// dispatch) and the `sink` a handler failure routes to. They travel together
-// through applyProps → applyProp → the recursive AtomRef re-dispatch, so they
-// ride as one value. Deliberately NOT the full `BuildCtx`: the static-element
-// path must not derive a node ctx + `runSyncExit` runner it would never read.
+// dispatch), the `sink` a handler failure routes to, and the `registry` an
+// Atom-valued prop (a `h.track` derived) is read/subscribed through. They
+// travel together through applyProps → applyProp → the recursive reactive
+// re-dispatch, so they ride as one value. Deliberately NOT the full
+// `BuildCtx`: the static-element path must not derive a node ctx +
+// `runSyncExit` runner it would never read (registry is the mount-stable
+// singleton — no derivation, unlike the runner).
 interface HandlerDeps {
   readonly context: Context.Context<never>
   readonly sink: ErrorSink
+  readonly registry: AtomRegistry.AtomRegistry
 }
 
 // Fire-and-forget an event-handler Effect. Runs on the element's captured
@@ -104,19 +107,7 @@ const subscribeRefScoped = <A>(
   scope: Scope.Scope,
 ): void => {
   const dispose = ref.subscribe(fn)
-  // If `ref` is a `h.track` derived, also tear down its own
-  // derived→underlying-ref subscriptions on scope close — `h.track` has no
-  // scope to do it itself. No-op for user refs / asyncRef state (untagged).
-  const trackDispose = getTrackDispose(ref as AtomRef.ReadonlyRef<unknown>)
-  Effect.runSync(
-    Scope.addFinalizer(
-      scope,
-      Effect.sync(() => {
-        dispose()
-        trackDispose?.()
-      }),
-    ),
-  )
+  Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
 }
 
 // AtomRegistry uses a different subscribe shape (registry.subscribe(atom, fn))
@@ -157,9 +148,10 @@ const applyProp = (
   scope: Scope.Scope,
   deferred?: Array<() => void>,
 ): void => {
-  // Reactive prop: AtomRef → subscribe and re-apply on changes.
-  if (isAtomRef(value)) {
-    const ref = value as AtomRef.ReadonlyRef<unknown>
+  // Reactive prop: Atom (a `h.track` derived) or AtomRef → subscribe and
+  // re-apply on changes. Same rolling child scope either way; only the
+  // read/subscribe seam differs.
+  if (Atom.isAtom(value) || isAtomRef(value)) {
     let lastChildScope: Scope.Closeable | null = null
     const apply = (v: unknown, defer?: Array<() => void>) => {
       if (lastChildScope) {
@@ -169,13 +161,22 @@ const applyProp = (
       lastChildScope = Scope.forkUnsafe(scope, "sequential")
       applyProp(el, key, v, deps, lastChildScope, defer)
     }
-    // Deferred initial apply reads `ref.value` at drain time, not now — a
+    // Deferred initial apply reads the source at drain time, not now — a
     // capture of the current value could go stale (user code running during
     // the children build may set the ref; the subscription's immediate write
     // must not be clobbered by a stale deferred one).
-    if (deferred && isFormProp(el, key)) deferred.push(() => apply(ref.value))
-    else apply(ref.value)
-    subscribeRefScoped(ref, (v) => apply(v), scope)
+    if (Atom.isAtom(value)) {
+      const atom = value as Atom.Atom<unknown>
+      const read = () => deps.registry.get(atom)
+      if (deferred && isFormProp(el, key)) deferred.push(() => apply(read()))
+      else apply(read())
+      subscribeAtomScoped(deps.registry, atom, (v) => apply(v), scope)
+    } else {
+      const ref = value as AtomRef.ReadonlyRef<unknown>
+      if (deferred && isFormProp(el, key)) deferred.push(() => apply(ref.value))
+      else apply(ref.value)
+      subscribeRefScoped(ref, (v) => apply(v), scope)
+    }
     return
   }
 
@@ -311,7 +312,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       applyProps(
         el,
         view.props,
-        { context: view.context ?? ctx.context, sink: ctx.sink },
+        { context: view.context ?? ctx.context, sink: ctx.sink, registry: ctx.registry },
         scope,
         deferred,
       )

@@ -150,10 +150,11 @@ export type FoldR<Cs extends readonly unknown[]> = ChildR<Cs[number]>
 // returned Effects) only for `on*` keys with `key.length > 2`; any other
 // function-valued attr is stringified into an attribute and never invoked —
 // folding it would make the type claim an `E` that can never fire. (The same
-// parity rule as `Child` ↔ `coerceAsync`.) An AtomRef-valued handler prop
-// folds through to the inner function: `applyProp`'s AtomRef branch unwraps
-// the ref and re-applies its value as a live listener, so the channels must
-// survive the wrapper.
+// parity rule as `Child` ↔ `coerceAsync`.) A reactive-valued handler prop
+// (Atom — what a `h.track` derived is — or AtomRef) folds through to the
+// inner function: `applyProp`'s reactive branch unwraps the source and
+// re-applies its value as a live listener, so the channels must survive
+// the wrapper.
 
 /** `true` for exactly `any` — the one type that matches both conditional branches. */
 type IsAny<T> = 0 extends 1 & T ? true : false
@@ -180,7 +181,9 @@ type HandlerChannels<H> =
           : never
       : H extends AtomRef.ReadonlyRef<infer Inner>
         ? HandlerChannels<Inner>
-        : never
+        : H extends Atom.Atom<infer Inner>
+          ? HandlerChannels<Inner>
+          : never
 
 /**
  * One cached pass over the props object: the union of every `on*` handler's

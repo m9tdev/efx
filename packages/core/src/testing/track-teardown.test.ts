@@ -42,4 +42,46 @@ describe("h.track subscription teardown", () => {
     dep.set(3)
     expect(runs).toBe(afterUnmount)
   })
+
+  it("stops re-running an inner thunk when a reactive rebuild drops its subtree", async () => {
+    // Subtree CHURN (not full unmount): an outer tracked ternary whose "on"
+    // branch contains its own tracked expression. Flipping the outer off
+    // closes the old subtree's scope; the inner derived loses its last
+    // subscriber and the registry reaps it — asynchronously (orphan removal
+    // is scheduled), hence the tick before asserting.
+    const cond = AtomRef.make(true)
+    const inner = AtomRef.make(0)
+    let innerRuns = 0
+
+    const app = h(
+      "div",
+      {},
+      h.track(() =>
+        h.read(cond)
+          ? h(
+              "span",
+              {},
+              h.track(() => {
+                innerRuns++
+                return String(h.read(inner))
+              }),
+            )
+          : "off",
+      ),
+    )
+
+    const ui = await render(app)
+    inner.set(1)
+    const whileMounted = innerRuns
+    expect(whileMounted).toBeGreaterThan(0)
+
+    cond.set(false) // rebuild: the span subtree (and its derived) is dropped
+    await ui.tick() // scheduled orphan removal runs
+
+    inner.set(2)
+    inner.set(3)
+    expect(innerRuns).toBe(whileMounted)
+
+    await ui.unmount()
+  })
 })
