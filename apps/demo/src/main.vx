@@ -371,7 +371,7 @@ type DemoR = AtomRegistry.AtomRegistry | Http | Theme | Scope.Scope
  * `make`'s `R` is constrained to `DemoR`, so a component needing a service
  * APP_LAYER doesn't provide won't type-check here.
  */
-const setupDemo = <E>(id: string, make: () => Effect.Effect<View, E, DemoR>): void => {
+const setupDemo = <E,>(id: string, make: () => Effect.Effect<View, E, DemoR>): void => {
   const container = rootEl.querySelector<HTMLElement>(`[data-demo="${id}"]`)
   if (!container) throw new Error(`missing demo container: ${id}`)
 
