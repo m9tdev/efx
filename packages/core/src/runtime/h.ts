@@ -25,6 +25,11 @@ const trackImpl = (thunk: () => unknown): unknown => {
   const derived = AtomRef.make<unknown>(result)
 
   const rerun = () => {
+    // Ordering: run thunk → publish → drop-old-and-resubscribe (consolidated
+    // in `resubscribe`). The old code dropped old subs *before* the run; both
+    // orders leave a symmetric re-entrancy window (a dep written synchronously
+    // during `derived.set`'s notify) that no render path reaches — the mount
+    // listener rebuilds DOM, it doesn't write deps.
     const { result: next, deps: nextDeps } = trackDeps(thunk)
     derived.set(next as never)
     sub.resubscribe(nextDeps)
