@@ -30,7 +30,7 @@
     "@verrex/core": "workspace:*",
     "@volar/language-core": "^2.4.28",
     "@volar/typescript": "^2.4.28",
-    "@effect/vitest": "4.0.0-beta.78",
+    "@effect/vitest": "4.0.0-beta.98",
     "esbuild": "^0.28.0",
     "typescript": "^6.0.3"
   }
