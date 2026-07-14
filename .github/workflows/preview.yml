@@ -22,9 +22,12 @@ on:
 permissions:
   contents: read
 
-# One preview run per PR ref; a fresh push supersedes an in-flight build.
+# One preview run per PR ref. cancel-in-progress so a fresh push supersedes
+# an in-flight build (only the latest commit's preview matters), and a close
+# supersedes any in-flight build before removing the preview.
 concurrency:
   group: preview-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   preview:
@@ -66,7 +69,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - if: github.event.action != 'closed'
-        run: pnpm --filter verrex-demo exec vite build --base=/verrex/pr-preview/pr-${{ github.event.number }}/
+        run: pnpm --filter verrex-demo exec vite build --base=/verrex/pr-preview/pr-${{ github.event.pull_request.number }}/
 
       - name: Deploy or remove preview
         uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9 # v1.8.1
