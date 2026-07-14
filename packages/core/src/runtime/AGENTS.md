@@ -157,11 +157,21 @@ after teardown), and a `closed` gate so a retained `refetch`/derived is
 inert after its scope tears down. Each caller still runs its own
 `trackDeps` and handles its own result — only the subscription lifecycle
 lives behind the seam. Unit-tested directly in
-`dep-subscription.test.ts`. **Known asymmetry:** `asyncRef` calls
-`dispose()` in its finalizer; `h.track` has no scope to hang one on, so
-its derived's dep subscriptions are **not** torn down on subtree rebuild
-— a latent leak under reactive-subtree churn (tracked separately; fixing
-it needs a build-scope threaded into `h.track`).
+`dep-subscription.test.ts`. **Teardown asymmetry, resolved:** `asyncRef`
+calls `dispose()` in its finalizer; `h.track` has no scope to hang one
+on, so it stashes `dispose` on the derived via `setTrackDispose` and the
+mounting subtree's `subscribeRefScoped` (mount.ts) disposes it on scope
+close via `getTrackDispose`. Without this the derived's
+derived→underlying-ref subscriptions outlived the subtree, re-running the
+thunk for the life of the underlying ref. Pinned by
+`testing/track-teardown.test.ts`. Assumes one derived is mounted at one
+site (one body-eval → one derived → one Reactive/prop node); a rebuild
+reruns the body and produces a fresh derived. **Guarantee boundary:** the
+dispose only fires for deriveds that reach `subscribeRefScoped` — a
+derived that is created but never mounted (e.g. `buildDom` throws partway
+through a subtree after some `h.track` calls already ran) still leaks its
+subs. Acceptable for now; revisit if a tracked expression can be
+evaluated without its node attaching.
 
 ## View IR
 
