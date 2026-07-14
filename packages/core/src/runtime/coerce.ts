@@ -44,6 +44,74 @@ export const recordDep = (ref: AtomRef.ReadonlyRef<unknown>): void => {
   if (currentTracker) currentTracker.add(ref)
 }
 
+/**
+ * Owns the subscribe/resubscribe/teardown bookkeeping that `h.track` and
+ * `asyncRef` both need: a fresh set of dependency subscriptions on every run,
+ * each firing `onChange`. Both callers re-run a thunk under `trackDeps` and
+ * must re-subscribe to whatever refs that run read (a ternary's other branch,
+ * an effect's new deps), so the prior subscriptions are dropped first.
+ *
+ * The `unsubs` array is nulled after each teardown because `AtomRef`'s
+ * unsubscribe is **not idempotent** — replaying a stale unsubscriber would
+ * corrupt a later subscription's bookkeeping. Once `dispose`d the manager is
+ * inert: `resubscribe` is a no-op (a retained `refetch`/derived can fire after
+ * its scope tears down), and `closed` lets a caller surface that to its own
+ * callers.
+ */
+export const makeDepSubscription = (
+  onChange: () => void,
+): {
+  resubscribe: (deps: Iterable<AtomRef.ReadonlyRef<unknown>>) => void
+  dispose: () => void
+  readonly closed: boolean
+} => {
+  let unsubs: Array<() => void> = []
+  let closed = false
+  const unsubscribeAll = () => {
+    for (const u of unsubs) u()
+    unsubs = []
+  }
+  return {
+    resubscribe: (deps) => {
+      if (closed) return
+      unsubscribeAll()
+      for (const dep of deps) unsubs.push(dep.subscribe(onChange))
+    },
+    dispose: () => {
+      closed = true
+      unsubscribeAll()
+    },
+    get closed() {
+      return closed
+    },
+  }
+}
+
+/**
+ * A `h.track` derived `AtomRef` stashes its `makeDepSubscription.dispose` here
+ * so the subtree that mounts it can tear down the derived→underlying-ref
+ * subscriptions on scope close. `h.track` has no scope of its own to register a
+ * finalizer on (it's a plain sync call in a compiled component body), so the
+ * one place that *does* scope the subscription — `subscribeRefScoped` in
+ * `mount.ts` — disposes it via `getTrackDispose`. User refs and `asyncRef`'s
+ * `state` (which owns its own teardown) carry no such tag, so the dispose is
+ * `h.track`-only by construction.
+ */
+const TrackDisposeId = Symbol.for("verrex/trackDispose")
+
+/** Tag `ref` with the `dispose` that tears down its tracked subscriptions. */
+export const setTrackDispose = (
+  ref: AtomRef.ReadonlyRef<unknown>,
+  dispose: () => void,
+): void => {
+  ;(ref as { [TrackDisposeId]?: () => void })[TrackDisposeId] = dispose
+}
+
+/** The tracked-subscription dispose for `ref`, if it is a `h.track` derived. */
+export const getTrackDispose = (
+  ref: AtomRef.ReadonlyRef<unknown>,
+): (() => void) | undefined => (ref as { [TrackDisposeId]?: () => void })[TrackDisposeId]
+
 const Empty = View.Empty()
 
 export function coerceAsync<C>(v: C): Effect.Effect<View, ChildE<C>, ChildR<C>>

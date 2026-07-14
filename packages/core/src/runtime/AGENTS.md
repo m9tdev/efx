@@ -53,7 +53,7 @@ and keeps its hint. If you rename a slot, update the regex.
 |---|---|
 | `h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`) |
 | `Component.ts` | `Component.make` — the canonical component constructor (traced `Effect.fn` seam + compiler-filled name slot). `Component.test.ts` pins the span-in-Cause; `Component.test-d.ts` pins the channel inference and generic preservation |
-| `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Async`) |
+| `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`) and the shared dependency tracker `trackDeps`/`recordDep` and the subscription-lifecycle manager `makeDepSubscription` (both used by `h.track` and `Async`) |
 | `View.ts` | `View<E>` IR. The runtime shape is `ViewNode` — a hand-written union of 7 phantom-free named interfaces (`ViewText`…`ViewBoundary`, `ViewEmpty`); constructors via `Data.taggedEnum<ViewNode>()`. `View<E = never> = ViewNode & ViewErr<E>` layers the runtime-error channel on via a covariant phantom (`ViewErr`), so `View<HttpError>` ⊄ `View<never>` (mount can require it) while a `ViewNode` ⊂ any `View<E>` (constructors need no casts). Plus `isView`, `VIEW_TAGS` |
 | `mount.ts` | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink }`), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures) |
 | `reconcile.ts` | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops |
@@ -148,6 +148,30 @@ The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
 **Invariant: the empty-deps early return is load-bearing.** Without
 it, every `<Row item={item} />` would erase `item`'s generic type to
 `unknown`.
+
+**The resubscribe-fresh bookkeeping is `makeDepSubscription` (in
+`coerce.ts`), shared by `h.track` and `asyncRef`.** It owns the one
+thing both got identically wrong-prone: drop-all-then-resubscribe per
+run, the **non-idempotent AtomRef unsubscribe** guard (null the array
+after teardown), and a `closed` gate so a retained `refetch`/derived is
+inert after its scope tears down. Each caller still runs its own
+`trackDeps` and handles its own result — only the subscription lifecycle
+lives behind the seam. Unit-tested directly in
+`dep-subscription.test.ts`. **Teardown asymmetry, resolved:** `asyncRef`
+calls `dispose()` in its finalizer; `h.track` has no scope to hang one
+on, so it stashes `dispose` on the derived via `setTrackDispose` and the
+mounting subtree's `subscribeRefScoped` (mount.ts) disposes it on scope
+close via `getTrackDispose`. Without this the derived's
+derived→underlying-ref subscriptions outlived the subtree, re-running the
+thunk for the life of the underlying ref. Pinned by
+`testing/track-teardown.test.ts`. Assumes one derived is mounted at one
+site (one body-eval → one derived → one Reactive/prop node); a rebuild
+reruns the body and produces a fresh derived. **Guarantee boundary:** the
+dispose only fires for deriveds that reach `subscribeRefScoped` — a
+derived that is created but never mounted (e.g. `buildDom` throws partway
+through a subtree after some `h.track` calls already ran) still leaks its
+subs. Acceptable for now; revisit if a tracked expression can be
+evaluated without its node attaching.
 
 ## View IR
 

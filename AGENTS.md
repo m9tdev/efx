@@ -175,9 +175,11 @@ Service plugins only by bare package name.
 - **`refs/` is reference material for inspiration.** Cloned external
   repos — search here when stuck on design questions or debugging
   integrations. Key references:
-  - `effect-smol/` — **Effect v4 internals**, especially
-    `effect/unstable/reactivity` (AtomRef, Atom, Collection).
-    Search here first for reactivity patterns.
+  - `effect/` — **Effect v4 internals** (the `Effect-TS/effect`
+    monorepo; the former `effect-smol` repo was archived and merged
+    into it in July 2026), especially
+    `packages/effect/src/unstable/reactivity` (AtomRef, Atom,
+    Collection). Search here first for reactivity patterns.
   - `volar/`, `vue-language-tools/` — Volar Language Service plugin
     architecture, reference for `@verrex/ts-plugin`.
   - `vite-plugin-svelte/` — mature Vite integration patterns.
@@ -189,7 +191,9 @@ Service plugins only by bare package name.
 ## Tooling at a glance
 
 - pnpm workspace, 2 packages (`@verrex/core` + `@verrex/ts-plugin`) + demo + workspace root.
-- Effect v4 / `effect-smol` (currently `effect@4.0.0-beta.78`).
+- Effect v4 (currently `effect@4.0.0-beta.78`; developed in the
+  `Effect-TS/effect` monorepo — formerly the `effect-smol` repo,
+  archived July 2026).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.
 - Babel as the `.vx` parser (parser + traverse + generate

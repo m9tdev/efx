@@ -1,6 +1,13 @@
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { coerceAsync, isAtomRef, recordDep, trackDeps } from "./coerce.ts"
+import {
+  coerceAsync,
+  isAtomRef,
+  makeDepSubscription,
+  recordDep,
+  setTrackDispose,
+  trackDeps,
+} from "./coerce.ts"
 import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
 import type { IntrinsicProps } from "./types/Html.ts"
 import { type Props, View } from "./View.ts"
@@ -21,23 +28,25 @@ const trackImpl = (thunk: () => unknown): unknown => {
   // At least one ref was read — wrap in a derived AtomRef that re-runs
   // the thunk whenever any tracked ref changes. Deps may change between
   // runs (a ternary's "other branch" reads different refs), so we
-  // re-subscribe fresh on each run.
+  // re-subscribe fresh on each run; `makeDepSubscription` owns that.
   const derived = AtomRef.make<unknown>(result)
-  let unsubs: Array<() => void> = []
-
-  const subscribeAll = (set: Set<AtomRef.ReadonlyRef<unknown>>) => {
-    for (const dep of set) unsubs.push(dep.subscribe(rerun))
-  }
 
   const rerun = () => {
-    for (const u of unsubs) u()
-    unsubs = []
+    // Ordering: run thunk → publish → drop-old-and-resubscribe (consolidated
+    // in `resubscribe`). The old code dropped old subs *before* the run; both
+    // orders leave a symmetric re-entrancy window (a dep written synchronously
+    // during `derived.set`'s notify) that no render path reaches — the mount
+    // listener rebuilds DOM, it doesn't write deps.
     const { result: next, deps: nextDeps } = trackDeps(thunk)
     derived.set(next as never)
-    subscribeAll(nextDeps)
+    sub.resubscribe(nextDeps)
   }
+  const sub = makeDepSubscription(rerun)
+  // h.track has no scope to register a finalizer on; stash dispose so the
+  // mounting subtree's scope (via subscribeRefScoped) tears these subs down.
+  setTrackDispose(derived, sub.dispose)
 
-  subscribeAll(deps)
+  sub.resubscribe(deps)
   return derived
 }
 
