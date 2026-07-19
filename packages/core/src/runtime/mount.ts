@@ -81,31 +81,77 @@ const subscribeAtomScoped = <A>(
   Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
 }
 
+// Props that must be written as DOM *properties*, not attributes. After user
+// interaction the dirty value flag makes the `value` attribute and property
+// diverge permanently — setAttribute then changes nothing visible. Same story
+// for the boolean trio.
+const FORM_BOOL_PROPS = new Set(["checked", "selected", "indeterminate"])
+// `value` is restricted by tag — `key in el` alone over-matches elements with a
+// numeric `value` IDL (<li>, <progress>, <meter>), where a string property
+// write is wrong and the no-op guard is permanently defeated.
+const VALUE_TAGS = new Set(["INPUT", "SELECT", "TEXTAREA", "OPTION"])
+const isFormProp = (el: Element, key: string): boolean =>
+  key === "value"
+    ? VALUE_TAGS.has(el.tagName)
+    : FORM_BOOL_PROPS.has(key) && key in el
+
 const applyProp = (
   el: Element,
   key: string,
   value: unknown,
   ctx: BuildCtx,
   scope: Scope.Scope,
+  deferred?: Array<() => void>,
 ): void => {
   // Reactive prop: AtomRef → subscribe and re-apply on changes.
   if (isAtomRef(value)) {
     const ref = value as AtomRef.ReadonlyRef<unknown>
     let lastChildScope: Scope.Closeable | null = null
-    const apply = (v: unknown) => {
+    const apply = (v: unknown, defer?: Array<() => void>) => {
       if (lastChildScope) {
         const e = Scope.closeUnsafe(lastChildScope, Exit.void)
         if (e) Effect.runFork(e)
       }
       lastChildScope = Scope.forkUnsafe(scope, "sequential")
-      applyProp(el, key, v, ctx, lastChildScope)
+      applyProp(el, key, v, ctx, lastChildScope, defer)
     }
-    apply(ref.value)
-    subscribeRefScoped(ref, apply, scope)
+    // Deferred initial apply reads `ref.value` at drain time, not now — a
+    // capture of the current value could go stale (user code running during
+    // the children build may set the ref; the subscription's immediate write
+    // must not be clobbered by a stale deferred one).
+    if (deferred && isFormProp(el, key)) deferred.push(() => apply(ref.value))
+    else apply(ref.value)
+    subscribeRefScoped(ref, (v) => apply(v), scope)
     return
   }
 
-  if (value == null || value === false) return
+  if (isFormProp(el, key)) {
+    const rec = el as unknown as Record<string, unknown>
+    // `false` maps to "" like null — `value={cond && str}` must not
+    // display "false".
+    const next =
+      key === "value"
+        ? value == null || value === false
+          ? ""
+          : String(value)
+        : Boolean(value)
+    const write = () => {
+      // Guard the write — assigning `value` unconditionally resets the caret
+      // to the end, breaking mid-string editing.
+      if (rec[key] !== next) rec[key] = next
+    }
+    // At initial build, children don't exist yet — `select.value = ...` would
+    // be a silent no-op. Defer to after the appendChild loop; reactive
+    // re-applications (no `deferred`) run immediately.
+    if (deferred) deferred.push(write)
+    else write()
+    return
+  }
+
+  if (value == null || value === false) {
+    el.removeAttribute(key)
+    return
+  }
   // Event handler: onClick, onInput, etc. The handler may return an Effect —
   // run it (on the captured context, so it gets the app's services) and route
   // its failure to the sink. A handler that returns anything else (a plain
@@ -133,11 +179,6 @@ const applyProp = (
     )
     return
   }
-  // class / className
-  if (key === "class" || key === "className") {
-    el.setAttribute("class", String(value))
-    return
-  }
   // style object
   if (key === "style" && typeof value === "object") {
     const style = (el as HTMLElement).style
@@ -160,10 +201,11 @@ const applyProps = (
   props: Props,
   ctx: BuildCtx,
   scope: Scope.Scope,
+  deferred?: Array<() => void>,
 ): void => {
   for (const [k, v] of Object.entries(props)) {
     if (k === "children") continue
-    applyProp(el, k, v, ctx, scope)
+    applyProp(el, k, v, ctx, scope, deferred)
   }
 }
 
@@ -197,10 +239,14 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 
     case "Element": {
       const el = document.createElement(view.tag)
-      applyProps(el, view.props, ctx, scope)
+      // Form-control property writes are deferred past the children loop:
+      // `select.value` assigned before its <option>s exist silently no-ops.
+      const deferred: Array<() => void> = []
+      applyProps(el, view.props, ctx, scope, deferred)
       for (const child of view.children) {
         el.appendChild(buildDom(child, ctx, scope))
       }
+      for (const write of deferred) write()
       return el
     }
 
