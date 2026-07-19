@@ -2,7 +2,7 @@ import { Cause, Effect, Exit, Fiber, Layer, Option, Queue, Scope, type Types } f
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { coerceAsync, type ErrorSink, isAtomRef, makeDepSubscription, trackDeps } from "./coerce.ts"
 import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
-import { type BoundaryState, type Props, View } from "./View.ts"
+import { type BoundaryState, View } from "./View.ts"
 
 export * as Component from "./Component.ts"
 export { h } from "./h.ts"

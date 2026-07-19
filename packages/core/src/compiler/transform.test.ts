@@ -821,7 +821,7 @@ describe("component-tag lowering (direct calls, #71)", () => {
   })
 
   it("children land as a `children` array prop", () => {
-    const out = compile(`const x = <Layout><span /\>hi</Layout>`)
+    const out = compile(`const x = <Layout><span />hi</Layout>`)
     expect(out).toContain(`Layout({ children: [h("span", {}), "hi"] })`)
   })
 
