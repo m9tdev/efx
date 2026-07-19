@@ -9,10 +9,10 @@
     "build": "pnpm -r build",
     "size": "pnpm -r build 2>&1 | grep -E 'dist/.*\\.(js|html)' | sed 's/^.*demo build: //'",
     "test": "pnpm -r --workspace-concurrency=1 test",
-    "lint": "oxlint",
-    "lint:fix": "oxlint --fix",
-    "format": "oxfmt .",
-    "format:check": "oxfmt --check ."
+    "lint": "oxlint && node scripts/vx-oxc.mjs lint",
+    "lint:fix": "oxlint --fix && node scripts/vx-oxc.mjs lint:fix",
+    "format": "oxfmt . && node scripts/vx-oxc.mjs format",
+    "format:check": "oxfmt --check . && node scripts/vx-oxc.mjs format:check"
   },
   "devDependencies": {
     "@types/node": "^25.9.2",

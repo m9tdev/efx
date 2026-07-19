@@ -31,7 +31,7 @@ export const LiveUser = Component.make(function* () {
         <button onclick={() => userId.set("999")}>Bad id</button>
       </div>
       {Async(() => http.getUser(userId.value), {
-        initial: <span class="loading">  loading…</span>,
+        initial: <span class="loading"> loading…</span>,
         failure: (cause) => (
           <span class="error">error: {Cause.pretty(cause)}</span>
         ),

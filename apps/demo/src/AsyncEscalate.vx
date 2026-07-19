@@ -68,21 +68,36 @@ export const AsyncEscalate = Component.make(function* () {
   const WINDOW_MS = 1000
   const LIMIT = 2
   const stamps: Array<number> = []
-  const fetchUser = (id: string): Effect.Effect<User, HttpError | RateLimited> => {
+  const fetchUser = (
+    id: string,
+  ): Effect.Effect<User, HttpError | RateLimited> => {
     const now = Date.now()
-    while (stamps.length > 0 && now - (stamps[0] ?? now) >= WINDOW_MS) stamps.shift()
+    while (stamps.length > 0 && now - (stamps[0] ?? now) >= WINDOW_MS)
+      stamps.shift()
     if (stamps.length >= LIMIT) {
       const retryAfterMs = WINDOW_MS - (now - (stamps[0] ?? now))
-      logLine(`#${++seq} GET /users/${id} → 429 rate-limited, slot free in ${retryAfterMs}ms`)
+      logLine(
+        `#${++seq} GET /users/${id} → 429 rate-limited, slot free in ${retryAfterMs}ms`,
+      )
       return Effect.fail(new RateLimited({ retryAfterMs }))
     }
     stamps.push(now)
     const n = ++seq
-    logLine(`#${n} GET /users/${id} — sent (${stamps.length}/${LIMIT} this second)`)
+    logLine(
+      `#${n} GET /users/${id} — sent (${stamps.length}/${LIMIT} this second)`,
+    )
     return http.getUser(id).pipe(
-      Effect.tap((user) => Effect.sync(() => logLine(`#${n} ← 200 ${user.name}`))),
-      Effect.tapError((e) => Effect.sync(() => logLine(`#${n} ← ${e.status} ${e.message}`))),
-      Effect.onInterrupt(() => Effect.sync(() => logLine(`#${n} ← interrupted (newer request took over)`))),
+      Effect.tap((user) =>
+        Effect.sync(() => logLine(`#${n} ← 200 ${user.name}`)),
+      ),
+      Effect.tapError((e) =>
+        Effect.sync(() => logLine(`#${n} ← ${e.status} ${e.message}`)),
+      ),
+      Effect.onInterrupt(() =>
+        Effect.sync(() =>
+          logLine(`#${n} ← interrupted (newer request took over)`),
+        ),
+      ),
     )
   }
 
@@ -104,8 +119,13 @@ export const AsyncEscalate = Component.make(function* () {
         <button onclick={() => userId.set("42")}>Ada (42)</button>
         <button onclick={() => userId.set("7")}>Grace (7)</button>
         <button onclick={() => userId.set("999")}>Bad id</button>
-        <button class="spam" onclick={spam}>spam ×3</button>
-        <span class="budget-note">fake API allows 2 req/s — an id click fetches once per block; spam re-requests the top block</span>
+        <button class="spam" onclick={spam}>
+          spam ×3
+        </button>
+        <span class="budget-note">
+          fake API allows 2 req/s — an id click fetches once per block; spam
+          re-requests the top block
+        </span>
       </div>
       <pre class="req-log">{reqLog}</pre>
       {Catch(
@@ -117,8 +137,12 @@ export const AsyncEscalate = Component.make(function* () {
               // recovers without any reset; `retry` is tagUser.refetch.
               HttpError: (e, retry) => (
                 <div class="leaf-fallback">
-                  <p class="leaf-msg">handled at the leaf — HttpError {e.status}: {e.message}</p>
-                  <button class="leaf-retry" onclick={retry}>retry</button>
+                  <p class="leaf-msg">
+                    handled at the leaf — HttpError {e.status}: {e.message}
+                  </p>
+                  <button class="leaf-retry" onclick={retry}>
+                    retry
+                  </button>
                 </div>
               ),
             },
@@ -138,12 +162,22 @@ export const AsyncEscalate = Component.make(function* () {
             <div class="boundary-fallback page-fallback">
               <p class="caught">page boundary caught: RateLimited</p>
               <p class="rate-msg">rate limited — retry in {e.retryAfterMs}ms</p>
-              <button class="retry" onclick={() => { tagUser.refetch(); reset() }}>retry</button>
+              <button
+                class="retry"
+                onclick={() => {
+                  tagUser.refetch()
+                  reset()
+                }}
+              >
+                retry
+              </button>
             </div>
           ),
         },
       )}
-      <p class="contrast-label">same fetch, open form — no failure arm, every failure escalates:</p>
+      <p class="contrast-label">
+        same fetch, open form — no failure arm, every failure escalates:
+      </p>
       {Catch(
         <section class="contrast">
           {Async(openUser, {
@@ -155,7 +189,15 @@ export const AsyncEscalate = Component.make(function* () {
           <div class="boundary-fallback open-fallback">
             <p class="caught">catch-all caught:</p>
             <pre class="cause">{Cause.pretty(cause)}</pre>
-            <button class="retry" onclick={() => { openUser.refetch(); reset() }}>retry</button>
+            <button
+              class="retry"
+              onclick={() => {
+                openUser.refetch()
+                reset()
+              }}
+            >
+              retry
+            </button>
           </div>
         ),
       )}
