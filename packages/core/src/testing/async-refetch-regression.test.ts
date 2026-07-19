@@ -28,19 +28,30 @@ import { Effect, Fiber } from "effect"
 import { AsyncResult, AtomRef } from "effect/unstable/reactivity"
 import { asyncRef, h } from "@verrex/core"
 import { render } from "./index.ts"
-import { makeUsersFixture, type NotFound, type UsersError, type UsersService } from "./fixtures.ts"
+import {
+  makeUsersFixture,
+  type NotFound,
+  type UsersError,
+  type UsersService,
+  waitForText,
+} from "./fixtures.ts"
 
 const { Users: Api, usersWith } = makeUsersFixture("refetch")
 
 // A gated Api: each `get(id)` blocks on a per-id promise the test controls, so a
 // refetch can be held in-flight while the DOM is inspected at a chosen tick.
 const gatedApi = () => {
-  const gates = new Map<string, { release: () => void; promise: Promise<void> }>()
+  const gates = new Map<
+    string,
+    { release: () => void; promise: Promise<void> }
+  >()
   const gate = (id: string) => {
     let entry = gates.get(id)
     if (!entry) {
       let release!: () => void
-      const promise = new Promise<void>((r) => { release = r })
+      const promise = new Promise<void>((r) => {
+        release = r
+      })
       entry = { release, promise }
       gates.set(id, entry)
     }
@@ -80,22 +91,6 @@ const Widget = (
 
 const passthrough = (api: UsersService, id: string) => api.get(id)
 const settle = () => new Promise<void>((r) => setTimeout(r, 30))
-
-// Poll for `.out` to reach `text` (the harness `waitFor` is selector-only). Used
-// for the *awaited* success transitions, whose settle latency varies under load;
-// the regression assertions themselves are exact, on a tick where the held gate
-// makes the outcome deterministic.
-const waitForText = async (
-  ui: { text(s: string): string },
-  text: string,
-  timeoutMs = 2000,
-): Promise<void> => {
-  const deadline = Date.now() + timeoutMs
-  while (ui.text(".out") !== text) {
-    if (Date.now() > deadline) throw new Error(`waitForText: ".out" never became ${JSON.stringify(text)} (last: ${JSON.stringify(ui.text(".out"))})`)
-    await new Promise<void>((r) => setTimeout(r, 5))
-  }
-}
 
 describe("asyncRef refetch — regression guards", () => {
   // SF-1: stale-while-revalidate. With the fix, the prior success stays mounted
@@ -147,7 +142,7 @@ describe("asyncRef refetch — regression guards", () => {
         const f = yield* Effect.forkChild(Effect.never)
         yield* Fiber.interrupt(f)
         reached = true
-        return yield* (Effect.interrupt as Effect.Effect<string, NotFound>)
+        return yield* Effect.interrupt as Effect.Effect<string, NotFound>
       })
     const ui = await render(Widget(id, selfInterrupt)(), gatedApi().layer)
 
