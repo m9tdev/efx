@@ -24,9 +24,19 @@ export type ReconcileOp<K> =
   /** Row dropped from the list — tear down its scope and detach its node. */
   | { readonly op: "remove"; readonly key: K }
   /** New row — build it, set its index, insert before `before` (null = append). */
-  | { readonly op: "insert"; readonly key: K; readonly before: K | null; readonly index: number }
+  | {
+      readonly op: "insert"
+      readonly key: K
+      readonly before: K | null
+      readonly index: number
+    }
   /** Existing row repositioned — move its node before `before`, update its index. */
-  | { readonly op: "move"; readonly key: K; readonly before: K | null; readonly index: number }
+  | {
+      readonly op: "move"
+      readonly key: K
+      readonly before: K | null
+      readonly index: number
+    }
   /** Existing row already in place — update its index only (no DOM mutation). */
   | { readonly op: "keep"; readonly key: K; readonly index: number }
 
@@ -77,7 +87,12 @@ export const plan = <K>(
     }
     work.splice(cursor, 0, key)
     cursor++
-    ops.push({ op: prevSet.has(key) ? "move" : "insert", key, before: atCursor, index })
+    ops.push({
+      op: prevSet.has(key) ? "move" : "insert",
+      key,
+      before: atCursor,
+      index,
+    })
   })
 
   return ops

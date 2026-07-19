@@ -160,17 +160,25 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
     // "throw" (not the editor default "recover"): a checker must fail loudly
     // on unparseable source, never report against a stale last-good compile.
     // The watch loop catches per-pass and keeps running.
-    const languagePlugin = createVerrexLanguagePlugin<URI>((uri) => uri.fsPath, {
-      onTransformError: "throw",
-    })
+    const languagePlugin = createVerrexLanguagePlugin<URI>(
+      (uri) => uri.fsPath,
+      {
+        onTransformError: "throw",
+      },
+    )
     const tsServices = createTypeScriptServices(ts)
-    return kit.createTypeScriptChecker([trackingPlugin, languagePlugin], tsServices, tsconfigPath)
+    return kit.createTypeScriptChecker(
+      [trackingPlugin, languagePlugin],
+      tsServices,
+      tsconfigPath,
+    )
   }
 
   // The same extraFileExtensions kit hands to its own config parse, so our
   // shape snapshot expands include globs identically (`.vx` admitted).
   const extraFileExtensions =
-    createVerrexLanguagePlugin<URI>((uri) => uri.fsPath).typescript?.extraFileExtensions ?? []
+    createVerrexLanguagePlugin<URI>((uri) => uri.fsPath).typescript
+      ?.extraFileExtensions ?? []
 
   interface ProjectShape {
     /** Sorted, for cheap equality. */
@@ -201,8 +209,13 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
     return {
       fileNames: parsed.fileNames.map((f) => path.resolve(f)).sort(),
       optionsKey: JSON.stringify(parsed.options),
-      configFiles: [tsconfigPath, ...(sourceFile.extendedSourceFiles ?? []).map((f) => path.resolve(f))],
-      wildcardDirectories: Object.keys(parsed.wildcardDirectories ?? {}).map((d) => path.resolve(d)),
+      configFiles: [
+        tsconfigPath,
+        ...(sourceFile.extendedSourceFiles ?? []).map((f) => path.resolve(f)),
+      ],
+      wildcardDirectories: Object.keys(parsed.wildcardDirectories ?? {}).map(
+        (d) => path.resolve(d),
+      ),
     }
   }
 
@@ -232,9 +245,16 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
     return linter
   }
 
-  async function check(checkOptions: { cancel?: () => boolean } = {}): Promise<CheckResult> {
+  async function check(
+    checkOptions: { cancel?: () => boolean } = {},
+  ): Promise<CheckResult> {
     const cancel = checkOptions.cancel ?? (() => false)
-    const result: CheckResult = { filesChecked: 0, errors: 0, warnings: 0, hints: 0 }
+    const result: CheckResult = {
+      filesChecked: 0,
+      errors: 0,
+      warnings: 0,
+      hints: 0,
+    }
 
     // Pin the instance for the whole pass — a superseded-but-draining pass
     // must not pick up a rebuild a newer overlapping pass just performed.
@@ -248,7 +268,9 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
       result.filesChecked += 1
       if (diagnostics.length === 0) continue
 
-      const toPrint = diagnostics.filter((d) => (d.severity ?? SEVERITY_ERROR) <= printCeiling)
+      const toPrint = diagnostics.filter(
+        (d) => (d.severity ?? SEVERITY_ERROR) <= printCeiling,
+      )
       if (toPrint.length > 0) {
         const text = pass.printErrors(fileName, toPrint, cwd)
         if (text) {
@@ -293,7 +315,9 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
  * format (via Volar kit's printErrors helper). Each call builds an
  * independent checker — use `createChecker` to keep one alive across runs.
  */
-export async function runCheck(options: CheckOptions = {}): Promise<CheckResult> {
+export async function runCheck(
+  options: CheckOptions = {},
+): Promise<CheckResult> {
   return createChecker(options).check()
 }
 
@@ -320,7 +344,10 @@ export function shouldFail(
   }
 }
 
-function resolveTsconfig(cwd: string, supplied: string | undefined): string | undefined {
+function resolveTsconfig(
+  cwd: string,
+  supplied: string | undefined,
+): string | undefined {
   if (supplied) {
     return path.isAbsolute(supplied) ? supplied : path.resolve(cwd, supplied)
   }

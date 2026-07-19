@@ -60,7 +60,11 @@ export function computeMappings(
     // produce a single passthrough mapping covering both sides.
     const length = Math.min(source.length, generated.length)
     return [
-      { source: { offset: 0, length }, generated: { offset: 0, length }, kind: "user" },
+      {
+        source: { offset: 0, length },
+        generated: { offset: 0, length },
+        kind: "user",
+      },
     ]
   }
 
@@ -95,7 +99,9 @@ export function computeMappings(
   // Babel transforms can pair a multi-char source span with a single-char
   // generated span (paren strip), so source-order length ≠ generated-order
   // length.
-  const sortedByGen = [...segmentsBySource.values()].sort((a, b) => a.genOffset - b.genOffset)
+  const sortedByGen = [...segmentsBySource.values()].sort(
+    (a, b) => a.genOffset - b.genOffset,
+  )
   const nextGenOffset = new Map<number, number>()
   for (let i = 0; i < sortedByGen.length; i++) {
     const cur = sortedByGen[i]!
@@ -111,23 +117,35 @@ export function computeMappings(
     jsxRanges.some((r) => srcOffset >= r.start && srcOffset < r.end)
   const insideTagPunctuationSpan = (srcOffset: number): boolean =>
     jsxRanges.some((r) => {
-      if (srcOffset >= r.openingTag.start && srcOffset < r.openingTag.end) return true
-      if (r.closingTag && srcOffset >= r.closingTag.start && srcOffset < r.closingTag.end) return true
+      if (srcOffset >= r.openingTag.start && srcOffset < r.openingTag.end)
+        return true
+      if (
+        r.closingTag &&
+        srcOffset >= r.closingTag.start &&
+        srcOffset < r.closingTag.end
+      )
+        return true
       return false
     })
 
   // Sort by source offset and build the final spans + kind classification.
-  const sortedBySource = [...segmentsBySource.values()].sort((a, b) => a.srcOffset - b.srcOffset)
+  const sortedBySource = [...segmentsBySource.values()].sort(
+    (a, b) => a.srcOffset - b.srcOffset,
+  )
   const mappings: CompilerMapping[] = []
   for (let i = 0; i < sortedBySource.length; i++) {
     const seg = sortedBySource[i]!
     const nextSeg = sortedBySource[i + 1]
 
     const srcLength = nextSeg ? nextSeg.srcOffset - seg.srcOffset : 1
-    const genLength = (nextGenOffset.get(seg.genOffset) ?? seg.genOffset + 1) - seg.genOffset
+    const genLength =
+      (nextGenOffset.get(seg.genOffset) ?? seg.genOffset + 1) - seg.genOffset
 
     let kind: CompilerMappingKind
-    if (jsxPunctuation.has(seg.srcChar) && insideTagPunctuationSpan(seg.srcOffset)) {
+    if (
+      jsxPunctuation.has(seg.srcChar) &&
+      insideTagPunctuationSpan(seg.srcOffset)
+    ) {
       kind = "punctuation"
     } else if (insideJsxNode(seg.srcOffset)) {
       kind = "h-call"
@@ -155,7 +173,11 @@ function computeLineStarts(text: string): number[] {
   return starts
 }
 
-function lineColToOffset(lineStarts: number[], line: number, col: number): number {
+function lineColToOffset(
+  lineStarts: number[],
+  line: number,
+  col: number,
+): number {
   const start = lineStarts[line] ?? lineStarts[lineStarts.length - 1] ?? 0
   return start + col
 }

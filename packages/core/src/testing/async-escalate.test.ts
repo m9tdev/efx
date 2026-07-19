@@ -21,17 +21,23 @@ const { Users, UsersLive } = makeUsersFixture("esc")
 const Page = (userId: AtomRef.AtomRef<string>) =>
   Effect.fn(function* () {
     const client = yield* Users
-    return yield* h("div", { class: "page" },
+    return yield* h(
+      "div",
+      { class: "page" },
       h("button", { class: "bad", onclick: () => userId.set("999") }, "bad"),
       yield* Catch(
-        h("section", { class: "content" },
+        h(
+          "section",
+          { class: "content" },
           Async(() => client.get(h.read(userId)), {
             initial: h("span", { class: "loading" }, "…"),
             success: (n) => h("span", { class: "ok" }, n),
           }),
         ),
         (cause, reset) =>
-          h("div", { class: "fallback" },
+          h(
+            "div",
+            { class: "fallback" },
             h("pre", { class: "caught" }, Cause.pretty(cause)),
             h("button", { class: "retry", onclick: reset }, "retry"),
           ),
@@ -73,20 +79,25 @@ describe("Async without failure arm → nearest Catch", () => {
     const TagPage = Effect.fn(function* () {
       const client = yield* Users
       return yield* Catch(
-        h("section", {},
+        h(
+          "section",
+          {},
           Async(() => client.get("999"), {
             success: (n) => h("span", { class: "ok" }, n),
           }),
         ),
         {
-          NotFound: (e, _reset) => h("p", { class: "tagged" }, `missing user ${e.id}`),
+          NotFound: (e, _reset) =>
+            h("p", { class: "tagged" }, `missing user ${e.id}`),
           // Never fires here — present to fully discharge the fixture's error union.
           Timeout: () => h("p", { class: "tagged" }, "timed out"),
         },
       )
     })()
     const ui = await render(TagPage, UsersLive)
-    expect((await ui.waitFor(".tagged")).textContent?.trim()).toBe("missing user 999")
+    expect((await ui.waitFor(".tagged")).textContent?.trim()).toBe(
+      "missing user 999",
+    )
     await ui.unmount()
   })
 

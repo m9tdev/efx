@@ -19,7 +19,13 @@
  *
  * No tsserver subprocess; the check tool is invoked in-process.
  */
-import { writeFileSync, readFileSync, unlinkSync, existsSync, renameSync } from "node:fs"
+import {
+  writeFileSync,
+  readFileSync,
+  unlinkSync,
+  existsSync,
+  renameSync,
+} from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createChecker, runCheck, shouldFail } from "../../src/check/index.ts"
@@ -60,7 +66,8 @@ const fixtureTsconfigPath = join(fixtureDir, "tsconfig.json")
 const hiddenTsconfigPath = fixtureTsconfigPath + ".hidden"
 
 const ensureClean = () => {
-  if (existsSync(hiddenTsconfigPath)) renameSync(hiddenTsconfigPath, fixtureTsconfigPath)
+  if (existsSync(hiddenTsconfigPath))
+    renameSync(hiddenTsconfigPath, fixtureTsconfigPath)
   if (existsSync(brokenPath)) unlinkSync(brokenPath)
   if (existsSync(unusedPath)) unlinkSync(unusedPath)
 }
@@ -69,22 +76,34 @@ ensureClean()
 
 console.log("1. Known-good fixture should have 0 errors...")
 {
-  const { result, output } = await captureStdout(() => runCheck({ cwd: fixtureDir }))
+  const { result, output } = await captureStdout(() =>
+    runCheck({ cwd: fixtureDir }),
+  )
   expect(result.errors === 0, `expected 0 errors, got ${result.errors}`)
-  expect(result.filesChecked >= 1, `expected at least 1 file, got ${result.filesChecked}`)
+  expect(
+    result.filesChecked >= 1,
+    `expected at least 1 file, got ${result.filesChecked}`,
+  )
   if (result.errors !== 0) console.error("output was:\n" + output)
 }
 
-console.log("\n2. Inject Broken.vx with a type error → expect >=1 error pointing at Broken.vx...")
-writeFileSync(
-  brokenPath,
-  `const x: number = "wrong type"\nexport { x }\n`,
+console.log(
+  "\n2. Inject Broken.vx with a type error → expect >=1 error pointing at Broken.vx...",
 )
+writeFileSync(brokenPath, `const x: number = "wrong type"\nexport { x }\n`)
 {
-  const { result, output } = await captureStdout(() => runCheck({ cwd: fixtureDir }))
+  const { result, output } = await captureStdout(() =>
+    runCheck({ cwd: fixtureDir }),
+  )
   expect(result.errors >= 1, `expected >=1 errors, got ${result.errors}`)
-  expect(output.includes("Broken.vx"), "diagnostic output should mention Broken.vx")
-  expect(output.includes("2322"), "diagnostic output should include TS2322 (not assignable)")
+  expect(
+    output.includes("Broken.vx"),
+    "diagnostic output should mention Broken.vx",
+  )
+  expect(
+    output.includes("2322"),
+    "diagnostic output should include TS2322 (not assignable)",
+  )
   if (failures > 0 || process.env.VERREX_CHECK_TEST_DEBUG) {
     console.log("[captured output]\n" + output)
   }
@@ -93,19 +112,29 @@ writeFileSync(
 console.log("\n3. Remove Broken.vx → expect 0 errors again...")
 unlinkSync(brokenPath)
 {
-  const { result, output } = await captureStdout(() => runCheck({ cwd: fixtureDir }))
-  expect(result.errors === 0, `expected 0 errors after cleanup, got ${result.errors}`)
+  const { result, output } = await captureStdout(() =>
+    runCheck({ cwd: fixtureDir }),
+  )
+  expect(
+    result.errors === 0,
+    `expected 0 errors after cleanup, got ${result.errors}`,
+  )
   if (result.errors !== 0) console.error("output was:\n" + output)
 }
 
-console.log("\n4. createChecker: one instance tracks file events incrementally...")
+console.log(
+  "\n4. createChecker: one instance tracks file events incrementally...",
+)
 {
   const checker = createChecker({ cwd: fixtureDir })
   const goodPath = join(fixtureDir, "Good.vx")
   const goodSource = readFileSync(goodPath, "utf8")
 
   const clean = await captureStdout(() => checker.check())
-  expect(clean.result.errors === 0, `fresh checker: expected 0 errors, got ${clean.result.errors}`)
+  expect(
+    clean.result.errors === 0,
+    `fresh checker: expected 0 errors, got ${clean.result.errors}`,
+  )
   const baselineFiles = clean.result.filesChecked
 
   // The hot path: an in-place edit of an EXISTING root file, signalled via
@@ -114,15 +143,25 @@ console.log("\n4. createChecker: one instance tracks file events incrementally..
     writeFileSync(goodPath, goodSource + `export const oops: number = "nope"\n`)
     checker.fileUpdated(goodPath)
     const edited = await captureStdout(() => checker.check())
-    expect(edited.result.errors >= 1, `after fileUpdated break: expected >=1 errors, got ${edited.result.errors}`)
-    expect(edited.output.includes("Good.vx"), "after fileUpdated break: output should mention Good.vx")
+    expect(
+      edited.result.errors >= 1,
+      `after fileUpdated break: expected >=1 errors, got ${edited.result.errors}`,
+    )
+    expect(
+      edited.output.includes("Good.vx"),
+      "after fileUpdated break: output should mention Good.vx",
+    )
   } finally {
     writeFileSync(goodPath, goodSource)
     checker.fileUpdated(goodPath)
   }
   const restored = await captureStdout(() => checker.check())
-  expect(restored.result.errors === 0, `after fileUpdated restore: expected 0 errors, got ${restored.result.errors}`)
-  if (restored.result.errors !== 0) console.error("output was:\n" + restored.output)
+  expect(
+    restored.result.errors === 0,
+    `after fileUpdated restore: expected 0 errors, got ${restored.result.errors}`,
+  )
+  if (restored.result.errors !== 0)
+    console.error("output was:\n" + restored.output)
 
   // Create/delete re-expand the tsconfig include globs (lazily, at the next
   // check/getRootFileNames — a burst of events costs one rebuild).
@@ -133,8 +172,14 @@ console.log("\n4. createChecker: one instance tracks file events incrementally..
     "after fileCreated: getRootFileNames flushes the stale project",
   )
   const broken = await captureStdout(() => checker.check())
-  expect(broken.result.errors >= 1, `after fileCreated: expected >=1 errors, got ${broken.result.errors}`)
-  expect(broken.output.includes("Broken.vx"), "after fileCreated: output should mention Broken.vx")
+  expect(
+    broken.result.errors >= 1,
+    `after fileCreated: expected >=1 errors, got ${broken.result.errors}`,
+  )
+  expect(
+    broken.output.includes("Broken.vx"),
+    "after fileCreated: output should mention Broken.vx",
+  )
   expect(
     broken.result.filesChecked === baselineFiles + 1,
     `after fileCreated: expected ${baselineFiles + 1} files, got ${broken.result.filesChecked}`,
@@ -143,11 +188,17 @@ console.log("\n4. createChecker: one instance tracks file events incrementally..
   // An edit to the tsconfig itself marks the project stale: excluding
   // Broken.vx must drop its error without a new checker.
   const tsconfigPath = join(fixtureDir, "tsconfig.json")
-  expect(checker.tsconfigPath === tsconfigPath, "checker.tsconfigPath points at the fixture tsconfig")
+  expect(
+    checker.tsconfigPath === tsconfigPath,
+    "checker.tsconfigPath points at the fixture tsconfig",
+  )
   const tsconfigSource = readFileSync(tsconfigPath, "utf8")
   try {
     const config = JSON.parse(tsconfigSource)
-    writeFileSync(tsconfigPath, JSON.stringify({ ...config, exclude: ["Broken.vx"] }, null, 2))
+    writeFileSync(
+      tsconfigPath,
+      JSON.stringify({ ...config, exclude: ["Broken.vx"] }, null, 2),
+    )
     checker.fileUpdated(tsconfigPath)
     const excluded = await captureStdout(() => checker.check())
     expect(
@@ -178,7 +229,8 @@ console.log("\n4. createChecker: one instance tracks file events incrementally..
     renameSync(hiddenTsconfigPath, fixtureTsconfigPath)
   }
   expect(
-    rejection instanceof Error && /tsconfig not found at/.test(rejection.message),
+    rejection instanceof Error &&
+      /tsconfig not found at/.test(rejection.message),
     `missing tsconfig mid-watch: friendly rejection, got: ${rejection && rejection.message}`,
   )
   const afterRestore = await captureStdout(() => checker.check())
@@ -190,17 +242,28 @@ console.log("\n4. createChecker: one instance tracks file events incrementally..
   unlinkSync(brokenPath)
   checker.fileDeleted(brokenPath)
   const removed = await captureStdout(() => checker.check())
-  expect(removed.result.errors === 0, `after fileDeleted: expected 0 errors, got ${removed.result.errors}`)
+  expect(
+    removed.result.errors === 0,
+    `after fileDeleted: expected 0 errors, got ${removed.result.errors}`,
+  )
   expect(
     removed.result.filesChecked === baselineFiles,
     `after fileDeleted: expected ${baselineFiles} files, got ${removed.result.filesChecked}`,
   )
 
-  const cancelled = await captureStdout(() => checker.check({ cancel: () => true }))
-  expect(cancelled.result.filesChecked === 0, "cancel before the first file: 0 files checked")
+  const cancelled = await captureStdout(() =>
+    checker.check({ cancel: () => true }),
+  )
+  expect(
+    cancelled.result.filesChecked === 0,
+    "cancel before the first file: 0 files checked",
+  )
 
   // Watch-facing project topology.
-  expect(checker.getConfigFilePaths().includes(fixtureTsconfigPath), "getConfigFilePaths includes the tsconfig")
+  expect(
+    checker.getConfigFilePaths().includes(fixtureTsconfigPath),
+    "getConfigFilePaths includes the tsconfig",
+  )
   expect(
     checker.getWildcardDirectories().includes(fixtureDir),
     "getWildcardDirectories includes the include-glob root",
@@ -215,29 +278,73 @@ console.log("\n5. minimumSeverity: hints counted but not printed by default...")
 writeFileSync(unusedPath, `const unused = 1\nexport const ok = 2\n`)
 {
   const dflt = await captureStdout(() => runCheck({ cwd: fixtureDir }))
-  expect(dflt.result.errors === 0, `expected 0 errors, got ${dflt.result.errors}`)
-  expect(dflt.result.hints >= 1, `expected >=1 hint (unused local suggestion), got ${dflt.result.hints}`)
-  expect(!dflt.output.includes("Unused.vx"), "default severity: hint should not print")
+  expect(
+    dflt.result.errors === 0,
+    `expected 0 errors, got ${dflt.result.errors}`,
+  )
+  expect(
+    dflt.result.hints >= 1,
+    `expected >=1 hint (unused local suggestion), got ${dflt.result.hints}`,
+  )
+  expect(
+    !dflt.output.includes("Unused.vx"),
+    "default severity: hint should not print",
+  )
 
-  const hints = await captureStdout(() => runCheck({ cwd: fixtureDir, minimumSeverity: "hint" }))
-  expect(hints.output.includes("Unused.vx"), 'minimumSeverity "hint": hint should print')
-  expect(hints.output.includes("6133"), "printed hint should be TS6133 (declared but never read)")
+  const hints = await captureStdout(() =>
+    runCheck({ cwd: fixtureDir, minimumSeverity: "hint" }),
+  )
+  expect(
+    hints.output.includes("Unused.vx"),
+    'minimumSeverity "hint": hint should print',
+  )
+  expect(
+    hints.output.includes("6133"),
+    "printed hint should be TS6133 (declared but never read)",
+  )
 }
 unlinkSync(unusedPath)
 
 console.log("\n6. shouldFail: failing-severity thresholds cascade...")
 {
-  const only = (kind, n) => ({ filesChecked: 1, errors: 0, warnings: 0, hints: 0, [kind]: n })
+  const only = (kind, n) => ({
+    filesChecked: 1,
+    errors: 0,
+    warnings: 0,
+    hints: 0,
+    [kind]: n,
+  })
   expect(shouldFail(only("errors", 1)) === true, "default: errors fail")
-  expect(shouldFail(only("warnings", 1)) === false, "default: warnings do not fail")
-  expect(shouldFail(only("warnings", 1), "warning") === true, '"warning": warnings fail')
-  expect(shouldFail(only("hints", 1), "warning") === false, '"warning": hints do not fail')
+  expect(
+    shouldFail(only("warnings", 1)) === false,
+    "default: warnings do not fail",
+  )
+  expect(
+    shouldFail(only("warnings", 1), "warning") === true,
+    '"warning": warnings fail',
+  )
+  expect(
+    shouldFail(only("hints", 1), "warning") === false,
+    '"warning": hints do not fail',
+  )
   expect(shouldFail(only("hints", 1), "hint") === true, '"hint": hints fail')
-  expect(shouldFail(only("errors", 1), "hint") === true, '"hint": errors still fail')
-  expect(shouldFail(only("errors", 0), "hint") === false, '"hint": clean result passes')
+  expect(
+    shouldFail(only("errors", 1), "hint") === true,
+    '"hint": errors still fail',
+  )
+  expect(
+    shouldFail(only("errors", 0), "hint") === false,
+    '"hint": clean result passes',
+  )
   // Untyped JS callers passing a typo'd threshold must still fail on errors.
-  expect(shouldFail(only("errors", 1), "bogus") === true, "unknown threshold: errors still fail")
-  expect(shouldFail(only("warnings", 1), "bogus") === false, "unknown threshold: falls back to error level")
+  expect(
+    shouldFail(only("errors", 1), "bogus") === true,
+    "unknown threshold: errors still fail",
+  )
+  expect(
+    shouldFail(only("warnings", 1), "bogus") === false,
+    "unknown threshold: falls back to error level",
+  )
 }
 
 console.log("\n7. Supplied tsconfig that doesn't exist → friendly rejection...")
@@ -249,7 +356,8 @@ console.log("\n7. Supplied tsconfig that doesn't exist → friendly rejection...
     rejection = error
   }
   expect(
-    rejection instanceof Error && /tsconfig not found at/.test(rejection.message),
+    rejection instanceof Error &&
+      /tsconfig not found at/.test(rejection.message),
     `expected friendly 'tsconfig not found at' rejection, got: ${rejection && rejection.message}`,
   )
 }

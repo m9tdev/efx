@@ -6,7 +6,14 @@
  */
 import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { Async, type AsyncHandle, Catch, h, mount, type View } from "@verrex/core"
+import {
+  Async,
+  type AsyncHandle,
+  Catch,
+  h,
+  mount,
+  type View,
+} from "@verrex/core"
 import { AsyncEscalate } from "./AsyncEscalate.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
@@ -14,8 +21,14 @@ import { LiveUser } from "./LiveUser.vx"
 import { HttpError, Http, Theme, type User } from "./services.ts"
 import { UserPage } from "./UserPage.vx"
 
-type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
-declare function assertEquals<A, B extends Equals<A, B> extends true ? unknown : never>(): void
+type Equals<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false
+declare function assertEquals<
+  A,
+  B extends Equals<A, B> extends true ? unknown : never,
+>(): void
 
 // ─── UserPage carries E = HttpError, R = Http | Theme ───────────────────
 //     (in-component fetch: failure folds E to the root, blocking)
@@ -30,14 +43,20 @@ assertEquals<UserPageType, Effect.Effect<View, HttpError, Http | Theme>>()
 //     compile-time enforced.
 
 type AsyncUserPageType = ReturnType<typeof AsyncUserPage>
-assertEquals<AsyncUserPageType, Effect.Effect<View, never, Http | Scope.Scope>>()
+assertEquals<
+  AsyncUserPageType,
+  Effect.Effect<View, never, Http | Scope.Scope>
+>()
 
 // ─── AsyncEscalate: tag-map failure arm handles HttpError at the leaf; the
 //     RateLimited residual rides View<RateLimited> to a page Catch tag map.
 //     Fully discharged end-to-end → View<never>/E never, Http folds.
 
 type AsyncEscalateType = ReturnType<typeof AsyncEscalate>
-assertEquals<AsyncEscalateType, Effect.Effect<View, never, Http | Scope.Scope>>()
+assertEquals<
+  AsyncEscalateType,
+  Effect.Effect<View, never, Http | Scope.Scope>
+>()
 
 // ─── Counter is pure (no E or R from the component itself; AtomRegistry
 //     is added at mount) ──────────────────────────────────────────────────
@@ -58,10 +77,7 @@ assertEquals<LiveUserType, Effect.Effect<View, never, Http | Scope.Scope>>()
 
 // ─── Composition: a tree containing UserPage AND Counter unions channels ─
 
-const Composed = h("div", {},
-  Counter(),
-  UserPage({ userId: "42" }),
-)
+const Composed = h("div", {}, Counter(), UserPage({ userId: "42" }))
 
 type ComposedType = typeof Composed
 // E unions HttpError (only UserPage contributes E).
@@ -78,7 +94,11 @@ assertEquals<WithCondType, Effect.Effect<View, HttpError, Http | Theme>>()
 // ─── Array of effects preserves channels ───────────────────────────────
 
 declare const ids: string[]
-const WithList = h("ul", {}, ids.map((id) => UserPage({ userId: id })))
+const WithList = h(
+  "ul",
+  {},
+  ids.map((id) => UserPage({ userId: id })),
+)
 type WithListType = typeof WithList
 assertEquals<WithListType, Effect.Effect<View, HttpError, Http | Theme>>()
 
@@ -88,16 +108,21 @@ assertEquals<WithListType, Effect.Effect<View, HttpError, Http | Theme>>()
 //     folds into a surrounding h() as an ordinary child. (These direct calls
 //     ARE the compiled form of the JSX tags.)
 
-const CounterAsTag = Counter()                      // <Counter />
+const CounterAsTag = Counter() // <Counter />
 assertEquals<typeof CounterAsTag, Effect.Effect<View, never, never>>()
 
-const UserPageAsTag = UserPage({ userId: "42" })    // <UserPage userId="42"/>
-assertEquals<typeof UserPageAsTag, Effect.Effect<View, HttpError, Http | Theme>>()
+const UserPageAsTag = UserPage({ userId: "42" }) // <UserPage userId="42"/>
+assertEquals<
+  typeof UserPageAsTag,
+  Effect.Effect<View, HttpError, Http | Theme>
+>()
 
 // Component children union with the surrounding element's other children.
-const Mixed = h("div", {},
-  UserPage({ userId: "42" }),          // contributes HttpError + Http | Theme
-  Counter(),                            // contributes nothing
+const Mixed = h(
+  "div",
+  {},
+  UserPage({ userId: "42" }), // contributes HttpError + Http | Theme
+  Counter(), // contributes nothing
 )
 assertEquals<typeof Mixed, Effect.Effect<View, HttpError, Http | Theme>>()
 
@@ -105,8 +130,10 @@ assertEquals<typeof Mixed, Effect.Effect<View, HttpError, Http | Theme>>()
 //     Direct calls infer the type parameter natively — the old h()-mediated
 //     higher-rank erasure is gone.
 
-declare const GenericRow: <T>(props: { item: T; render: (item: T) => string }) =>
-  Effect.Effect<View, never, never>
+declare const GenericRow: <T>(props: {
+  item: T
+  render: (item: T) => string
+}) => Effect.Effect<View, never, never>
 // <GenericRow item={42} render={n => n.toFixed(2)}/> — T pins to number;
 // `n.toFixed` compiles only because T survived.
 const RowCall = GenericRow({ item: 42, render: (n) => n.toFixed(2) })
@@ -116,21 +143,21 @@ assertEquals<typeof RowCall, Effect.Effect<View, never, never>>()
 
 h("button", {
   onclick: (e) => {
-    const _: number = e.button          // MouseEvent has .button
+    const _: number = e.button // MouseEvent has .button
     void _
   },
 })
 
 h("input", {
   oninput: (e) => {
-    const _: EventTarget | null = e.target  // Event
+    const _: EventTarget | null = e.target // Event
     void _
   },
 })
 
 h("input", {
   onkeydown: (e) => {
-    const _: string = e.key             // KeyboardEvent has .key
+    const _: string = e.key // KeyboardEvent has .key
     void _
   },
 })
@@ -183,7 +210,10 @@ declare const optEff: Option.Option<Effect.Effect<View, HttpError, Http>>
 const WithOption = h("div", {}, optEff)
 assertEquals<typeof WithOption, Effect.Effect<View, HttpError, Http>>()
 
-declare const resEff: Result.Result<Effect.Effect<View, HttpError, Http>, unknown>
+declare const resEff: Result.Result<
+  Effect.Effect<View, HttpError, Http>,
+  unknown
+>
 const WithResult = h("div", {}, resEff)
 assertEquals<typeof WithResult, Effect.Effect<View, HttpError, Http>>()
 
@@ -209,7 +239,10 @@ const Caught = Catch(UserPage({ userId: "42" }), (cause, reset) => {
 })
 // E discharged to `never`; UserPage's `Http | Theme` fold through, plus `Scope`
 // from the boundary's fork.
-assertEquals<typeof Caught, Effect.Effect<View, never, Http | Theme | Scope.Scope>>()
+assertEquals<
+  typeof Caught,
+  Effect.Effect<View, never, Http | Theme | Scope.Scope>
+>()
 
 // @ts-expect-error — UserPage's HttpError is undischarged: `mount` rejects it,
 // and the error names `HttpError` (not assignable to `never`). Forgot a boundary.
@@ -241,7 +274,10 @@ const CaughtHttp = Catch(TwoErrors, {
     return h("p", {}, "http error")
   },
 })
-assertEquals<typeof CaughtHttp, Effect.Effect<View, ParseError, Http | Scope.Scope>>()
+assertEquals<
+  typeof CaughtHttp,
+  Effect.Effect<View, ParseError, Http | Scope.Scope>
+>()
 
 // @ts-expect-error — "Nope" is not one of the child's error tags
 Catch(TwoErrors, { Nope: () => h("p", {}, "x") })
@@ -257,7 +293,10 @@ const CaughtBoth = Catch(CaughtHttp, {
     return h("p", {}, "parse error")
   },
 })
-assertEquals<typeof CaughtBoth, Effect.Effect<View, never, Http | Scope.Scope>>()
+assertEquals<
+  typeof CaughtBoth,
+  Effect.Effect<View, never, Http | Scope.Scope>
+>()
 mount(CaughtBoth, root)
 
 // Handle every tag at once → discharged, mountable.
@@ -279,7 +318,10 @@ declare const liveOnly: Effect.Effect<View<HttpError>, never, never>
 mount(liveOnly, root)
 
 // catch-all discharges the live error → mountable.
-mount(Catch(liveOnly, (_cause) => h("p", {}, "live error")), root)
+mount(
+  Catch(liveOnly, (_cause) => h("p", {}, "live error")),
+  root,
+)
 
 // tag-map discharges it too, narrowing to View<never>.
 mount(Catch(liveOnly, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
@@ -294,7 +336,10 @@ declare const getUser42: () => Effect.Effect<User, HttpError, Http>
 
 // Open form: HttpError rides the View channel; Http still folds into R.
 const OpenAsync = Async(getUser42, { success: (u) => h("p", {}, u.name) })
-assertEquals<typeof OpenAsync, Effect.Effect<View<HttpError>, never, Http | Scope.Scope>>()
+assertEquals<
+  typeof OpenAsync,
+  Effect.Effect<View<HttpError>, never, Http | Scope.Scope>
+>()
 
 // Handled form: discharged to View<never>; the cause is precisely typed.
 const HandledAsync = Async(getUser42, {
@@ -305,19 +350,28 @@ const HandledAsync = Async(getUser42, {
     return h("p", {}, "failed")
   },
 })
-assertEquals<typeof HandledAsync, Effect.Effect<View, never, Http | Scope.Scope>>()
+assertEquals<
+  typeof HandledAsync,
+  Effect.Effect<View, never, Http | Scope.Scope>
+>()
 
 // The live E folds through enclosing elements (FoldLiveE picks it off the
 // child Effect's View<E> success).
 const OpenInTree = h("main", {}, OpenAsync)
-assertEquals<typeof OpenInTree, Effect.Effect<View<HttpError>, never, Http | Scope.Scope>>()
+assertEquals<
+  typeof OpenInTree,
+  Effect.Effect<View<HttpError>, never, Http | Scope.Scope>
+>()
 
 // @ts-expect-error — the open Async's HttpError is undischarged: mount rejects
 // it, naming HttpError. Add a Catch boundary (or a failure arm at the leaf).
 mount(OpenInTree, root)
 
 // A page-level Catch discharges the live failure → mountable.
-mount(Catch(OpenInTree, (_cause) => h("p", {}, "failed")), root)
+mount(
+  Catch(OpenInTree, (_cause) => h("p", {}, "failed")),
+  root,
+)
 
 // Tag-map form discharges it too, narrowing to View<never>.
 mount(Catch(OpenInTree, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
@@ -328,7 +382,11 @@ mount(Catch(OpenInTree, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
 //     residual rides the live channel by `Exclude<E, { _tag }>` and must still
 //     meet a `Catch` before `mount`.
 
-declare const getUserTwo: () => Effect.Effect<User, HttpError | ParseError, Http>
+declare const getUserTwo: () => Effect.Effect<
+  User,
+  HttpError | ParseError,
+  Http
+>
 
 // Handle one tag → its handler gets the unwrapped error; the residual stays
 // on the live channel: View<ParseError>.
@@ -342,10 +400,16 @@ const TagMapAsync = Async(getUserTwo, {
     },
   },
 })
-assertEquals<typeof TagMapAsync, Effect.Effect<View<ParseError>, never, Http | Scope.Scope>>()
+assertEquals<
+  typeof TagMapAsync,
+  Effect.Effect<View<ParseError>, never, Http | Scope.Scope>
+>()
 
 // @ts-expect-error — "Nope" is not one of the thunk's error tags
-Async(getUserTwo, { success: (u) => h("p", {}, u.name), failure: { Nope: () => h("p", {}, "x") } })
+Async(getUserTwo, {
+  success: (u) => h("p", {}, u.name),
+  failure: { Nope: () => h("p", {}, "x") },
+})
 
 // @ts-expect-error — ParseError still rides the live channel; mount rejects it, naming it
 mount(TagMapAsync, root)
@@ -358,7 +422,10 @@ mount(Catch(TagMapAsync, { ParseError: (e) => h("p", {}, e.message) }), root)
 // would accept ANY map as a silently-dead handler set).
 declare const getUntagged: () => Effect.Effect<string, string, never>
 // @ts-expect-error — E = string has no tags; the tag-map overload is rejected
-Async(getUntagged, { success: (s) => h("p", {}, s), failure: { Oops: () => h("p", {}, "x") } })
+Async(getUntagged, {
+  success: (s) => h("p", {}, s),
+  failure: { Oops: () => h("p", {}, "x") },
+})
 
 // Handle every tag at the leaf → View<never>, mountable with no boundary.
 const TagMapAll = Async(getUserTwo, {
@@ -383,7 +450,10 @@ const HandledRetry = Async(getUser42, {
     return h("p", {}, "failed")
   },
 })
-assertEquals<typeof HandledRetry, Effect.Effect<View, never, Http | Scope.Scope>>()
+assertEquals<
+  typeof HandledRetry,
+  Effect.Effect<View, never, Http | Scope.Scope>
+>()
 
 const TagMapRetry = Async(getUserTwo, {
   success: (u) => h("p", {}, u.name),
@@ -395,7 +465,10 @@ const TagMapRetry = Async(getUserTwo, {
     },
   },
 })
-assertEquals<typeof TagMapRetry, Effect.Effect<View<ParseError>, never, Http | Scope.Scope>>()
+assertEquals<
+  typeof TagMapRetry,
+  Effect.Effect<View<ParseError>, never, Http | Scope.Scope>
+>()
 
 // ─── AsyncHandle: asyncRef returns { state, refetch }; Async accepts the
 //     handle directly — same E homes as the thunk form, but the data outlives
@@ -405,7 +478,10 @@ assertEquals<typeof TagMapRetry, Effect.Effect<View<ParseError>, never, Http | S
 declare const userHandle: AsyncHandle<User, HttpError | ParseError>
 
 const HandleOpen = Async(userHandle, { success: (u) => h("p", {}, u.name) })
-assertEquals<typeof HandleOpen, Effect.Effect<View<HttpError | ParseError>, never, Scope.Scope>>()
+assertEquals<
+  typeof HandleOpen,
+  Effect.Effect<View<HttpError | ParseError>, never, Scope.Scope>
+>()
 
 const HandleTagMap = Async(userHandle, {
   success: (u) => h("p", {}, u.name),
@@ -417,12 +493,18 @@ const HandleTagMap = Async(userHandle, {
     },
   },
 })
-assertEquals<typeof HandleTagMap, Effect.Effect<View<ParseError>, never, Scope.Scope>>()
+assertEquals<
+  typeof HandleTagMap,
+  Effect.Effect<View<ParseError>, never, Scope.Scope>
+>()
 
 // A handle-based open Async still needs a boundary before mount.
 // @ts-expect-error — HttpError | ParseError ride the live channel
 mount(HandleOpen, root)
-mount(Catch(HandleOpen, (_cause) => h("p", {}, "failed")), root)
+mount(
+  Catch(HandleOpen, (_cause) => h("p", {}, "failed")),
+  root,
+)
 
 // Note: the type assertions above are the **load-bearing proof** of the POC.
 // If they compile, channels are surviving the tree.

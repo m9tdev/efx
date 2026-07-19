@@ -22,8 +22,8 @@ TypeScript:
 // tsconfig.json
 {
   "compilerOptions": {
-    "plugins": [{ "name": "@verrex/ts-plugin" }]
-  }
+    "plugins": [{ "name": "@verrex/ts-plugin" }],
+  },
 }
 ```
 

@@ -9,17 +9,17 @@ The user adds it to their `vite.config.ts` plugins array.
 ## What it does
 
 The plugin **owns the full `.vx` → JavaScript transform** and hands
-Vite finished JS. It does *not* lean on Vite's built-in transformer to
+Vite finished JS. It does _not_ lean on Vite's built-in transformer to
 strip the TypeScript — see "Why we own the whole transform" below.
 
 Three hooks, each load-bearing:
 
-| Hook | Purpose |
-|---|---|
-| `enforce: "pre"` | Run before other plugins' transforms so our hook is the one that turns a `.vx` id into a module. If you drop the flag and something breaks, ordering is the first thing to check. |
-| `configureServer(server)` middleware | Rewrites every `.vx` request URL to add `?import` (if not already present). |
-| `transform(code, id)` | Two steps: (1) `transformVerrex(code, id, { errorRecovery: false })` turns JSX into `h()` calls (still TypeScript); (2) Vite's `transformWithOxc(ts, id, { lang: "ts" }, babelMap)` strips the types → JS and chains the Babel map. Returns `{ code, map, moduleType: "js" }`. |
-| `load(id)` | Reads the raw file from disk for `?import`-suffixed requests. Belt-and-suspenders — the middleware ensures every `.vx` request hits this path. |
+| Hook                                 | Purpose                                                                                                                                                                                                                                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `enforce: "pre"`                     | Run before other plugins' transforms so our hook is the one that turns a `.vx` id into a module. If you drop the flag and something breaks, ordering is the first thing to check.                                                                                              |
+| `configureServer(server)` middleware | Rewrites every `.vx` request URL to add `?import` (if not already present).                                                                                                                                                                                                    |
+| `transform(code, id)`                | Two steps: (1) `transformVerrex(code, id, { errorRecovery: false })` turns JSX into `h()` calls (still TypeScript); (2) Vite's `transformWithOxc(ts, id, { lang: "ts" }, babelMap)` strips the types → JS and chains the Babel map. Returns `{ code, map, moduleType: "js" }`. |
+| `load(id)`                           | Reads the raw file from disk for `?import`-suffixed requests. Belt-and-suspenders — the middleware ensures every `.vx` request hits this path.                                                                                                                                 |
 
 ## Why we own the whole transform (Vite 8 / Oxc)
 
@@ -78,7 +78,7 @@ The plugin defines three nearly-identical regexes:
 - `VERREX_RE` — for the `transform` hook (`/\.vx(?:\?[^.]*)?$/`):
   matches the path with optional query, used to gate transforms.
 - `VERREX_PATH_RE` — for the `load` hook (`/\.vx$/`): matches the
-  path *after* `id.split("?")[0]`, so no query handling needed.
+  path _after_ `id.split("?")[0]`, so no query handling needed.
 - `VERREX_URL_RE` — for the URL middleware (`/\.vx(\?.*)?$/`):
   matches the URL with optional query for rewriting.
 - `HAS_IMPORT_RE` — checks for an existing `?import` / `&import`
@@ -91,7 +91,7 @@ vs Vite id vs path-only). Don't unify naively.
 
 - No HMR logic of its own — Vite's built-in HMR works because the
   output of `transform` is JavaScript modules.
-- No *manual* source-map composition. The two-stage map (Babel
+- No _manual_ source-map composition. The two-stage map (Babel
   `.vx`→TS, then Oxc TS→JS) is chained by `transformWithOxc`'s
   `inMap` argument — we pass the Babel map in and get the composed
   `.vx`→JS map back. No remapping library, no hand-rolled merge.

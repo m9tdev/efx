@@ -1,13 +1,22 @@
 import { createLanguageServicePlugin } from "@volar/typescript/lib/quickstart/createLanguageServicePlugin"
 import type { Language } from "@volar/language-core"
 import type * as ts from "typescript"
-import { createVerrexLanguagePlugin, VerrexVirtualCode } from "@verrex/core/language"
+import {
+  createVerrexLanguagePlugin,
+  VerrexVirtualCode,
+} from "@verrex/core/language"
 import { findJsxTagPair, type JsxTagProvider } from "./jsx-tags.ts"
-import { classifyRefs, dedupeRefs, sortClassifiedRefs } from "./classify-references.ts"
+import {
+  classifyRefs,
+  dedupeRefs,
+  sortClassifiedRefs,
+} from "./classify-references.ts"
 import { hintText, SUPPRESS_RE } from "./hint-text.ts"
 
 // tsserver identifies scripts by file path strings — asFileName is identity.
-const verrexLanguagePlugin = createVerrexLanguagePlugin<string>((scriptId) => scriptId)
+const verrexLanguagePlugin = createVerrexLanguagePlugin<string>(
+  (scriptId) => scriptId,
+)
 
 // Volar hands us the `Language` for this tsserver session via the `setup`
 // hook, which fires synchronously inside `volarModule.create(info)`. We stash
@@ -55,20 +64,28 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
       // the same instance Volar indexed in `createVirtualCode`. The
       // `instanceof` narrows away `.ts`/other virtual codes and the
       // not-yet-compiled case. No side-channel cache to fall out of sync.
-      const getVerrexVirtualCode = (fileName: string): VerrexVirtualCode | undefined => {
+      const getVerrexVirtualCode = (
+        fileName: string,
+      ): VerrexVirtualCode | undefined => {
         const root = language?.scripts.get(fileName)?.generated?.root
         return root instanceof VerrexVirtualCode ? root : undefined
       }
 
       const jsxTagProvider: JsxTagProvider = {
-        getJsxRanges: (verrexPath) => getVerrexVirtualCode(verrexPath)?.jsxRanges,
+        getJsxRanges: (verrexPath) =>
+          getVerrexVirtualCode(verrexPath)?.jsxRanges,
       }
 
       // Filter out h.ts definitions (runtime internals) - these appear due to h() calls.
       // Cross-file path/offset rewriting isn't needed anymore: Volar maps virtual-code
       // results back to source `.vx` coordinates natively.
-      const filterRuntimeHit = <T extends { fileName: string }>(def: T): T | null => {
-        if (def.fileName.includes("/runtime/") && def.fileName.endsWith("/h.ts")) {
+      const filterRuntimeHit = <T extends { fileName: string }>(
+        def: T,
+      ): T | null => {
+        if (
+          def.fileName.includes("/runtime/") &&
+          def.fileName.endsWith("/h.ts")
+        ) {
           return null
         }
         return def
@@ -91,9 +108,13 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
           : never,
       ): ts.LanguageService[K] => {
         const wrapped = (...args: unknown[]) => {
-          const fn = (service as ts.LanguageService)[name] as (...a: unknown[]) => unknown
+          const fn = (service as ts.LanguageService)[name] as (
+            ...a: unknown[]
+          ) => unknown
           const result = fn.apply(service, args)
-          return (transform as (result: unknown, ...args: unknown[]) => unknown)(result, ...args)
+          return (
+            transform as (result: unknown, ...args: unknown[]) => unknown
+          )(result, ...args)
         }
         return wrapped as ts.LanguageService[K]
       }
@@ -104,10 +125,16 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
           if (typeof value !== "function") return value
 
           if (prop === "getDefinitionAtPosition") {
-            return wrapMethod("getDefinitionAtPosition", (r) => r && filterRuntimeHits(r))
+            return wrapMethod(
+              "getDefinitionAtPosition",
+              (r) => r && filterRuntimeHits(r),
+            )
           }
           if (prop === "getTypeDefinitionAtPosition") {
-            return wrapMethod("getTypeDefinitionAtPosition", (r) => r && filterRuntimeHits(r))
+            return wrapMethod(
+              "getTypeDefinitionAtPosition",
+              (r) => r && filterRuntimeHits(r),
+            )
           }
           if (prop === "getDefinitionAndBoundSpan") {
             return wrapMethod("getDefinitionAndBoundSpan", (r) => {
@@ -120,11 +147,15 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
           // before touching the underlying call (whitespace skip, JSX-pair
           // match), which wrapMethod's eager-call shape can't express.
           if (prop === "getDocumentHighlights") {
-            return (fileName: string, position: number, filesToSearch: string[]) => {
+            return (
+              fileName: string,
+              position: number,
+              filesToSearch: string[],
+            ) => {
               if (!fileName.endsWith(".vx")) {
-                return (value as ts.LanguageService["getDocumentHighlights"]).call(
-                  target, fileName, position, filesToSearch
-                )
+                return (
+                  value as ts.LanguageService["getDocumentHighlights"]
+                ).call(target, fileName, position, filesToSearch)
               }
 
               // Whitespace at cursor → suppress; tsserver otherwise returns spurious empty hits
@@ -137,59 +168,79 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               // JSX tag-pair highlight, backed by compiler jsxRanges
               const pair = findJsxTagPair(jsxTagProvider, fileName, position)
               if (pair) {
-                return [{
-                  fileName,
-                  highlightSpans: [
-                    { textSpan: pair.current, kind: "reference" as ts.HighlightSpanKind },
-                    { textSpan: pair.partner, kind: "reference" as ts.HighlightSpanKind },
-                  ],
-                }]
+                return [
+                  {
+                    fileName,
+                    highlightSpans: [
+                      {
+                        textSpan: pair.current,
+                        kind: "reference" as ts.HighlightSpanKind,
+                      },
+                      {
+                        textSpan: pair.partner,
+                        kind: "reference" as ts.HighlightSpanKind,
+                      },
+                    ],
+                  },
+                ]
               }
 
               // Fall back to default behavior
-              return (value as ts.LanguageService["getDocumentHighlights"]).call(
-                target, fileName, position, filesToSearch
-              )
+              return (
+                value as ts.LanguageService["getDocumentHighlights"]
+              ).call(target, fileName, position, filesToSearch)
             }
           }
 
           if (prop === "getCompletionsAtPosition") {
-            return wrapMethod("getCompletionsAtPosition", (result, fileName, position) => {
-              if (!fileName.endsWith(".vx") || !result) return result
-              const source = getVerrexVirtualCode(fileName)?.source
-              if (!source) return result
-              // Babel's errorRecovery turns mid-edit `count.\n...return` into a
-              // `count.return` MemberExpression — convenient for letting
-              // tsserver enumerate `count`'s members, but the resulting
-              // replacementSpan covers `return` on the next line. If the
-              // editor applied it, picking `set` would delete `return`.
-              // Clamp any span that sits across a newline from the cursor to
-              // an insert-at-cursor (zero-width at position). Deliberately
-              // coarse: we don't try to identify the synthesized property
-              // text — any cross-line span gets clamped. In practice, no
-              // legitimate completion wants to delete content from a
-              // different line than the cursor.
-              const crossesNewlineFromCursor = (span: ts.TextSpan): boolean => {
-                const lo = Math.min(position, span.start)
-                const hi = Math.max(position, span.start + span.length)
-                return source.slice(lo, hi).includes("\n")
-              }
-              const insertAtCursor: ts.TextSpan = { start: position, length: 0 }
-
-              const entries = result.entries.map((e) => {
-                if (e.replacementSpan && crossesNewlineFromCursor(e.replacementSpan)) {
-                  return { ...e, replacementSpan: insertAtCursor }
+            return wrapMethod(
+              "getCompletionsAtPosition",
+              (result, fileName, position) => {
+                if (!fileName.endsWith(".vx") || !result) return result
+                const source = getVerrexVirtualCode(fileName)?.source
+                if (!source) return result
+                // Babel's errorRecovery turns mid-edit `count.\n...return` into a
+                // `count.return` MemberExpression — convenient for letting
+                // tsserver enumerate `count`'s members, but the resulting
+                // replacementSpan covers `return` on the next line. If the
+                // editor applied it, picking `set` would delete `return`.
+                // Clamp any span that sits across a newline from the cursor to
+                // an insert-at-cursor (zero-width at position). Deliberately
+                // coarse: we don't try to identify the synthesized property
+                // text — any cross-line span gets clamped. In practice, no
+                // legitimate completion wants to delete content from a
+                // different line than the cursor.
+                const crossesNewlineFromCursor = (
+                  span: ts.TextSpan,
+                ): boolean => {
+                  const lo = Math.min(position, span.start)
+                  const hi = Math.max(position, span.start + span.length)
+                  return source.slice(lo, hi).includes("\n")
                 }
-                return e
-              })
-              const orig = result.optionalReplacementSpan
-              const clamped = orig && crossesNewlineFromCursor(orig) ? insertAtCursor : orig
-              // Spread the optional field only when defined — exactOptionalPropertyTypes
-              // rejects `optionalReplacementSpan: undefined` as a value.
-              return clamped
-                ? { ...result, optionalReplacementSpan: clamped, entries }
-                : { ...result, entries }
-            })
+                const insertAtCursor: ts.TextSpan = {
+                  start: position,
+                  length: 0,
+                }
+
+                const entries = result.entries.map((e) => {
+                  if (
+                    e.replacementSpan &&
+                    crossesNewlineFromCursor(e.replacementSpan)
+                  ) {
+                    return { ...e, replacementSpan: insertAtCursor }
+                  }
+                  return e
+                })
+                const orig = result.optionalReplacementSpan
+                const clamped =
+                  orig && crossesNewlineFromCursor(orig) ? insertAtCursor : orig
+                // Spread the optional field only when defined — exactOptionalPropertyTypes
+                // rejects `optionalReplacementSpan: undefined` as a value.
+                return clamped
+                  ? { ...result, optionalReplacementSpan: clamped, entries }
+                  : { ...result, entries }
+              },
+            )
           }
 
           if (prop === "provideInlayHints") {
@@ -198,7 +249,9 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               // Drop the h() parameter labels (_tag/_props/_children). Text
               // extraction + the suppression regex live in hint-text.ts so
               // they're unit-testable without a tsserver.
-              return hints.filter((hint: ts.InlayHint) => !SUPPRESS_RE.test(hintText(hint)))
+              return hints.filter(
+                (hint: ts.InlayHint) => !SUPPRESS_RE.test(hintText(hint)),
+              )
             })
           }
 
@@ -220,12 +273,18 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               // shared refKey. Classify once (one read per distinct file), then
               // apply the def→usages→imports ordering — both extracted next to
               // classifyRefs so the policy is unit-tested without a tsserver.
-              const allRefs = dedupeRefs(filterRuntimeHits(result.flatMap((s) => s.references)))
-              const classified = sortClassifiedRefs(classifyRefs(allRefs, def, ts.sys.readFile))
-              return [{
-                definition: def,
-                references: classified.map((c) => c.ref),
-              }]
+              const allRefs = dedupeRefs(
+                filterRuntimeHits(result.flatMap((s) => s.references)),
+              )
+              const classified = sortClassifiedRefs(
+                classifyRefs(allRefs, def, ts.sys.readFile),
+              )
+              return [
+                {
+                  definition: def,
+                  references: classified.map((c) => c.ref),
+                },
+              ]
             })
           }
 

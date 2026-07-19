@@ -22,7 +22,9 @@ const { Users, usersWith } = makeUsersFixture("retry")
 // Catch-all page, shared by tests 1 and 3.
 const CatchAllPage = Effect.fn(function* () {
   const client = yield* Users
-  return yield* h("div", {},
+  return yield* h(
+    "div",
+    {},
     yield* Async(() => client.get("7"), {
       initial: h("span", { class: "loading" }, "…"),
       success: (n) => h("span", { class: "ok" }, n),
@@ -37,7 +39,11 @@ describe("Async failure retry", () => {
     let recovered = false
     const ui = await render(
       CatchAllPage(),
-      usersWith((id) => (recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound({ id })))),
+      usersWith((id) =>
+        recovered
+          ? Effect.succeed(`hi ${id}`)
+          : Effect.fail(new NotFound({ id })),
+      ),
     )
     try {
       await ui.waitFor(".retry")
@@ -54,12 +60,18 @@ describe("Async failure retry", () => {
     let recovered = false
     const Page = Effect.fn(function* () {
       const client = yield* Users
-      return yield* h("div", {},
+      return yield* h(
+        "div",
+        {},
         yield* Async(() => client.get("9"), {
           success: (n) => h("span", { class: "ok" }, n),
           failure: {
             NotFound: (e, retry) =>
-              h("button", { class: "retry", onclick: () => retry() }, `missing ${e.id}`),
+              h(
+                "button",
+                { class: "retry", onclick: () => retry() },
+                `missing ${e.id}`,
+              ),
             // Never fires here — present to fully discharge the fixture's error union.
             Timeout: () => h("span", {}, "timed out"),
           },
@@ -68,7 +80,11 @@ describe("Async failure retry", () => {
     })()
     const ui = await render(
       Page,
-      usersWith((id) => (recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound({ id })))),
+      usersWith((id) =>
+        recovered
+          ? Effect.succeed(`hi ${id}`)
+          : Effect.fail(new NotFound({ id })),
+      ),
     )
     try {
       expect((await ui.waitFor(".retry")).textContent?.trim()).toBe("missing 9")

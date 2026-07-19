@@ -56,7 +56,11 @@ describe("h.read — non-AtomRef branch (faithful .value)", () => {
 describe("h() rejects function tags (post-#71 migration guard)", () => {
   it("throws a TypeError naming the direct-call migration", () => {
     const fakeComponent = () => "not a real component"
-    expect(() => (h as unknown as (...args: ReadonlyArray<unknown>) => unknown)(fakeComponent, {}))
-      .toThrowError(/direct calls since #71/)
+    expect(() =>
+      (h as unknown as (...args: ReadonlyArray<unknown>) => unknown)(
+        fakeComponent,
+        {},
+      ),
+    ).toThrowError(/direct calls since #71/)
   })
 })

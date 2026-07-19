@@ -21,13 +21,13 @@ that package to npm.
   npm scope from tag names; a scoped tag like `@verrex/core-v0.1.0` is
   invisible to it and breaks changelog anchoring).
 - **Still pre-1.0:** `bump-minor-pre-major` + `bump-patch-for-minor-pre-major`
-  keep `feat`→minor / `fix`→patch *within* 0.x until you cut a 1.0.
+  keep `feat`→minor / `fix`→patch _within_ 0.x until you cut a 1.0.
 - **Tokenless publish:** OIDC trusted publishing, no `NPM_TOKEN`. Provenance is
-  turned on by the `--provenance` flag in `release.yml` (deliberately *not* in
+  turned on by the `--provenance` flag in `release.yml` (deliberately _not_ in
   `publishConfig`, so a one-time local bootstrap publish doesn't try to attest
   outside CI and fail). Requires a Trusted Publisher (this repo + `release.yml`)
   configured per package at npmjs.com. `minimumReleaseAge` still applies to
-  *our* installs — never bypass it.
+  _our_ installs — never bypass it.
 - **First publish (bootstrap):** trusted publishing needs the package to exist
   on npm first, so the very first version of each package is published manually
   (`pnpm --filter <pkg> publish --access public`) — no provenance on that one.

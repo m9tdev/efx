@@ -10,14 +10,21 @@ const runTransform = (code: string, id: string) => {
     {} as never,
     code,
     id,
-  ) as Promise<{ code: string; map?: { sources: string[] }; moduleType?: string } | null>
+  ) as Promise<{
+    code: string
+    map?: { sources: string[] }
+    moduleType?: string
+  } | null>
 }
 
 describe("verrex() transform", () => {
   it("rewrites JSX to h() calls and emits plain JavaScript", async () => {
-    const out = await runTransform(`
+    const out = await runTransform(
+      `
       const v = <div class="x">{1}</div>
-    `, "/abs/Test.vx")
+    `,
+      "/abs/Test.vx",
+    )
     expect(out).not.toBeNull()
     expect(out!.code).toContain('h("div"')
     expect(out!.code).not.toContain("<div") // JSX is gone
@@ -36,26 +43,35 @@ describe("verrex() transform", () => {
   })
 
   it("returns a source map whose sources point at the original .vx", async () => {
-    const out = await runTransform(`
+    const out = await runTransform(
+      `
       const v = <div>{1}</div>
-    `, "/abs/Counter.vx")
+    `,
+      "/abs/Counter.vx",
+    )
     expect(out!.map).toBeTruthy()
     expect(JSON.stringify(out!.map!.sources)).toContain("Counter.vx")
   })
 
   it("ignores non-.vx ids", async () => {
-    const out = await runTransform(`
+    const out = await runTransform(
+      `
       const x = 1
-    `, "/abs/plain.ts")
+    `,
+      "/abs/plain.ts",
+    )
     expect(out).toBeNull()
   })
 
   it("fails loudly on a real syntax error (errorRecovery: false)", async () => {
     // Build path must not silently ship a recovered/garbage module.
     await expect(
-      runTransform(`
+      runTransform(
+        `
         const v = <div>{
-      `, "/abs/Broken.vx"),
+      `,
+        "/abs/Broken.vx",
+      ),
     ).rejects.toBeTruthy()
   })
 })

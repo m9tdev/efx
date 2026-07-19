@@ -7,21 +7,42 @@
  */
 import type { Effect } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
-import type { ChildE, ChildLiveE, ChildR, FoldE, FoldLiveE, FoldR } from "./Fold.ts"
+import type {
+  ChildE,
+  ChildLiveE,
+  ChildR,
+  FoldE,
+  FoldLiveE,
+  FoldR,
+} from "./Fold.ts"
 import type { View } from "../View.ts"
 
 // Test fixtures
-interface HttpService { readonly _tag: "HttpService" }
-interface DbService { readonly _tag: "DbService" }
-class HttpError { readonly _tag = "HttpError" as const }
-class NotFound { readonly _tag = "NotFound" as const }
+interface HttpService {
+  readonly _tag: "HttpService"
+}
+interface DbService {
+  readonly _tag: "DbService"
+}
+class HttpError {
+  readonly _tag = "HttpError" as const
+}
+class NotFound {
+  readonly _tag = "NotFound" as const
+}
 
 type Eff1 = Effect.Effect<View, HttpError, HttpService>
 type Eff2 = Effect.Effect<View, NotFound, DbService>
 
 // Helper: assignability assertion (lhs must be subtype of rhs and vice versa)
-type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
-declare function assertEquals<A, B extends Equals<A, B> extends true ? unknown : never>(): void
+type Equals<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false
+declare function assertEquals<
+  A,
+  B extends Equals<A, B> extends true ? unknown : never,
+>(): void
 
 // 1) Single Effect child contributes its E and R
 assertEquals<ChildE<Eff1>, HttpError>()
@@ -32,8 +53,14 @@ assertEquals<FoldE<readonly [Eff1, Eff2]>, HttpError | NotFound>()
 assertEquals<FoldR<readonly [Eff1, Eff2]>, HttpService | DbService>()
 
 // 3) Primitives contribute nothing
-assertEquals<FoldE<readonly [string, number, null, undefined, boolean]>, never>()
-assertEquals<FoldR<readonly [string, number, null, undefined, boolean]>, never>()
+assertEquals<
+  FoldE<readonly [string, number, null, undefined, boolean]>,
+  never
+>()
+assertEquals<
+  FoldR<readonly [string, number, null, undefined, boolean]>,
+  never
+>()
 
 // 4) Mixed primitives + effects only contribute the effects' channels
 assertEquals<FoldE<readonly [string, Eff1, number]>, HttpError>()
@@ -86,4 +113,3 @@ assertEquals<FoldLiveE<readonly [ViewErr, EffLive]>, HttpError>()
 // 13) A bare View<never> contributes nothing on any channel.
 assertEquals<ChildLiveE<View>, never>()
 assertEquals<ChildE<View>, never>()
-

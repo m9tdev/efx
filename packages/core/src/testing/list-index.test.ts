@@ -22,7 +22,11 @@ describe("list() reactive index", () => {
     const coll = AtomRef.collection<string>(["a", "b", "c"])
     const ui = await render(IndexedList(coll))
 
-    expect(ui.all(".row").map((r) => r.textContent)).toEqual(["0: a", "1: b", "2: c"])
+    expect(ui.all(".row").map((r) => r.textContent)).toEqual([
+      "0: a",
+      "1: b",
+      "2: c",
+    ])
 
     // Capture the b and c row nodes so we can prove they aren't rebuilt.
     const [, bNode, cNode] = ui.all(".row")
@@ -91,7 +95,8 @@ describe("list() row lifecycle", () => {
               () => Effect.sync(() => log.push(`release:${id}`)),
             )
             return yield* h("li", { class: "row" }, id)
-          })) as View,
+          }),
+        ) as View,
       )
     })
 

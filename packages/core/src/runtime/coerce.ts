@@ -110,7 +110,8 @@ export const setTrackDispose = (
 /** The tracked-subscription dispose for `ref`, if it is a `h.track` derived. */
 export const getTrackDispose = (
   ref: AtomRef.ReadonlyRef<unknown>,
-): (() => void) | undefined => (ref as { [TrackDisposeId]?: () => void })[TrackDisposeId]
+): (() => void) | undefined =>
+  (ref as { [TrackDisposeId]?: () => void })[TrackDisposeId]
 
 const Empty = View.Empty()
 
@@ -143,13 +144,19 @@ export function coerceAsync(v: unknown): Effect.Effect<View, any, any> {
     return Effect.succeed(View.Reactive({ source: v as Atom.Atom<View> }))
   }
   if (isAtomRef(v)) {
-    return Effect.succeed(View.Reactive({ source: v as AtomRef.ReadonlyRef<View> }))
+    return Effect.succeed(
+      View.Reactive({ source: v as AtomRef.ReadonlyRef<View> }),
+    )
   }
   return Effect.succeed(View.Text({ value: String(v) }))
 }
 
-function coerceChildren<C>(cs: ReadonlyArray<C>): Effect.Effect<View, ChildE<C>, ChildR<C>>
-function coerceChildren(cs: ReadonlyArray<unknown>): Effect.Effect<View, any, any> {
+function coerceChildren<C>(
+  cs: ReadonlyArray<C>,
+): Effect.Effect<View, ChildE<C>, ChildR<C>>
+function coerceChildren(
+  cs: ReadonlyArray<unknown>,
+): Effect.Effect<View, any, any> {
   return Effect.gen(function* () {
     const out: View[] = []
     for (const c of cs) {
@@ -175,7 +182,11 @@ function coerceChildren(cs: ReadonlyArray<unknown>): Effect.Effect<View, any, an
  * Pure-interrupt causes (a scope tearing down mid-render) are dropped, not
  * routed: they're teardown, not errors.
  */
-export const coerceSync = (v: unknown, scope: Scope.Scope, sink: ErrorSink): View => {
+export const coerceSync = (
+  v: unknown,
+  scope: Scope.Scope,
+  sink: ErrorSink,
+): View => {
   if (v == null || v === false || v === true) return Empty
   if (typeof v === "string") return View.Text({ value: v })
   if (typeof v === "number" || typeof v === "bigint") {
@@ -198,7 +209,9 @@ export const coerceSync = (v: unknown, scope: Scope.Scope, sink: ErrorSink): Vie
     })
   }
   if (Array.isArray(v)) {
-    return View.Fragment({ children: v.map((x) => coerceSync(x, scope, sink)) })
+    return View.Fragment({
+      children: v.map((x) => coerceSync(x, scope, sink)),
+    })
   }
   return View.Text({ value: String(v) })
 }

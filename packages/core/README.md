@@ -39,12 +39,12 @@ export const Counter = Component.make(function* () {
 
 ## Subpath exports
 
-| Import | What you get |
-|---|---|
-| `@verrex/core` | `h`, `mount`, `Component`, `Async`, `asyncRef`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive` |
-| `@verrex/core/vite` | Vite plugin that compiles `.vx` |
-| `@verrex/core/check` (+ `verrex-check` bin) | `.vx`-aware type-checker (replaces `tsc --noEmit`) |
-| `@verrex/core/compiler`, `@verrex/core/language`, `@verrex/core/testing` | compiler, Volar language plugin, test harness |
+| Import                                                                   | What you get                                                                                      |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `@verrex/core`                                                           | `h`, `mount`, `Component`, `Async`, `asyncRef`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive` |
+| `@verrex/core/vite`                                                      | Vite plugin that compiles `.vx`                                                                   |
+| `@verrex/core/check` (+ `verrex-check` bin)                              | `.vx`-aware type-checker (replaces `tsc --noEmit`)                                                |
+| `@verrex/core/compiler`, `@verrex/core/language`, `@verrex/core/testing` | compiler, Volar language plugin, test harness                                                     |
 
 `@verrex/core` ships its compiled `dist` alongside the original `src` with
 declaration maps, so go-to-definition lands in the framework's TypeScript

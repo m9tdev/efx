@@ -19,7 +19,10 @@ describe("event handlers — Effect-returning", () => {
       const count = AtomRef.make(0)
       return yield* h(
         "button",
-        { class: "btn", onClick: () => Effect.sync(() => count.set(count.value + 1)) },
+        {
+          class: "btn",
+          onClick: () => Effect.sync(() => count.set(count.value + 1)),
+        },
         "count: ",
         count,
       )
@@ -39,10 +42,14 @@ describe("event handlers — Effect-returning", () => {
   })
 
   it("runs on the captured context — handler Effect can yield* a service", async () => {
-    class Step extends Context.Service<Step, { readonly by: number }>()("test/Step") {}
+    class Step extends Context.Service<Step, { readonly by: number }>()(
+      "test/Step",
+    ) {}
     const StepLive = Layer.succeed(Step, { by: 10 })
 
-    const ServiceClicker = Effect.fn("ServiceClicker")(function* (_props: {} = {}) {
+    const ServiceClicker = Effect.fn("ServiceClicker")(function* (
+      _props: {} = {},
+    ) {
       const count = AtomRef.make(0)
       return yield* h(
         "button",
@@ -75,7 +82,12 @@ describe("event handlers — Effect-returning", () => {
       const count = AtomRef.make(0)
       return yield* h(
         "button",
-        { class: "btn", onClick: () => { count.set(count.value + 1) } },
+        {
+          class: "btn",
+          onClick: () => {
+            count.set(count.value + 1)
+          },
+        },
         "count: ",
         count,
       )
@@ -103,10 +115,17 @@ describe("event handlers — Effect-returning", () => {
       return yield* h(
         "div",
         {},
-        h("button", { class: "bad", onClick: () => Effect.fail("boom-marker") }, "fail"),
         h(
           "button",
-          { class: "good", onClick: () => Effect.sync(() => count.set(count.value + 1)) },
+          { class: "bad", onClick: () => Effect.fail("boom-marker") },
+          "fail",
+        ),
+        h(
+          "button",
+          {
+            class: "good",
+            onClick: () => Effect.sync(() => count.set(count.value + 1)),
+          },
           "ok: ",
           count,
         ),
@@ -130,7 +149,10 @@ describe("event handlers — Effect-returning", () => {
             ? v.some(mentionsMarker)
             : false
     const found = logged.some((o) => {
-      const opts = o as { readonly message?: unknown; readonly cause?: unknown }
+      const opts = o as {
+        readonly message?: unknown
+        readonly cause?: unknown
+      }
       return mentionsMarker(opts.message) || mentionsMarker(opts.cause)
     })
     expect(found).toBe(true)

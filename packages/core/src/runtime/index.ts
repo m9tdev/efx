@@ -1,6 +1,22 @@
-import { Cause, Effect, Exit, Fiber, Layer, Option, Queue, Scope, type Types } from "effect"
+import {
+  Cause,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  Queue,
+  Scope,
+  type Types,
+} from "effect"
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { coerceAsync, type ErrorSink, isAtomRef, makeDepSubscription, trackDeps } from "./coerce.ts"
+import {
+  coerceAsync,
+  type ErrorSink,
+  isAtomRef,
+  makeDepSubscription,
+  trackDeps,
+} from "./coerce.ts"
 import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
 import { type BoundaryState, View } from "./View.ts"
 
@@ -44,7 +60,10 @@ export const list = <T>(
   render: (
     item: AtomRef.AtomRef<T>,
     index: AtomRef.ReadonlyRef<number>,
-  ) => View | Effect.Effect<View, never, Scope.Scope> | Effect.Effect<View, never, never>,
+  ) =>
+    | View
+    | Effect.Effect<View, never, Scope.Scope>
+    | Effect.Effect<View, never, never>,
 ): View =>
   View.List({
     source: from as AtomRef.Collection<unknown>,
@@ -79,7 +98,9 @@ export interface AsyncHandle<A, E> {
  * default. A callable value is ALWAYS treated as a thunk, even if it also
  * carries handle-shaped properties — don't build callable handle hybrids.
  */
-type AsyncSource<A, E, R = never> = (() => Effect.Effect<A, E, R>) | AsyncHandle<A, E>
+type AsyncSource<A, E, R = never> =
+  | (() => Effect.Effect<A, E, R>)
+  | AsyncHandle<A, E>
 
 /**
  * The reactive effectful data primitive — the async leaf of the
@@ -109,7 +130,9 @@ export const asyncRef = <A, E, R>(
   effect: () => Effect.Effect<A, E, R>,
 ): Effect.Effect<AsyncHandle<A, E>, never, R | Scope.Scope> =>
   Effect.gen(function* () {
-    const state = AtomRef.make<AsyncResult.AsyncResult<A, E>>(AsyncResult.initial(true))
+    const state = AtomRef.make<AsyncResult.AsyncResult<A, E>>(
+      AsyncResult.initial(true),
+    )
     const scope = yield* Effect.scope
 
     // A "run" request carries the effect to fork. The first is produced by
@@ -144,7 +167,10 @@ export const asyncRef = <A, E, R>(
       return true
     }
     schedule() // initial run + dep subscriptions
-    yield* Scope.addFinalizer(scope, Effect.sync(() => sub.dispose()))
+    yield* Scope.addFinalizer(
+      scope,
+      Effect.sync(() => sub.dispose()),
+    )
 
     // Supervisor loop on the mount fiber: one child at a time; a new run
     // interrupts the prior. Scope close interrupts loop + live child.
@@ -157,7 +183,11 @@ export const asyncRef = <A, E, R>(
           if (child) yield* Fiber.interrupt(child)
           // First run shows Initial(waiting); a refetch keeps the prior result with
           // a waiting flag (stale-while-revalidate) instead of flashing to Initial.
-          state.set(first ? AsyncResult.initial(true) : AsyncResult.waitingFrom(Option.some(state.value)))
+          state.set(
+            first
+              ? AsyncResult.initial(true)
+              : AsyncResult.waitingFrom(Option.some(state.value)),
+          )
           first = false
           child = yield* Effect.forkChild(
             Effect.matchCause(eff, {
@@ -165,9 +195,12 @@ export const asyncRef = <A, E, R>(
                 // A refetch interrupts the prior run; an interrupt-only cause is that
                 // teardown, not a real failure — don't surface it as a Failure (the
                 // guard every other sink in the runtime applies).
-                if (!Cause.hasInterruptsOnly(cause)) state.set(AsyncResult.failure(cause))
+                if (!Cause.hasInterruptsOnly(cause))
+                  state.set(AsyncResult.failure(cause))
               },
-              onSuccess: (value) => { state.set(AsyncResult.success(value)) },
+              onSuccess: (value) => {
+                state.set(AsyncResult.success(value))
+              },
             }),
           )
         }
@@ -215,7 +248,10 @@ type TagHandlers<E, Extra extends ReadonlyArray<unknown> = []> = {
  * declares keys the value doesn't carry — is invisible at runtime (erasure)
  * and stays a documented limitation.
  */
-const assertHandlerMap = (handlers: Record<string, unknown>, surface: string): void => {
+const assertHandlerMap = (
+  handlers: Record<string, unknown>,
+  surface: string,
+): void => {
   const proto = Object.getPrototypeOf(handlers)
   if (proto !== Object.prototype && proto !== null) {
     throw new TypeError(
@@ -246,11 +282,16 @@ const taggedMatch = (
   handlers: Record<string, unknown>,
   cause: Cause.Cause<unknown>,
 ):
-  | { readonly handler: (error: any, extra: () => void) => unknown; readonly error: unknown }
+  | {
+      readonly handler: (error: any, extra: () => void) => unknown
+      readonly error: unknown
+    }
   | undefined => {
   const err = Option.getOrUndefined(Cause.findErrorOption(cause))
   const t =
-    typeof err === "object" && err !== null && "_tag" in err ? (err as Tagged)._tag : undefined
+    typeof err === "object" && err !== null && "_tag" in err
+      ? (err as Tagged)._tag
+      : undefined
   if (t === undefined || !Object.hasOwn(handlers, t)) return undefined
   const fn = handlers[t]
   return typeof fn === "function"
@@ -351,12 +392,18 @@ export function Async<
   E,
   // `never` when E has no tagged members: without it, Types.Tags<E> = never makes
   // the constraint the empty mapped type and ANY map compiles, silently dead.
-  Handlers extends [Types.Tags<E>] extends [never] ? never : TagHandlers<E, [retry: () => void]>,
+  Handlers extends [Types.Tags<E>] extends [never]
+    ? never
+    : TagHandlers<E, [retry: () => void]>,
   R = never,
 >(
   from: AsyncSource<A, E, R>,
   arms: AsyncArmsBase<A> & { readonly failure: Handlers },
-): Effect.Effect<View<Types.ExcludeTag<E, keyof Handlers & string>>, never, R | Scope.Scope>
+): Effect.Effect<
+  View<Types.ExcludeTag<E, keyof Handlers & string>>,
+  never,
+  R | Scope.Scope
+>
 export function Async<A, E, R = never>(
   from: AsyncSource<A, E, R>,
   arms: AsyncArmsOpen<A>,
@@ -365,7 +412,10 @@ export function Async<A, E, R = never>(
   from: AsyncSource<A, E, R>,
   arms: AsyncArmsBase<A> & {
     readonly failure?:
-      | ((cause: Cause.Cause<E>, retry: () => void) => View | Effect.Effect<View, any, any>)
+      | ((
+          cause: Cause.Cause<E>,
+          retry: () => void,
+        ) => View | Effect.Effect<View, any, any>)
       | Record<string, unknown>
   },
 ): Effect.Effect<View<E>, never, R | Scope.Scope> {
@@ -380,9 +430,13 @@ export function Async<A, E, R = never>(
   // Fail fast on a non-handle smuggled past the types (cast, JS) — same
   // stance as assertHandlerMap.
   if (typeof from !== "function" && !isAtomRef(from.state)) {
-    throw new TypeError("Async: `from` is neither a thunk nor an AsyncHandle (`state` is not an AtomRef)")
+    throw new TypeError(
+      "Async: `from` is neither a thunk nor an AsyncHandle (`state` is not an AtomRef)",
+    )
   }
-  return (typeof from === "function" ? asyncRef(from) : Effect.succeed(from)).pipe(
+  return (
+    typeof from === "function" ? asyncRef(from) : Effect.succeed(from)
+  ).pipe(
     Effect.map(({ refetch, state }) =>
       View.Reactive({
         source: state.map((r) =>
@@ -405,12 +459,15 @@ export function Async<A, E, R = never>(
               // retry button) mid-flight. Also the observable that makes
               // "retry is running" testable.
               if (f.waiting) return arms.initial ?? null
-              if (typeof failure === "function") return failure(f.cause, refetch)
+              if (typeof failure === "function")
+                return failure(f.cause, refetch)
               // Truthiness (not === undefined): a nullish `failure` smuggled
               // past the types degrades to the open form instead of crashing
               // `Object.hasOwn` — matching the pre-tag-map behavior.
               const match = failure ? taggedMatch(failure, f.cause) : undefined
-              return match ? match.handler(match.error, refetch) : Effect.failCause(f.cause)
+              return match
+                ? match.handler(match.error, refetch)
+                : Effect.failCause(f.cause)
             },
             onSuccess: (s) => arms.success(s.value),
           }),
@@ -433,7 +490,10 @@ export function Async<A, E, R = never>(
 // its construction-time effects live in, or a cause this boundary doesn't accept.
 type BuildOutcome =
   | { readonly content: BoundaryState; readonly scope: Scope.Closeable }
-  | { readonly rejected: Cause.Cause<unknown>; readonly scope: Scope.Closeable }
+  | {
+      readonly rejected: Cause.Cause<unknown>
+      readonly scope: Scope.Closeable
+    }
 
 const makeBoundary = <R>(
   child: Effect.Effect<View<any>, any, R>,
@@ -445,7 +505,9 @@ const makeBoundary = <R>(
     // Ambient (parent) sink — set by mount via the node's `setAmbient`. A cause
     // this boundary doesn't `accept` escalates here. A catch-all never escalates.
     let ambient: ErrorSink = () => {}
-    const setAmbient = (sink: ErrorSink): void => { ambient = sink }
+    const setAmbient = (sink: ErrorSink): void => {
+      ambient = sink
+    }
 
     // Monotonic generation: `AtomRef.set` dedups via `Equal.equals`, so a build
     // that fails with a structurally-identical `Cause` would be `Equal`-equal to
@@ -478,13 +540,19 @@ const makeBoundary = <R>(
     const build = (): Effect.Effect<BuildOutcome, never, R> =>
       Effect.suspend(() => {
         const scope = Scope.forkUnsafe(mountScope, "sequential")
-        return Effect.matchCause(Effect.provideService(child, Scope.Scope, scope), {
-          onSuccess: (view): BuildOutcome => ({ content: { _tag: "ok", view, gen: gen++ }, scope }),
-          onFailure: (cause): BuildOutcome =>
-            accepts(cause) && !Cause.hasInterruptsOnly(cause)
-              ? { content: { _tag: "error", cause, gen: gen++ }, scope }
-              : { rejected: cause, scope },
-        })
+        return Effect.matchCause(
+          Effect.provideService(child, Scope.Scope, scope),
+          {
+            onSuccess: (view): BuildOutcome => ({
+              content: { _tag: "ok", view, gen: gen++ },
+              scope,
+            }),
+            onFailure: (cause): BuildOutcome =>
+              accepts(cause) && !Cause.hasInterruptsOnly(cause)
+                ? { content: { _tag: "error", cause, gen: gen++ }, scope }
+                : { rejected: cause, scope },
+          },
+        )
       })
 
     // Initial build inline (folds R; no first-paint flash). A rejected cause here
@@ -498,10 +566,13 @@ const makeBoundary = <R>(
     if (first.content._tag === "error") close(first.scope)
     else activeBuild = first.scope
     const state = AtomRef.make<BoundaryState>(first.content)
-    const runs = yield* Queue.unbounded<{ readonly _tag: "reset" } | {
-      readonly _tag: "error"
-      readonly cause: Cause.Cause<unknown>
-    }>()
+    const runs = yield* Queue.unbounded<
+      | { readonly _tag: "reset" }
+      | {
+          readonly _tag: "error"
+          readonly cause: Cause.Cause<unknown>
+        }
+    >()
 
     // Live failures: accepted → error state (via the queue, off the render stack —
     // a synchronous mutation would close the child scope mid-render); non-accepted
@@ -586,7 +657,10 @@ const makeBoundary = <R>(
  */
 export function Catch<EV, EC, R>(
   child: Effect.Effect<View<EV>, EC, R>,
-  handler: (cause: Cause.Cause<EC | EV>, reset: () => void) => View | Effect.Effect<View, any, any>,
+  handler: (
+    cause: Cause.Cause<EC | EV>,
+    reset: () => void,
+  ) => View | Effect.Effect<View, any, any>,
 ): Effect.Effect<View<never>, never, R | Scope.Scope>
 export function Catch<
   EV,
@@ -639,9 +713,9 @@ export function Catch(
  * non-generic `Child[]` — `Child` includes `Effect<View, any, any>`, and
  * folding `any` poisons the channel (an `any` E defeats the `mount` gate).
  */
-export const Fragment = <Cs extends ReadonlyArray<unknown>>(
-  props: { readonly children?: Cs },
-): Effect.Effect<View<FoldLiveE<Cs>>, FoldE<Cs>, FoldR<Cs>> =>
+export const Fragment = <Cs extends ReadonlyArray<unknown>>(props: {
+  readonly children?: Cs
+}): Effect.Effect<View<FoldLiveE<Cs>>, FoldE<Cs>, FoldR<Cs>> =>
   Effect.gen(function* () {
     const out: View<any>[] = []
     for (const c of props.children ?? []) out.push(yield* coerceAsync(c))
@@ -655,4 +729,5 @@ export const Fragment = <Cs extends ReadonlyArray<unknown>>(
  * Merge this with your app-specific Layers (Http, Db, Theme, etc.) before
  * passing to `Effect.provide`.
  */
-export const VerrexLive: Layer.Layer<AtomRegistry.AtomRegistry> = AtomRegistry.layer
+export const VerrexLive: Layer.Layer<AtomRegistry.AtomRegistry> =
+  AtomRegistry.layer

@@ -136,11 +136,11 @@ apps/
 
 ## The primitives
 
-| You import from      | What you get                                                                              |
-|----------------------|-------------------------------------------------------------------------------------------|
-| `@verrex/core`      | `h`, `mount`, `Component`, `Async`, `asyncRef`, `AsyncHandle`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive`                             |
-| `effect`             | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …  |
-| `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                  |
+| You import from              | What you get                                                                                                     |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `@verrex/core`               | `h`, `mount`, `Component`, `Async`, `asyncRef`, `AsyncHandle`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive` |
+| `effect`                     | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …                         |
+| `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                                                 |
 
 `h.track` / `h.read` are compiler-emitted; you generally never write them
 by hand. Reactive reads are always explicit through `.value` — the compiler
@@ -149,20 +149,20 @@ JSX expression is automatically wrapped in a tracking scope.
 
 ## Workflow
 
-| Command            | What it does                                                  |
-|--------------------|---------------------------------------------------------------|
-| `pnpm dev`         | Vite dev server with HMR on `.vx` files                      |
-| `pnpm typecheck`   | Per-package `tsc --noEmit`; apps/demo uses `@verrex/core/check` (.vx-aware) |
-| `pnpm build`       | Production build via Vite (`@verrex/core/vite` owns the transform) |
-| `pnpm test`        | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `@verrex/core/check` |
+| Command          | What it does                                                                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`       | Vite dev server with HMR on `.vx` files                                                                                                         |
+| `pnpm typecheck` | Per-package `tsc --noEmit`; apps/demo uses `@verrex/core/check` (.vx-aware)                                                                     |
+| `pnpm build`     | Production build via Vite (`@verrex/core/vite` owns the transform)                                                                              |
+| `pnpm test`      | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `@verrex/core/check` |
 
 ## Bundle size
 
 `pnpm build` on the demo produces:
 
-| Asset                 | Raw      | Gzipped  |
-|-----------------------|----------|----------|
-| `dist/index.html`     | 11.66 kB |  3.06 kB |
+| Asset                    | Raw       | Gzipped      |
+| ------------------------ | --------- | ------------ |
+| `dist/index.html`        | 11.66 kB  | 3.06 kB      |
 | `dist/assets/index-*.js` | 117.45 kB | **39.64 kB** |
 
 The JS bundle contains: `effect@4.0.0-beta.78` runtime (~6 kB gzipped per

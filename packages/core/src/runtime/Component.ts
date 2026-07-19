@@ -3,12 +3,16 @@ import type { View } from "./View.ts"
 
 // Channel extraction from the union of effects a generator body yields —
 // the same encoding `Effect.fn` uses ([Eff] tuple wrap defeats distribution).
-type GenE<Eff> = [Eff] extends [never] ? never
-  : [Eff] extends [Effect.Effect<infer _A, infer E, infer _R>] ? E
-  : never
-type GenR<Eff> = [Eff] extends [never] ? never
-  : [Eff] extends [Effect.Effect<infer _A, infer _E, infer R>] ? R
-  : never
+type GenE<Eff> = [Eff] extends [never]
+  ? never
+  : [Eff] extends [Effect.Effect<infer _A, infer E, infer _R>]
+    ? E
+    : never
+type GenR<Eff> = [Eff] extends [never]
+  ? never
+  : [Eff] extends [Effect.Effect<infer _A, infer _E, infer R>]
+    ? R
+    : never
 
 /**
  * The canonical component constructor — a thin seam over `Effect.fn`, not an
@@ -57,10 +61,9 @@ type GenR<Eff> = [Eff] extends [never] ? never
  * })
  * ```
  */
-export function make<F extends (props: any) => Effect.Effect<View<any>, any, any>>(
-  f: F,
-  _name?: string,
-): F
+export function make<
+  F extends (props: any) => Effect.Effect<View<any>, any, any>,
+>(f: F, _name?: string): F
 export function make<
   Args extends [props?: any],
   Eff extends Effect.Effect<any, any, any>,
@@ -73,6 +76,7 @@ export function make(f: (props?: any) => any, _name?: string): unknown {
   // `Effect.fn`'s runtime accepts both body shapes — a generator (iterated)
   // and a plain Effect-returning function (`isEffect(iter) ? iter : …`) — so
   // one wrapper serves both overloads.
-  return _name === undefined ? Effect.fn(f as never) : Effect.fn(_name)(f as never)
+  return _name === undefined
+    ? Effect.fn(f as never)
+    : Effect.fn(_name)(f as never)
 }
-

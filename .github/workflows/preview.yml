@@ -39,8 +39,8 @@ jobs:
       !startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     permissions:
-      contents: write        # push/remove the preview on the gh-pages branch
-      pull-requests: write    # comment the preview URL on the PR
+      contents: write # push/remove the preview on the gh-pages branch
+      pull-requests: write # comment the preview URL on the PR
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -62,7 +62,7 @@ jobs:
       - if: github.event.action != 'closed'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: "24"
           cache: pnpm
 
       - if: github.event.action != 'closed'

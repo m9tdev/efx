@@ -51,13 +51,18 @@ function parseCliArgs(argv: ReadonlyArray<string>) {
       // parseArgs rejects unknown flags, missing option values, and flag-like
       // values (`--root --watch`) — the failure modes a hand-rolled
       // `argv[++i]` loop silently swallows.
-      return parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: false }).values
+      return parseArgs({
+        args: [...argv],
+        options: OPTIONS,
+        allowPositionals: false,
+      }).values
     } catch (error) {
       usageError(error instanceof Error ? error.message : String(error))
     }
   })()
   const severity = (flag: string, value: string): Severity => {
-    if ((SEVERITIES as ReadonlyArray<string>).includes(value)) return value as Severity
+    if ((SEVERITIES as ReadonlyArray<string>).includes(value))
+      return value as Severity
     usageError(`${flag} expects one of: ${SEVERITIES.join(", ")}`)
   }
   return {
@@ -65,7 +70,10 @@ function parseCliArgs(argv: ReadonlyArray<string>) {
     tsconfig: values.tsconfig,
     watch: values.watch,
     minimumSeverity: severity("--minimumSeverity", values.minimumSeverity),
-    minimumFailingSeverity: severity("--minimumFailingSeverity", values.minimumFailingSeverity),
+    minimumFailingSeverity: severity(
+      "--minimumFailingSeverity",
+      values.minimumFailingSeverity,
+    ),
     preserveWatchOutput: values.preserveWatchOutput,
   }
 }
@@ -95,7 +103,8 @@ Exit codes:
 // Color only when stdout is a TTY and the consumer hasn't opted out
 // (https://no-color.org). The per-diagnostic output is colored upstream by
 // ts.formatDiagnosticsWithColorAndContext; this gates our summary lines.
-const useColor = process.stdout.isTTY === true && process.env.NO_COLOR === undefined
+const useColor =
+  process.stdout.isTTY === true && process.env.NO_COLOR === undefined
 const paint = (open: number, close: number) => (s: string) =>
   useColor ? `\x1b[${open}m${s}\x1b[${close}m` : s
 const bold = paint(1, 22)
@@ -104,15 +113,22 @@ const red = paint(31, 39)
 const yellow = paint(33, 39)
 
 function formatSummary(result: CheckResult, minimumSeverity: Severity): string {
-  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
+  const plural = (n: number, word: string) =>
+    `${n} ${word}${n === 1 ? "" : "s"}`
   const parts = [
-    result.errors > 0 ? bold(red(plural(result.errors, "error"))) : dim("0 errors"),
+    result.errors > 0
+      ? bold(red(plural(result.errors, "error")))
+      : dim("0 errors"),
   ]
   // A nonzero count always surfaces, whatever the print threshold — any
   // severity can fail the run via --minimumFailingSeverity, and an exit 1
   // must never come with a summary that reads clean.
   if (minimumSeverity !== "error" || result.warnings > 0) {
-    parts.push(result.warnings > 0 ? bold(yellow(plural(result.warnings, "warning"))) : dim("0 warnings"))
+    parts.push(
+      result.warnings > 0
+        ? bold(yellow(plural(result.warnings, "warning")))
+        : dim("0 warnings"),
+    )
   }
   if (minimumSeverity === "hint" || result.hints > 0) {
     parts.push(dim(plural(result.hints, "hint")))
@@ -124,12 +140,22 @@ function formatSummary(result: CheckResult, minimumSeverity: Severity): string {
 // extensions the project happens to contain at startup, so the first file of
 // a new kind still fires its add event. Config files are allowed through
 // separately in the `ignored` predicate.
-const WATCHED_EXTENSIONS = new Set(
-  [".vx", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
-)
+const WATCHED_EXTENSIONS = new Set([
+  ".vx",
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+])
 
 function invocationError(error: unknown): never {
-  console.error(`verrex-check: ${error instanceof Error ? error.message : String(error)}`)
+  console.error(
+    `verrex-check: ${error instanceof Error ? error.message : String(error)}`,
+  )
   process.exit(2)
 }
 
@@ -155,36 +181,51 @@ if (args.watch) {
   // themselves (an extends base can sit anywhere). Imported sources outside
   // these trees (workspace dependencies) are added file-by-file below.
   const watchDirs = [
-    ...new Set([path.dirname(checker.tsconfigPath), ...checker.getWildcardDirectories()]),
+    ...new Set([
+      path.dirname(checker.tsconfigPath),
+      ...checker.getWildcardDirectories(),
+    ]),
   ]
 
   const hasIgnoredSegment = (segments: ReadonlyArray<string>) =>
     segments.includes("node_modules") || segments.includes(".git")
 
-  const watcher = watch([...new Set([...watchDirs, ...checker.getConfigFilePaths()])], {
-    ignored: (p, stats) => {
-      const abs = path.resolve(p)
-      if (checker.getConfigFilePaths().includes(abs)) return false
-      // Match whole path segments below the containing watch dir — substring
-      // tests would ignore the entire tree of e.g. a `user.github.io`
-      // checkout. Explicitly-added files outside every dir fall through with
-      // their absolute segments.
-      const base = watchDirs.find((d) => abs === d || abs.startsWith(d + path.sep))
-      const segments = (base ? path.relative(base, abs) : abs).split(path.sep)
-      if (hasIgnoredSegment(segments)) return true
-      return stats?.isFile() === true && !WATCHED_EXTENSIONS.has(path.extname(abs))
+  const watcher = watch(
+    [...new Set([...watchDirs, ...checker.getConfigFilePaths()])],
+    {
+      ignored: (p, stats) => {
+        const abs = path.resolve(p)
+        if (checker.getConfigFilePaths().includes(abs)) return false
+        // Match whole path segments below the containing watch dir — substring
+        // tests would ignore the entire tree of e.g. a `user.github.io`
+        // checkout. Explicitly-added files outside every dir fall through with
+        // their absolute segments.
+        const base = watchDirs.find(
+          (d) => abs === d || abs.startsWith(d + path.sep),
+        )
+        const segments = (base ? path.relative(base, abs) : abs).split(path.sep)
+        if (hasIgnoredSegment(segments)) return true
+        return (
+          stats?.isFile() === true && !WATCHED_EXTENSIONS.has(path.extname(abs))
+        )
+      },
+      ignoreInitial: true,
     },
-    ignoreInitial: true,
-  })
+  )
 
   // Files the program pulled in from outside the watched trees — workspace
   // dependency sources (`@verrex/core` dev exports resolve to
   // packages/core/src/*.ts from the demo). tsc --watch covers these; a watch
   // that doesn't reports stale results until an unrelated in-tree save.
   const watchedFiles = new Set<string>()
-  const knownFiles = new Set<string>(checker.getRootFileNames().map((f) => path.resolve(f)))
+  const knownFiles = new Set<string>(
+    checker.getRootFileNames().map((f) => path.resolve(f)),
+  )
   const refreshTrackedFiles = () => {
-    for (const fileName of [...checker.getRootFileNames(), ...checker.getTrackedFileNames()]) {
+    for (const fileName of [
+      ...checker.getRootFileNames(),
+      ...checker.getTrackedFileNames(),
+    ]) {
       const abs = path.resolve(fileName)
       knownFiles.add(abs)
       if (watchedFiles.has(abs)) continue
@@ -207,7 +248,11 @@ if (args.watch) {
     const current = ++req
     await new Promise((resolve) => setTimeout(resolve, 100))
     if (current !== req) return
-    if (anyPassCompleted && !args.preserveWatchOutput && process.stdout.isTTY === true) {
+    if (
+      anyPassCompleted &&
+      !args.preserveWatchOutput &&
+      process.stdout.isTTY === true
+    ) {
       process.stdout.write("\x1bc")
     }
     try {
@@ -216,7 +261,9 @@ if (args.watch) {
       anyPassCompleted = true
       refreshTrackedFiles()
       process.stdout.write(
-        formatSummary(result, args.minimumSeverity) + dim("Watching for changes...") + "\n",
+        formatSummary(result, args.minimumSeverity) +
+          dim("Watching for changes...") +
+          "\n",
       )
     } catch (error) {
       // A failing pass (tsconfig briefly missing mid-checkout, a transform
@@ -269,7 +316,9 @@ if (args.watch) {
   // dump piped to a slow reader would otherwise be truncated. Writes are
   // FIFO, so flushing the last one flushes everything before it.
   await new Promise<void>((resolve) => {
-    process.stdout.write(formatSummary(result, args.minimumSeverity), () => resolve())
+    process.stdout.write(formatSummary(result, args.minimumSeverity), () =>
+      resolve(),
+    )
   })
   process.exit(shouldFail(result, args.minimumFailingSeverity) ? 1 : 0)
 }

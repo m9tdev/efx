@@ -45,7 +45,8 @@ export function findJsxTagPair(
 
     // On the opening tag?
     if (position >= r.openingTag.start && position < r.openingTag.end) {
-      const onName = position >= r.openingTag.nameStart && position < r.openingTag.nameEnd
+      const onName =
+        position >= r.openingTag.nameStart && position < r.openingTag.nameEnd
       const onLeadBracket = position < r.openingTag.nameStart // `<`
       const onTrailBracket = position >= r.openingTag.end - 1 // `>`
       const onSelfSlash = r.isSelfClosing && position === r.openingTag.end - 2 // `/`
@@ -60,7 +61,11 @@ export function findJsxTagPair(
     }
 
     // On the closing tag?
-    if (r.closingTag && position >= r.closingTag.start && position < r.closingTag.end) {
+    if (
+      r.closingTag &&
+      position >= r.closingTag.start &&
+      position < r.closingTag.end
+    ) {
       return {
         current: nameSpanOf(r.closingTag),
         partner: nameSpanOf(r.openingTag),

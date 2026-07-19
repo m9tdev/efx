@@ -10,12 +10,12 @@ Used in `apps/demo`'s `typecheck` script. Modeled on Astro's
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `index.ts` | Programmatic API: `createChecker(options) → VerrexChecker` (persistent, file-event-driven — what `--watch` runs on), `runCheck(options) → CheckResult` (one-shot), `shouldFail(result, severity)` (exit-code policy). Wires the language plugin + `volar-service-typescript` into a kit `TypeScriptChecker`, iterates root files, prints diagnostics at or above `minimumSeverity`. |
-| `cli.ts` | CLI entry. `node:util` `parseArgs` (`--tsconfig`, `--root`, `--watch`, `--minimumSeverity`, `--minimumFailingSeverity`, `--preserveWatchOutput`, `--help`; rejects unknown flags and missing/flag-like option values), colored summary line, chokidar wiring for watch mode, exits 0/1/2. |
-| `../../test/check/integration.mjs` | Smoke test: known-good fixture → 0 errors; inject broken `.vx` → expect TS2322 with `.vx` source position; cleanup → 0 errors again. Plus: persistent `createChecker` driven by file events (the watch loop's contract), `minimumSeverity` print filtering on a hint-severity suggestion, `shouldFail` threshold cascade. |
-| `../../test/check/fixture/` | Minimal `.vx` project (tsconfig + `Good.vx`) used by the smoke test. Self-contained, no cross-file imports — keep it that way. |
+| File                               | Purpose                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`                         | Programmatic API: `createChecker(options) → VerrexChecker` (persistent, file-event-driven — what `--watch` runs on), `runCheck(options) → CheckResult` (one-shot), `shouldFail(result, severity)` (exit-code policy). Wires the language plugin + `volar-service-typescript` into a kit `TypeScriptChecker`, iterates root files, prints diagnostics at or above `minimumSeverity`. |
+| `cli.ts`                           | CLI entry. `node:util` `parseArgs` (`--tsconfig`, `--root`, `--watch`, `--minimumSeverity`, `--minimumFailingSeverity`, `--preserveWatchOutput`, `--help`; rejects unknown flags and missing/flag-like option values), colored summary line, chokidar wiring for watch mode, exits 0/1/2.                                                                                           |
+| `../../test/check/integration.mjs` | Smoke test: known-good fixture → 0 errors; inject broken `.vx` → expect TS2322 with `.vx` source position; cleanup → 0 errors again. Plus: persistent `createChecker` driven by file events (the watch loop's contract), `minimumSeverity` print filtering on a hint-severity suggestion, `shouldFail` threshold cascade.                                                           |
+| `../../test/check/fixture/`        | Minimal `.vx` project (tsconfig + `Good.vx`) used by the smoke test. Self-contained, no cross-file imports — keep it that way.                                                                                                                                                                                                                                                      |
 
 ## Invocation
 
@@ -30,15 +30,18 @@ process.exitCode = shouldFail(result, "warning") ? 1 : 0
 
 // Persistent (what --watch uses): one ts.LanguageService across runs,
 // file events drive incremental re-checks.
-const checker = createChecker({ cwd: "/path/to/project", minimumSeverity: "hint" })
+const checker = createChecker({
+  cwd: "/path/to/project",
+  minimumSeverity: "hint",
+})
 await checker.check()
 checker.fileUpdated("/path/to/project/src/Foo.vx") // after an edit
-await checker.check({ cancel: () => superseded })  // polled between files
+await checker.check({ cancel: () => superseded }) // polled between files
 
 // Watch-facing project topology (what cli.ts builds its watcher from):
-checker.getConfigFilePaths()     // tsconfig + extends chain
+checker.getConfigFilePaths() // tsconfig + extends chain
 checker.getWildcardDirectories() // dirs the include globs expand under
-checker.getTrackedFileNames()    // all program files seen so far (incl. imports)
+checker.getTrackedFileNames() // all program files seen so far (incl. imports)
 ```
 
 CLI:
@@ -80,10 +83,10 @@ LSP protocol.
 - **Diagnostics printed**: controlled by `--minimumSeverity`
   (`error` | `warning` | `hint`, each level including the ones before
   it). Default `error` — the bare invocation stays a drop-in for the
-  `tsc --noEmit` flow we replaced. This is a *deliberate divergence*
+  `tsc --noEmit` flow we replaced. This is a _deliberate divergence_
   from `astro check` (which defaults to `hint`): the flag semantics
   match astro, only the default differs. Severities below the
-  threshold are still *counted* in `CheckResult` —
+  threshold are still _counted_ in `CheckResult` —
   `volar-service-typescript` maps TS suggestions (e.g. TS6133 unused
   locals) to **hint** severity (LSP 4), so they land in
   `CheckResult.hints`.
@@ -145,14 +148,14 @@ LSP protocol.
   exercises the fixture, mutates it, then re-runs — see independent
   virtual-code state, not leftovers from the previous invocation.
   `createChecker` is the deliberate exception: it keeps one checker
-  alive so a watch loop pays incremental cost, and *requires* file
+  alive so a watch loop pays incremental cost, and _requires_ file
   events to observe disk changes — a snapshot is re-read only when
   the project version bumps **and** kit's module-level mtime-keyed
   cache sees a changed `getModifiedTime` (both gates must pass; an
   edit that doesn't tick the mtime — coarse-granularity filesystems,
   `cp -p`/`rsync -t` restores — is invisible until something else
   changes it). This package holds no virtual-code cache of its own:
-  it only *writes* (compiles) `.vx` files through the LanguagePlugin
+  it only _writes_ (compiles) `.vx` files through the LanguagePlugin
   and never reads them back, so there is nothing here to share or
   leak.
 
