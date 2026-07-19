@@ -30,15 +30,22 @@ class TsServerClient {
 
   start() {
     return new Promise((resolve, reject) => {
-      const tsserverPath = join(repoRoot, "node_modules/typescript/lib/tsserver.js")
-      this.tsserver = spawn("node", [tsserverPath, "--useInferredProjectPerProjectRoot"], {
-        cwd: demoRoot,
-        stdio: ["pipe", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          TSS_LOG: "-level verbose",
+      const tsserverPath = join(
+        repoRoot,
+        "node_modules/typescript/lib/tsserver.js",
+      )
+      this.tsserver = spawn(
+        "node",
+        [tsserverPath, "--useInferredProjectPerProjectRoot"],
+        {
+          cwd: demoRoot,
+          stdio: ["pipe", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            TSS_LOG: "-level verbose",
+          },
         },
-      })
+      )
 
       this.rl = createInterface({ input: this.tsserver.stdout })
       this.rl.on("line", (line) => this.handleLine(line))
@@ -47,7 +54,11 @@ class TsServerClient {
         const msg = data.toString()
         // Show relevant stderr for debugging
         for (const line of msg.trim().split("\n")) {
-          if (line.includes("[verrex]") || line.includes("plugin") || line.includes("Error")) {
+          if (
+            line.includes("[verrex]") ||
+            line.includes("plugin") ||
+            line.includes("Error")
+          ) {
             console.log("[stderr]", line)
           }
         }
@@ -136,13 +147,15 @@ async function main() {
       (d) =>
         d.text?.includes("JSX") ||
         d.text?.includes("IntrinsicElements") ||
-        d.text?.includes("jsx-runtime")
+        d.text?.includes("jsx-runtime"),
     )
     if (jsxErrors.length > 0) {
       console.log("\n   FAIL: JSX-related errors found (plugin not working)")
       process.exitCode = 1
     } else {
-      console.log("\n   PASS: No JSX-related errors (other errors may be expected)")
+      console.log(
+        "\n   PASS: No JSX-related errors (other errors may be expected)",
+      )
     }
   }
 
@@ -188,18 +201,24 @@ async function main() {
   const hints = inlayResponse.body || []
   console.log(`   Got ${hints.length} inlay hints:`)
   for (const h of hints.slice(0, 10)) {
-    const text = typeof h.text === 'string' ? h.text : JSON.stringify(h.text)
-    const pos = h.position ? `${h.position.line}:${h.position.offset}` : 'unknown'
-    const kind = h.kind || 'unknown'
-    console.log(`     - [${pos}] kind=${kind} "${text.slice(0, 60)}${text.length > 60 ? '...' : ''}"`)
+    const text = typeof h.text === "string" ? h.text : JSON.stringify(h.text)
+    const pos = h.position
+      ? `${h.position.line}:${h.position.offset}`
+      : "unknown"
+    const kind = h.kind || "unknown"
+    console.log(
+      `     - [${pos}] kind=${kind} "${text.slice(0, 60)}${text.length > 60 ? "..." : ""}"`,
+    )
   }
-  const hParamHints = hints.filter(h => {
-    const text = typeof h.text === 'string' ? h.text : JSON.stringify(h.text)
+  const hParamHints = hints.filter((h) => {
+    const text = typeof h.text === "string" ? h.text : JSON.stringify(h.text)
     // Check for h() parameter hints (tag/props/children, including underscore-prefixed)
-    return h.kind === 'Parameter' && /^_?(tag|props|children):?$/i.test(text)
+    return h.kind === "Parameter" && /^_?(tag|props|children):?$/i.test(text)
   })
   if (hParamHints.length > 0) {
-    console.log(`   WARNING: ${hParamHints.length} h() parameter hints still present`)
+    console.log(
+      `   WARNING: ${hParamHints.length} h() parameter hints still present`,
+    )
   } else {
     console.log("   PASS: No h() parameter hints")
   }
@@ -211,17 +230,23 @@ async function main() {
   // that would render as `( : numbern)` instead of `(n: number)`. Stale source-map
   // mappings without `generatedLengths` produce the wrong column. See
   // `verrex/language/src/source-map.ts`.
-  const paramTypeHint = hints.find(h => {
-    const text = typeof h.text === 'string' ? h.text : JSON.stringify(h.text)
-    return h.kind === 'Type' && /^:\s*number/.test(text) && h.position?.line === 19
+  const paramTypeHint = hints.find((h) => {
+    const text = typeof h.text === "string" ? h.text : JSON.stringify(h.text)
+    return (
+      h.kind === "Type" && /^:\s*number/.test(text) && h.position?.line === 19
+    )
   })
   if (!paramTypeHint) {
-    console.log("   FAIL: missing ': number' Type hint on line 19's `n` parameter")
+    console.log(
+      "   FAIL: missing ': number' Type hint on line 19's `n` parameter",
+    )
     process.exitCode = 1
   } else if (paramTypeHint.position.offset === 45) {
     console.log("   PASS: ': number' hint at line 19 column 45 (after the `n`)")
   } else {
-    console.log(`   FAIL: ': number' hint at line 19 column ${paramTypeHint.position.offset} — expected 45 (after the n)`)
+    console.log(
+      `   FAIL: ': number' hint at line 19 column ${paramTypeHint.position.offset} — expected 45 (after the n)`,
+    )
     process.exitCode = 1
   }
 
@@ -237,8 +262,11 @@ async function main() {
   console.log("\n7. Test cross-file go-to-definition on the Counter import...")
   // Resolve `Counter` in `import { Counter } from "./Counter.vx"` → Counter.vx.
   const mainLines = readFileSync(mainVerrex, "utf8").split("\n")
-  const importIdx = mainLines.findIndex((l) => l.includes(`from "./Counter.vx"`))
-  if (importIdx === -1) throw new Error("could not find the Counter import in main.vx")
+  const importIdx = mainLines.findIndex((l) =>
+    l.includes(`from "./Counter.vx"`),
+  )
+  if (importIdx === -1)
+    throw new Error("could not find the Counter import in main.vx")
   const defResponse = await client.send("definition", {
     file: mainVerrex,
     line: importIdx + 1,
@@ -247,9 +275,11 @@ async function main() {
   if (defResponse.body?.length > 0) {
     const def = defResponse.body[0]
     console.log(`   Definition: ${def.file} line ${def.start?.line}`)
-    console.log(def.file?.endsWith("Counter.vx")
-      ? "   PASS: cross-file go-to-definition works"
-      : "   PARTIAL: Definition found but not in .vx file")
+    console.log(
+      def.file?.endsWith("Counter.vx")
+        ? "   PASS: cross-file go-to-definition works"
+        : "   PARTIAL: Definition found but not in .vx file",
+    )
   } else {
     console.log("   FAIL: No definition returned")
   }
@@ -262,7 +292,8 @@ async function main() {
   // Match the real JSX usage (`<TodoRow item={item} />`), not the docstring
   // mention of `<TodoRow />`.
   const jsxIdx = todosLines.findIndex((l) => l.includes("<TodoRow item"))
-  if (jsxIdx === -1) throw new Error("could not find <TodoRow usage in Todos.vx")
+  if (jsxIdx === -1)
+    throw new Error("could not find <TodoRow usage in Todos.vx")
   const jsxOffset = todosLines[jsxIdx].indexOf("<TodoRow") + 2 // 1-based, land on 'T'
   console.log(`   <TodoRow /> at line ${jsxIdx + 1}, offset ${jsxOffset}`)
   const defResponse2 = await client.send("definition", {
@@ -270,13 +301,18 @@ async function main() {
     line: jsxIdx + 1,
     offset: jsxOffset,
   })
-  console.log("   Definition response:", JSON.stringify(defResponse2.body, null, 2))
+  console.log(
+    "   Definition response:",
+    JSON.stringify(defResponse2.body, null, 2),
+  )
   if (defResponse2.body?.length > 0) {
     const def = defResponse2.body[0]
     console.log(`   Definition: ${def.file} line ${def.start?.line}`)
-    console.log(def.file?.endsWith("Todos.vx")
-      ? "   PASS: JSX go-to-definition works"
-      : `   PARTIAL: Definition found but not in .vx file: ${def.file}`)
+    console.log(
+      def.file?.endsWith("Todos.vx")
+        ? "   PASS: JSX go-to-definition works"
+        : `   PARTIAL: Definition found but not in .vx file: ${def.file}`,
+    )
   } else {
     console.log("   FAIL: No definition returned for JSX usage")
   }
@@ -294,14 +330,20 @@ async function main() {
     const file = ref.file?.split("/").pop()
     console.log(`     - ${file} L${ref.start?.line}:${ref.start?.offset}`)
   }
-  const verrexRefs = refs.filter(r => r.file?.endsWith(".vx"))
-  const tsRefs = refs.filter(r => r.file?.endsWith(".ts") && !r.file?.endsWith(".d.ts"))
+  const verrexRefs = refs.filter((r) => r.file?.endsWith(".vx"))
+  const tsRefs = refs.filter(
+    (r) => r.file?.endsWith(".ts") && !r.file?.endsWith(".d.ts"),
+  )
   if (verrexRefs.length >= 3) {
     console.log(`   PASS: ${verrexRefs.length} references in .vx files`)
   } else if (verrexRefs.length > 0) {
-    console.log(`   PARTIAL: Only ${verrexRefs.length} .vx reference (expected at least 3: definition + import + usage)`)
+    console.log(
+      `   PARTIAL: Only ${verrexRefs.length} .vx reference (expected at least 3: definition + import + usage)`,
+    )
   } else if (tsRefs.length > 0) {
-    console.log(`   PARTIAL: ${tsRefs.length} .ts references found but not converted to .vx`)
+    console.log(
+      `   PARTIAL: ${tsRefs.length} .ts references found but not converted to .vx`,
+    )
   } else {
     console.log("   FAIL: No references found")
   }
@@ -313,15 +355,24 @@ async function main() {
   })
   const files = projectInfo.body?.fileNames || []
   const verrexFiles = files.filter((f) => f.endsWith(".vx"))
-  console.log(`   Project has ${files.length} files, ${verrexFiles.length} .vx files`)
+  console.log(
+    `   Project has ${files.length} files, ${verrexFiles.length} .vx files`,
+  )
   if (verrexFiles.length > 0) {
-    console.log("   .vx files:", verrexFiles.map((f) => f.split("/").pop()).join(", "))
+    console.log(
+      "   .vx files:",
+      verrexFiles.map((f) => f.split("/").pop()).join(", "),
+    )
   } else {
-    console.log("   FAIL: No .vx files in project (getExternalFiles not working)")
+    console.log(
+      "   FAIL: No .vx files in project (getExternalFiles not working)",
+    )
     process.exitCode = 1
   }
 
-  console.log("\n10. Test mid-edit completions don't replace next-line tokens...")
+  console.log(
+    "\n10. Test mid-edit completions don't replace next-line tokens...",
+  )
   // The user reported: typing `count.` and picking an entry glued onto the
   // `return` keyword on the next line. Babel's errorRecovery parses
   // `count.\n\nreturn` as `count.return`, so tsserver's replacementSpan
@@ -348,18 +399,29 @@ async function main() {
   })
   const replSpan = complResp.body?.optionalReplacementSpan
   if (!replSpan) {
-    console.log("   No optionalReplacementSpan returned — likely OK (editor inserts at cursor).")
-  } else if (replSpan.start.line === replSpan.end.line && replSpan.start.line === 17) {
-    console.log(`   PASS: replacementSpan stays on line 17 (cursor line), cols ${replSpan.start.offset}-${replSpan.end.offset}`)
+    console.log(
+      "   No optionalReplacementSpan returned — likely OK (editor inserts at cursor).",
+    )
+  } else if (
+    replSpan.start.line === replSpan.end.line &&
+    replSpan.start.line === 17
+  ) {
+    console.log(
+      `   PASS: replacementSpan stays on line 17 (cursor line), cols ${replSpan.start.offset}-${replSpan.end.offset}`,
+    )
   } else {
-    console.log(`   FAIL: replacementSpan crosses lines: ${JSON.stringify(replSpan)}`)
+    console.log(
+      `   FAIL: replacementSpan crosses lines: ${JSON.stringify(replSpan)}`,
+    )
     process.exitCode = 1
   }
   const setEntry = (complResp.body?.entries || []).find((e) => e.name === "set")
   if (setEntry) {
     console.log("   PASS: 'set' entry present (AtomRef members enumerated)")
   } else {
-    console.log("   FAIL: 'set' entry missing — completion didn't enumerate count's members")
+    console.log(
+      "   FAIL: 'set' entry missing — completion didn't enumerate count's members",
+    )
     process.exitCode = 1
   }
   // Close the modified file so other test runs don't see it

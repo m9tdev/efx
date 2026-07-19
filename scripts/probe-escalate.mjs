@@ -55,7 +55,9 @@ await runProbe({
     await settle()
     await demo.locator(".open-fallback button.retry").click()
     await demo.locator(".open-ok", { hasText: "Grace Hopper" }).waitFor()
-    console.log("PASS: leaf recovered on dep change; open form recovered via reset")
+    console.log(
+      "PASS: leaf recovered on dep change; open form recovered via reset",
+    )
 
     // 4. Leaf retry re-runs the same fetch: the loading arm shows while the
     //    re-run is in flight (failure-waiting renders `initial`), then the
@@ -67,7 +69,9 @@ await runProbe({
     await demo.locator(".content button.leaf-retry").click()
     await demo.locator(".content .loading").waitFor()
     await demo.locator(".content .leaf-fallback").waitFor()
-    console.log("PASS: leaf retry re-ran the fetch (loading shown, still retryable)")
+    console.log(
+      "PASS: leaf retry re-ran the fetch (loading shown, still retryable)",
+    )
 
     // 5. Spam ×3 → three manual refetches of the top handle for the CURRENT
     //    id (999): the third exceeds 2 req/s — a REAL RateLimited. Not in the
@@ -79,7 +83,9 @@ await runProbe({
     await waitForText(/page boundary caught: RateLimited/i)
     await waitForText(/retry in \d+ms/)
     await demo.locator(".open-fallback").waitFor()
-    console.log("PASS: real rate limit tripped (logged); residual escalated to the page tag map")
+    console.log(
+      "PASS: real rate limit tripped (logged); residual escalated to the page tag map",
+    )
 
     // 6. Spam never touched the selection: the page banner's refetch+reset
     //    re-fetches the STILL-SELECTED Bad id → 404 → handled at the leaf
@@ -88,7 +94,9 @@ await runProbe({
     await settle()
     await demo.locator(".page-fallback button.retry").click()
     await demo.locator(".content .leaf-fallback").waitFor()
-    console.log("PASS: page banner refetch+reset kept the selected id (404 → leaf)")
+    console.log(
+      "PASS: page banner refetch+reset kept the selected id (404 → leaf)",
+    )
 
     // 7. Necessary-refetch proof for the OPEN banner: its handle has been
     //    failed (404) since step 4 — no dep change recovered it — so reset
@@ -99,7 +107,9 @@ await runProbe({
     await demo.locator(".open-fallback button.retry").click()
     await demo.locator(".contrast .loading").waitFor()
     await demo.locator(".open-fallback").waitFor()
-    console.log("PASS: open banner refetch engaged (loading shown), re-escalated on 404")
+    console.log(
+      "PASS: open banner refetch engaged (loading shown), re-escalated on 404",
+    )
 
     // 8. A good id, then the open banner's retry recovers it too — no stale
     //    banner left at exit.

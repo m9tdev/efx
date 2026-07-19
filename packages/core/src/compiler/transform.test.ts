@@ -8,52 +8,59 @@ const compile = (src: string): string =>
 
 describe("JSX → h() rewrites", () => {
   it("intrinsic element with text child", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const x = <div>hi</div>
-    `))
-      .toContain(`h("div", {}, "hi")`)
+    `),
+    ).toContain(`h("div", {}, "hi")`)
   })
 
   it("intrinsic element with string attr", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const x = <div class="page">hi</div>
-    `))
-      .toContain(`h("div", { class: "page" }, "hi")`)
+    `),
+    ).toContain(`h("div", { class: "page" }, "hi")`)
   })
 
   it("intrinsic element with boolean (no-value) attr", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const x = <input disabled />
-    `))
-      .toContain(`h("input", { disabled: true })`)
+    `),
+    ).toContain(`h("input", { disabled: true })`)
   })
 
   it("intrinsic element with hyphenated attr name", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const x = <div data-id="42" />
-    `))
-      .toContain(`h("div", { ["data-id"]: "42" })`)
+    `),
+    ).toContain(`h("div", { ["data-id"]: "42" })`)
   })
 
   it("intrinsic element with spread attribute", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const x = <div {...props} />
-    `))
-      .toMatch(/h\("div",\s*\{\s*\.\.\.props\s*\}\s*\)/)
+    `),
+    ).toMatch(/h\("div",\s*\{\s*\.\.\.props\s*\}\s*\)/)
   })
 
   it("capitalized tag becomes a direct call (component lowering)", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const x = <Foo bar={1} />
-    `))
-      .toContain(`Foo({ bar: 1 })`)
+    `),
+    ).toContain(`Foo({ bar: 1 })`)
   })
 
   it("fragment <>...</> uses Fragment identifier", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const x = <><span /><span /></>
-    `))
-      .toContain(`Fragment({ children: [h("span", {}), h("span", {})] })`)
+    `),
+    ).toContain(`Fragment({ children: [h("span", {}), h("span", {})] })`)
   })
 
   it("nested JSX is recursively rewritten", () => {
@@ -65,10 +72,11 @@ describe("JSX → h() rewrites", () => {
   })
 
   it("JSX inside `&&` is rewritten", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const x = <div>{cond && <p>y</p>}</div>
-    `))
-      .toContain(`h("p", {}, "y")`)
+    `),
+    ).toContain(`h("p", {}, "y")`)
   })
 
   it("JSX inside ternary branches is rewritten", () => {
@@ -80,10 +88,11 @@ describe("JSX → h() rewrites", () => {
   })
 
   it("JSX inside .map(...) is rewritten", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const x = <ul>{xs.map((x) => <li>{x}</li>)}</ul>
-    `))
-      .toContain(`h("li", {},`)
+    `),
+    ).toContain(`h("li", {},`)
   })
 })
 
@@ -134,18 +143,20 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
   })
 
   it("static literal attribute values are not wrapped", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const x = <Foo n={42} s={"hi"} />
-    `))
-      .not.toContain(`h.track`)
+    `),
+    ).not.toContain(`h.track`)
   })
 
   it("`.value` assignment (LHS) is NOT rewritten as a read", () => {
     // We only intercept reads — `obj.value = …` stays as a real assignment.
-    expect(compile(`
+    expect(
+      compile(`
       const x = <div>{(ref.value = 1, ref.value)}</div>
-    `))
-      .toMatch(/ref\.value = 1/)
+    `),
+    ).toMatch(/ref\.value = 1/)
   })
 
   it("`.value++` / `--.value` are left bare — `h.read(obj)++` would be invalid JS, and TS's own `ts(2540)` already flags the read-only write at the right column", () => {
@@ -316,7 +327,7 @@ describe("Async calls are not h.track-wrapped", () => {
     const out = compile(`
       const x = <div>{Async(() => client.get(id.value), { success: (v) => <span>{v}</span> })}</div>
     `)
-    expect(out).toContain(`h.read(id)`)        // dep rewrite kept (Async needs it)
+    expect(out).toContain(`h.read(id)`) // dep rewrite kept (Async needs it)
     expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Async\(/) // not wrapped
   })
 
@@ -471,15 +482,21 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
   it("rewrites reads that only LOOK write-adjacent (RHS, default value, unary)", () => {
     // x = obj.value (RHS), [a = obj.value] (pattern default), !obj.value (unary)
     // are all reads and must be rewritten.
-    expect(compile(`
+    expect(
+      compile(`
       const f = () => { x = obj.value }
-    `)).toContain(`h.read(obj)`)
-    expect(compile(`
+    `),
+    ).toContain(`h.read(obj)`)
+    expect(
+      compile(`
       const f = () => { [a = obj.value] = arr }
-    `)).toContain(`h.read(obj)`)
-    expect(compile(`
+    `),
+    ).toContain(`h.read(obj)`)
+    expect(
+      compile(`
       const f = () => !obj.value
-    `)).toContain(`!h.read(obj)`)
+    `),
+    ).toContain(`!h.read(obj)`)
   })
 
   it("leaves optional-chained `obj?.value` alone (different node type)", () => {
@@ -505,7 +522,9 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
     `)
     // body read + JSX read both go through h.read
     expect(out.match(/h\.read\(count\)/g)?.length).toBe(2)
-    const importLines = out.split(";").filter((s) => s.includes(`from "@verrex/core"`))
+    const importLines = out
+      .split(";")
+      .filter((s) => s.includes(`from "@verrex/core"`))
     expect(importLines.length).toBe(1)
   })
 
@@ -519,7 +538,7 @@ describe("whole-body `.value` reads (tracking outside JSX)", () => {
 })
 
 describe("runtime auto-imports", () => {
-  it("adds `import { h } from \"@verrex/core\"` when JSX is present", () => {
+  it('adds `import { h } from "@verrex/core"` when JSX is present', () => {
     const out = compile(`
       const x = <div />
     `)
@@ -539,7 +558,9 @@ describe("runtime auto-imports", () => {
       import { h } from "@verrex/core"
       const x = <div />
     `
-    const matches = compile(src).match(/import \{[^}]*\bh\b[^}]*\} from "@verrex\/core"/g)
+    const matches = compile(src).match(
+      /import \{[^}]*\bh\b[^}]*\} from "@verrex\/core"/g,
+    )
     expect(matches?.length).toBe(1)
   })
 
@@ -550,7 +571,9 @@ describe("runtime auto-imports", () => {
     `
     const out = compile(src)
     expect(out).toMatch(/import \{[^}]*mount[^}]*h[^}]*\} from "@verrex\/core"/)
-    const importLines = out.split(";").filter((s) => s.includes(`from "@verrex/core"`))
+    const importLines = out
+      .split(";")
+      .filter((s) => s.includes(`from "@verrex/core"`))
     expect(importLines.length).toBe(1)
   })
 
@@ -576,7 +599,8 @@ describe("jsxRanges output", () => {
   const firstElement = (src: string) => {
     const rs = ranges(src)
     const r = rs[0]
-    if (!r || r.kind !== "element") throw new Error("expected first range to be element")
+    if (!r || r.kind !== "element")
+      throw new Error("expected first range to be element")
     return r
   }
 
@@ -634,13 +658,17 @@ describe("jsxRanges output", () => {
       const x = <Foo.Bar />
     `
     const r = firstElement(src)
-    expect(src.slice(r.openingTag.nameStart, r.openingTag.nameEnd)).toBe(`Foo.Bar`)
+    expect(src.slice(r.openingTag.nameStart, r.openingTag.nameEnd)).toBe(
+      `Foo.Bar`,
+    )
   })
 
   it("ranges are empty when there's no JSX", () => {
-    expect(ranges(`
+    expect(
+      ranges(`
       const x = 1
-    `)).toEqual([])
+    `),
+    ).toEqual([])
   })
 
   it("ternary branches both produce ranges", () => {
@@ -658,31 +686,35 @@ describe("jsxRanges output", () => {
 
 describe("TypeScript syntax survives", () => {
   it("type annotations are preserved", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const greet = (name: string) => <p>hi {name}</p>
-    `))
-      .toContain(`name: string`)
+    `),
+    ).toContain(`name: string`)
   })
 
   it("generator functions are preserved", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const f = function* () { return <div /> }
-    `))
-      .toContain(`function* ()`)
+    `),
+    ).toContain(`function* ()`)
   })
 
   it("`yield*` survives the rewrite", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const f = function* () { yield* effect; return <div /> }
-    `))
-      .toContain(`yield* effect`)
+    `),
+    ).toContain(`yield* effect`)
   })
 
   it("type parameters on functions survive", () => {
-    expect(compile(`
+    expect(
+      compile(`
       const id = <T,>(x: T): T => { return (<p>{x}</p> as any) as T }
-    `))
-      .toMatch(/<T(,)?>/)
+    `),
+    ).toMatch(/<T(,)?>/)
   })
 })
 
@@ -715,7 +747,9 @@ describe("parse-error tolerance (mid-edit source)", () => {
   // instead of the compiler silently recovering and shipping a broken module.
   it("throws on genuinely broken source when errorRecovery is false", () => {
     const src = `function* f() { const x = { a: 1 }; x.\n\nreturn yield* g() }`
-    expect(() => transformVerrex(src, "test.vx", { errorRecovery: false })).toThrow()
+    expect(() =>
+      transformVerrex(src, "test.vx", { errorRecovery: false }),
+    ).toThrow()
   })
 
   it("still recovers by default (editor path) for the same source", () => {
@@ -732,8 +766,9 @@ describe("JSX text whitespace (cleanJSXElementLiteralChild parity)", () => {
   })
 
   it("preserves internal spaces in single-line text", () => {
-    expect(compile(`const x = <span> clicks: </span>`))
-      .toContain(`h("span", {}, " clicks: ")`)
+    expect(compile(`const x = <span> clicks: </span>`)).toContain(
+      `h("span", {}, " clicks: ")`,
+    )
   })
 
   it("drops pure-whitespace / blank-line nodes", () => {
@@ -754,7 +789,7 @@ describe("JSX text whitespace (cleanJSXElementLiteralChild parity)", () => {
     expect(compile(src)).not.toContain(`"paired "`)
   })
 
-  it("keeps an explicit {\" \"} spacer between text and an element", () => {
+  it('keeps an explicit {" "} spacer between text and an element', () => {
     const src = `const x = <p>use a{" "}
       <code>.vx</code> file</p>`
     expect(compile(src)).toContain(`"use a"`)
@@ -821,7 +856,7 @@ describe("component-tag lowering (direct calls, #71)", () => {
   })
 
   it("children land as a `children` array prop", () => {
-    const out = compile(`const x = <Layout><span /\>hi</Layout>`)
+    const out = compile(`const x = <Layout><span />hi</Layout>`)
     expect(out).toContain(`Layout({ children: [h("span", {}), "hi"] })`)
   })
 
@@ -837,7 +872,9 @@ describe("component-tag lowering (direct calls, #71)", () => {
   })
 
   it("member-expression tags lower to direct calls too", () => {
-    expect(compile(`const x = <UI.Button label="ok" />`)).toContain(`UI.Button({ label: "ok" })`)
+    expect(compile(`const x = <UI.Button label="ok" />`)).toContain(
+      `UI.Button({ label: "ok" })`,
+    )
   })
 
   it("spread attrs pass through into the props object", () => {
@@ -862,11 +899,17 @@ describe("component-tag lowering (direct calls, #71)", () => {
   })
 
   it("namespaced tags stay string-tagged through h", () => {
-    expect(compile(`const x = <svg:rect width="1" />`)).toContain(`h("svg:rect", { width: "1" })`)
+    expect(compile(`const x = <svg:rect width="1" />`)).toContain(
+      `h("svg:rect", { width: "1" })`,
+    )
   })
 
   it("a spread child expands into the children array (component) and the call args (intrinsic)", () => {
-    expect(compile(`const x = <Foo>{...items}</Foo>`)).toContain(`Foo({ children: [...items] })`)
-    expect(compile(`const y = <div>{...items}</div>`)).toContain(`h("div", {}, ...items)`)
+    expect(compile(`const x = <Foo>{...items}</Foo>`)).toContain(
+      `Foo({ children: [...items] })`,
+    )
+    expect(compile(`const y = <div>{...items}</div>`)).toContain(
+      `h("div", {}, ...items)`,
+    )
   })
 })

@@ -18,7 +18,7 @@
  */
 
 const DURATION = 400 // ms — kept shorter than the simulated fetch latency
-                     // (services.ts) so a reset's flash blips before content loads
+// (services.ts) so a reset's flash blips before content loads
 
 // The exact viewport-space box of a node, the way DevTools would outline it:
 //   - element with a layout box → its own rect

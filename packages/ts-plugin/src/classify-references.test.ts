@@ -148,7 +148,11 @@ describe("dedupeRefs", () => {
 })
 
 describe("sortClassifiedRefs", () => {
-  const mk = (id: string, isDef: boolean, isImport: boolean): ClassifiedRef<string> => ({
+  const mk = (
+    id: string,
+    isDef: boolean,
+    isImport: boolean,
+  ): ClassifiedRef<string> => ({
     ref: id,
     isDef,
     isImport,

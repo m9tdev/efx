@@ -10,9 +10,15 @@ import { render } from "./index.ts"
 //  - object   → tag-selective (handles a subset of tags; narrows the rest)
 // Catches both construction and live failures; `reset` re-runs construction.
 
-class BoomError extends Data.TaggedError("BoomError")<{ readonly why: string }> {}
-class HttpError extends Data.TaggedError("HttpError")<{ readonly status: number }> {}
-class ParseError extends Data.TaggedError("ParseError")<{ readonly message: string }> {}
+class BoomError extends Data.TaggedError("BoomError")<{
+  readonly why: string
+}> {}
+class HttpError extends Data.TaggedError("HttpError")<{
+  readonly status: number
+}> {}
+class ParseError extends Data.TaggedError("ParseError")<{
+  readonly message: string
+}> {}
 
 // ─── catch-all (function handler) ───────────────────────────────────────
 describe("Catch — catch-all (function)", () => {
@@ -40,7 +46,9 @@ describe("Catch — catch-all (function)", () => {
       return yield* h("p", { class: "child" }, "unreachable")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) => h("div", { class: "fallback" }, Cause.pretty(cause)))
+      return yield* Catch(Child(), (cause) =>
+        h("div", { class: "fallback" }, Cause.pretty(cause)),
+      )
     })
     const ui = await render(App())
     expect(ui.query(".child")).toBeNull()
@@ -53,11 +61,20 @@ describe("Catch — catch-all (function)", () => {
       return yield* h(
         "div",
         { class: "child" },
-        h("button", { class: "boom", onClick: () => Effect.fail(new BoomError({ why: "click" })) }, "x"),
+        h(
+          "button",
+          {
+            class: "boom",
+            onClick: () => Effect.fail(new BoomError({ why: "click" })),
+          },
+          "x",
+        ),
       )
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) => h("div", { class: "fallback" }, Cause.pretty(cause)))
+      return yield* Catch(Child(), (cause) =>
+        h("div", { class: "fallback" }, Cause.pretty(cause)),
+      )
     })
     const ui = await render(App())
     ui.click(".boom")
@@ -73,11 +90,15 @@ describe("Catch — catch-all (function)", () => {
       return yield* h(
         "div",
         { class: "child" },
-        trigger.map((t) => (t ? Effect.fail(new BoomError({ why: "reactive" })) : "ok")),
+        trigger.map((t) =>
+          t ? Effect.fail(new BoomError({ why: "reactive" })) : "ok",
+        ),
       )
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) => h("div", { class: "fallback" }, Cause.pretty(cause)))
+      return yield* Catch(Child(), (cause) =>
+        h("div", { class: "fallback" }, Cause.pretty(cause)),
+      )
     })
     const ui = await render(App())
     expect(ui.text(".child")).toBe("ok")
@@ -112,8 +133,11 @@ describe("Catch — catch-all (function)", () => {
 // ─── tag-selective (object handler) ─────────────────────────────────────
 describe("Catch — tag-selective (object)", () => {
   // Fails at construction with one of two tagged errors.
-  const Child = Effect.fn("Child")(function* (props: { readonly fail: "http" | "parse" }) {
-    if (props.fail === "http") yield* Effect.fail(new HttpError({ status: 503 }))
+  const Child = Effect.fn("Child")(function* (props: {
+    readonly fail: "http" | "parse"
+  }) {
+    if (props.fail === "http")
+      yield* Effect.fail(new HttpError({ status: 503 }))
     else yield* Effect.fail(new ParseError({ message: "bad json" }))
     return yield* h("p", { class: "child" }, "ok")
   })
@@ -196,9 +220,10 @@ describe("Catch — lifecycle correctness", () => {
         Effect.sync(() => {
           acquired++
         }),
-        () => Effect.sync(() => {
-          released++
-        }),
+        () =>
+          Effect.sync(() => {
+            released++
+          }),
       )
       yield* Effect.fail(new BoomError({ why: "x" }))
       return yield* h("p", { class: "child" }, "unreachable")
@@ -227,17 +252,28 @@ describe("Catch — lifecycle correctness", () => {
     // `trip:false` keeps ParseError in Child's type (so the inner tag-map is valid)
     // while the runtime failure is a LIVE HttpError from the button — which the
     // inner tag-map rejects and escalates via the ambient sink to the outer catch-all.
-    const Child = Effect.fn("Child")(function* (props: { readonly trip: boolean }) {
+    const Child = Effect.fn("Child")(function* (props: {
+      readonly trip: boolean
+    }) {
       if (props.trip) yield* Effect.fail(new ParseError({ message: "never" }))
       return yield* h(
         "div",
         { class: "child" },
-        h("button", { class: "boom", onClick: () => Effect.fail(new HttpError({ status: 500 })) }, "x"),
+        h(
+          "button",
+          {
+            class: "boom",
+            onClick: () => Effect.fail(new HttpError({ status: 500 })),
+          },
+          "x",
+        ),
       )
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
       return yield* Catch(
-        Catch(Child({ trip: false }), { ParseError: () => h("p", { class: "inner" }, "parse") }),
+        Catch(Child({ trip: false }), {
+          ParseError: () => h("p", { class: "inner" }, "parse"),
+        }),
         (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
       )
     })

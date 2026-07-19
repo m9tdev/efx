@@ -2,18 +2,18 @@
 
 **Purpose:** a TypeScript UI framework where Effect's `<A, E, R>`
 channels propagate from every leaf of the view tree to the root.
-Forgetting to provide a service `Layer` becomes a *compile-time
-error that names the missing service*; symmetrically, forgetting to
-handle an error with a `Catch` boundary becomes a *compile-time
-error that names the unhandled error* (`mount` requires
+Forgetting to provide a service `Layer` becomes a _compile-time
+error that names the missing service_; symmetrically, forgetting to
+handle an error with a `Catch` boundary becomes a _compile-time
+error that names the unhandled error_ (`mount` requires
 `Effect<View<never>, never, R>`). Errors live in two phases: construction
 errors ride the Effect `E`; live errors a rendered subtree can still
 produce ride the `View<E>` success — one `Catch` boundary discharges both.
 
-**Honest scope today:** the *construction* channel is fully type-tracked —
-a forgotten boundary on a failing build is a compile error. The *live*
+**Honest scope today:** the _construction_ channel is fully type-tracked —
+a forgotten boundary on a failing build is a compile error. The _live_
 channel is only partially tracked: exactly one leaf primitive stamps
-`View<E≠never>` — `Async` *without* a `failure` arm (or with a *partial* tag
+`View<E≠never>` — `Async` _without_ a `failure` arm (or with a _partial_ tag
 map, whose residual rides), typed
 `Effect<View<E>, never, R | Scope>`. Its failures (initial fetch or refetch)
 ride `View<E>` to the nearest `Catch`, and `mount`'s `View<never>` gate makes
@@ -23,7 +23,7 @@ a missing boundary a compile error naming `E`. The `failure` arm mirrors
 fetch loop live, so a dep change can recover the view — while the residual
 rides `View<Exclude<E, { _tag }>>`. Everything else that
 can fail live — event handlers, reactive re-renders — is still erased to
-`(e) => void` / `unknown` and caught only at *runtime* by `Catch`'s sink, not
+`(e) => void` / `unknown` and caught only at _runtime_ by `Catch`'s sink, not
 tracked by the type. Closing that (typed event handlers, #72) is the
 remaining thesis work.
 
@@ -40,7 +40,7 @@ Status: experimental proof-of-concept. Not production-ready.
 TypeScript's JSX type-checker erases generic type variables at the
 JSX boundary — every component result collapses to `JSX.Element`.
 React, Solid, Preact all live with this. For a framework where
-the *point* is that `E`/`R` channels survive composition, that's
+the _point_ is that `E`/`R` channels survive composition, that's
 fatal.
 
 So this project deliberately **never lets `tsc` see JSX**:
@@ -56,7 +56,7 @@ Everything else — the `.vx` extension, the Babel choice, the
 custom Vite dev server hook, the TS Language Service plugin —
 exists to support this constraint.
 
-### "JSX" here means JSX *syntax*, not JSX *semantics*
+### "JSX" here means JSX _syntax_, not JSX _semantics_
 
 This is the most important framing for anyone (or any agent)
 joining the codebase. **We borrow JSX syntax. We do not use JSX
@@ -165,7 +165,7 @@ Service plugins only by bare package name.
   The single-prop signature is what makes `<Counter />` compile
   (component tags lower to direct calls — `Counter(props)`, zero-arg
   `Counter()` when attr-less and child-less); a propless component
-  takes **no parameter at all**. A *generic* component uses the
+  takes **no parameter at all**. A _generic_ component uses the
   Effect-returning form
   (`Component.make(<T,>(props: { item: T }) => Effect.gen(…))`),
   whose identity-typed overload preserves the type parameter. The
@@ -184,7 +184,7 @@ Service plugins only by bare package name.
     architecture, reference for `@verrex/ts-plugin`.
   - `vite-plugin-svelte/` — mature Vite integration patterns.
   - `solid/` — fine-grained reactivity patterns.
-  
+
   Token budget note: grep for specific symbols rather than loading
   entire directories.
 
@@ -196,6 +196,12 @@ Service plugins only by bare package name.
   archived July 2026).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.
+- oxlint + oxfmt for linting and formatting, on stock config bar a few
+  documented exceptions. Neither supports `.vx` (hardcoded Rust
+  extension list, no plugin API for file types), so `pnpm lint` /
+  `pnpm format` also run
+  [`scripts/vx-oxc.mjs`](./scripts/AGENTS.md#vx-oxcmjs--linting-and-formatting-vx),
+  which feeds `.vx` through a shadow tree of `.tsx` symlinks.
 - Babel as the `.vx` parser (parser + traverse + generate
   directly, no `@babel/preset-*`).
 - Volar (`@volar/typescript`, `@volar/language-core`,
@@ -211,6 +217,8 @@ Service plugins only by bare package name.
 ## How to verify a change end-to-end
 
 ```
+pnpm lint            # oxlint, plus .vx via scripts/vx-oxc.mjs
+pnpm format:check    # oxfmt, same two passes (`pnpm format` to fix)
 pnpm -r test         # compiler tests + ts-plugin integration tests
 pnpm -r typecheck    # fans out: every package runs `tsc --noEmit`,
                      # apps/demo runs `@verrex/core/check` (the .vx-aware checker)
@@ -251,6 +259,7 @@ contracts, invariants, or anti-patterns, **update the relevant AGENTS.md
 file as part of the same change**.
 
 Signs an AGENTS.md needs updating:
+
 - You added a new invariant or coupling between packages
 - You discovered an anti-pattern the hard way
 - A section describes behavior that no longer matches the code

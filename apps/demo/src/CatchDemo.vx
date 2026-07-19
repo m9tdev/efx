@@ -3,7 +3,9 @@ import { Catch, Component } from "@verrex/core"
 import { HttpError } from "./services.ts"
 
 // A local tagged error so the failure has a real shape in `Cause.pretty`.
-class BoomError extends Data.TaggedError("BoomError")<{ readonly why: string }> {}
+class BoomError extends Data.TaggedError("BoomError")<{
+  readonly why: string
+}> {}
 
 // catch-all subject: renders fine; its button's `onclick` returns a failing
 // Effect, which — post-mount, with no E channel to land on — is routed to the
@@ -14,7 +16,9 @@ const Crasher = Component.make(function* () {
       <p>Works fine — until you push the button.</p>
       <button
         class="crash"
-        onclick={() => Effect.fail(new BoomError({ why: "you pushed the button" }))}
+        onclick={() =>
+          Effect.fail(new BoomError({ why: "you pushed the button" }))
+        }
       >
         crash me
       </button>
@@ -39,7 +43,9 @@ const BadRequest = Component.make(function* () {
       <p>request succeeded ✓</p>
       <button
         class="crash"
-        onclick={() => Effect.fail(new HttpError({ status: 500, message: "crashed live" }))}
+        onclick={() =>
+          Effect.fail(new HttpError({ status: 500, message: "crashed live" }))
+        }
       >
         crash it
       </button>
@@ -71,7 +77,9 @@ export const CatchDemo = Component.make(function* () {
         <div class="boundary-fallback">
           <p class="caught">catch-all caught:</p>
           <pre class="cause">{Cause.pretty(cause)}</pre>
-          <button class="reset" onclick={reset}>reset</button>
+          <button class="reset" onclick={reset}>
+            reset
+          </button>
         </div>
       ))}
 
@@ -79,8 +87,12 @@ export const CatchDemo = Component.make(function* () {
       {Catch(<BadRequest />, {
         HttpError: (e, reset) => (
           <div class="boundary-fallback">
-            <p class="caught">caught HttpError {e.status}: {e.message}</p>
-            <button class="retry" onclick={reset}>retry</button>
+            <p class="caught">
+              caught HttpError {e.status}: {e.message}
+            </p>
+            <button class="retry" onclick={reset}>
+              retry
+            </button>
           </div>
         ),
       })}

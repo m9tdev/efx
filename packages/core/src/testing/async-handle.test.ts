@@ -9,7 +9,14 @@
  */
 import { describe, it, expect } from "vitest"
 import { Effect, type Scope } from "effect"
-import { Async, asyncRef, h, Catch, type AsyncHandle, type View } from "@verrex/core"
+import {
+  Async,
+  asyncRef,
+  h,
+  Catch,
+  type AsyncHandle,
+  type View,
+} from "@verrex/core"
 import { render } from "./index.ts"
 import { makeUsersFixture, NotFound, type UsersError } from "./fixtures.ts"
 
@@ -21,7 +28,9 @@ describe("AsyncHandle", () => {
     const Page = Effect.fn(function* () {
       const client = yield* Users
       const user = yield* asyncRef(() => client.get("7"))
-      return yield* h("div", {},
+      return yield* h(
+        "div",
+        {},
         h("button", { class: "external", onclick: user.refetch }, "refresh"),
         yield* Async(user, {
           initial: h("span", { class: "loading" }, "…"),
@@ -31,8 +40,14 @@ describe("AsyncHandle", () => {
         }),
       )
     })()
-    const ui = await render(Page, usersWith((id) =>
-      recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound({ id }))))
+    const ui = await render(
+      Page,
+      usersWith((id) =>
+        recovered
+          ? Effect.succeed(`hi ${id}`)
+          : Effect.fail(new NotFound({ id })),
+      ),
+    )
     try {
       await ui.waitFor(".retry")
       recovered = true
@@ -48,7 +63,9 @@ describe("AsyncHandle", () => {
     const Page = Effect.fn(function* () {
       const client = yield* Users
       const user = yield* asyncRef(() => client.get("7"))
-      return yield* h("div", {},
+      return yield* h(
+        "div",
+        {},
         h("button", { class: "external", onclick: user.refetch }, "refresh"),
         yield* Async(user, {
           success: (n) => h("span", { class: "ok" }, n),
@@ -56,7 +73,10 @@ describe("AsyncHandle", () => {
         }),
       )
     })()
-    const ui = await render(Page, usersWith((id) => Effect.succeed(`v${++version} ${id}`)))
+    const ui = await render(
+      Page,
+      usersWith((id) => Effect.succeed(`v${++version} ${id}`)),
+    )
     try {
       expect((await ui.waitFor(".ok")).textContent?.trim()).toBe("v1 7")
       ui.click(".external")
@@ -75,7 +95,9 @@ describe("AsyncHandle", () => {
     const Page = Effect.fn(function* () {
       const client = yield* Users
       const user = yield* asyncRef(() => client.get("7"))
-      return yield* h("div", {},
+      return yield* h(
+        "div",
+        {},
         yield* Async(user, {
           success: (n) => h("span", { class: "a" }, n),
           failure: () => h("span", {}, "fail"),
@@ -87,10 +109,13 @@ describe("AsyncHandle", () => {
       )
     })()
     let calls = 0
-    const ui = await render(Page, usersWith((id) => {
-      calls++
-      return Effect.succeed(`hi ${id}`)
-    }))
+    const ui = await render(
+      Page,
+      usersWith((id) => {
+        calls++
+        return Effect.succeed(`hi ${id}`)
+      }),
+    )
     try {
       expect((await ui.waitFor(".a")).textContent?.trim()).toBe("hi 7")
       expect((await ui.waitFor(".b")).textContent?.trim()).toBe("hi 7")
@@ -105,17 +130,38 @@ describe("AsyncHandle", () => {
     const Page = Effect.fn(function* () {
       const client = yield* Users
       const user = yield* asyncRef(() => client.get("9"))
-      return yield* h("div", {},
+      return yield* h(
+        "div",
+        {},
         yield* Catch(
-          h("section", {}, Async(user, { success: (n) => h("span", { class: "ok" }, n) })),
+          h(
+            "section",
+            {},
+            Async(user, { success: (n) => h("span", { class: "ok" }, n) }),
+          ),
           (_cause, reset) =>
-            h("button", { class: "boundary-retry", onclick: () => { user.refetch(); reset() } },
-              "retry"),
+            h(
+              "button",
+              {
+                class: "boundary-retry",
+                onclick: () => {
+                  user.refetch()
+                  reset()
+                },
+              },
+              "retry",
+            ),
         ),
       )
     })()
-    const ui = await render(Page, usersWith((id) =>
-      recovered ? Effect.succeed(`hi ${id}`) : Effect.fail(new NotFound({ id }))))
+    const ui = await render(
+      Page,
+      usersWith((id) =>
+        recovered
+          ? Effect.succeed(`hi ${id}`)
+          : Effect.fail(new NotFound({ id })),
+      ),
+    )
     try {
       await ui.waitFor(".boundary-retry") // open form escalated to the boundary
       recovered = true
@@ -136,14 +182,19 @@ describe("AsyncHandle", () => {
         return client.get("7")
       })
       captured = user
-      return yield* h("div", {},
+      return yield* h(
+        "div",
+        {},
         yield* Async(user, {
           success: (n) => h("span", { class: "ok" }, n),
           failure: () => h("span", {}, "fail"),
         }),
       )
     })()
-    const ui = await render(Page, usersWith((id) => Effect.succeed(`hi ${id}`)))
+    const ui = await render(
+      Page,
+      usersWith((id) => Effect.succeed(`hi ${id}`)),
+    )
     await ui.waitFor(".ok")
     expect(captured.refetch()).toBe(true) // alive: scheduled
     await ui.unmount()

@@ -23,9 +23,12 @@ export interface Post {
 
 // ─── Http service ────────────────────────────────────────────────────────
 
-export class Http extends Context.Service<Http, {
-  readonly getUser: (id: string) => Effect.Effect<User, HttpError>
-}>()("demo/Http") {}
+export class Http extends Context.Service<
+  Http,
+  {
+    readonly getUser: (id: string) => Effect.Effect<User, HttpError>
+  }
+>()("demo/Http") {}
 
 const usersDb: Record<string, User> = {
   "42": {
@@ -46,28 +49,33 @@ const usersDb: Record<string, User> = {
   },
 }
 
-export const HttpLive: Layer.Layer<Http> = Layer.succeed(
-  Http,
-  {
-    getUser: (id) =>
-      Effect.gen(function* () {
-        // Simulate latency — long enough that the loading state is easy to see,
-        // especially after hitting a demo's reset button. Kept longer than the
-        // reactivity-flash duration (flash.ts) so the flash blips before content.
-        yield* Effect.sleep("600 millis")
-        const user = usersDb[id]
-        if (!user) {
-          return yield* new HttpError({ status: 404, message: `User ${id} not found` })
-        }
-        return user
-      }),
-  },
-)
+export const HttpLive: Layer.Layer<Http> = Layer.succeed(Http, {
+  getUser: (id) =>
+    Effect.gen(function* () {
+      // Simulate latency — long enough that the loading state is easy to see,
+      // especially after hitting a demo's reset button. Kept longer than the
+      // reactivity-flash duration (flash.ts) so the flash blips before content.
+      yield* Effect.sleep("600 millis")
+      const user = usersDb[id]
+      if (!user) {
+        return yield* new HttpError({
+          status: 404,
+          message: `User ${id} not found`,
+        })
+      }
+      return user
+    }),
+})
 
 // ─── Theme service ───────────────────────────────────────────────────────
 
-export class Theme extends Context.Service<Theme, {
-  readonly mode: "light" | "dark"
-}>()("demo/Theme") {}
+export class Theme extends Context.Service<
+  Theme,
+  {
+    readonly mode: "light" | "dark"
+  }
+>()("demo/Theme") {}
 
-export const ThemeLive: Layer.Layer<Theme> = Layer.succeed(Theme, { mode: "dark" })
+export const ThemeLive: Layer.Layer<Theme> = Layer.succeed(Theme, {
+  mode: "dark",
+})

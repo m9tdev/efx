@@ -17,7 +17,7 @@ const TodoRow = Component.make(function* (props: {
   readonly remove: () => void
 }) {
   const ref = props.item
-  const done = ref.map((t) => t.done)         // ReadonlyRef<boolean>
+  const done = ref.map((t) => t.done) // ReadonlyRef<boolean>
   const toggle = () => ref.update((t) => ({ ...t, done: !t.done }))
 
   // The compiler wraps every JSX expression in `h.track(() => …)` and
@@ -30,7 +30,9 @@ const TodoRow = Component.make(function* (props: {
         {done.value ? "✓" : "·"}
       </button>
       <span class="text">{ref.value.text}</span>
-      <button class="remove" onclick={props.remove}>×</button>
+      <button class="remove" onclick={props.remove}>
+        ×
+      </button>
     </li>
   )
 })
@@ -60,12 +62,12 @@ export const Todos = Component.make(function* () {
     <div class="todos">
       <div class="controls">
         <button onclick={addTodo}>+ add todo</button>
-        <span class="remaining">
-          {remaining} remaining
-        </span>
+        <span class="remaining">{remaining} remaining</span>
       </div>
       <ul>
-        {todos.value.map((item) => <TodoRow item={item} remove={() => todos.remove(item)} />)}
+        {todos.value.map((item) => (
+          <TodoRow item={item} remove={() => todos.remove(item)} />
+        ))}
       </ul>
     </div>
   )

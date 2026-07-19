@@ -11,7 +11,10 @@ Public surface: `render(app, layer?)` returning a `RenderResult`.
 ## What it does
 
 ```ts
-const ui = await render(UserPage({ userId: "42" }), Layer.mergeAll(HttpTest, ThemeTest))
+const ui = await render(
+  UserPage({ userId: "42" }),
+  Layer.mergeAll(HttpTest, ThemeTest),
+)
 expect(ui.text(".user-card strong")).toBe("Ada Lovelace")
 ui.click(".refresh")
 await ui.tick()
@@ -90,7 +93,7 @@ The errors are module-level exports so they work as types too: `NotFound`
 (a `Data.TaggedError`) and `Timeout` (deliberately a plain hand-rolled `_tag`
 class — tag maps key on `_tag` alone, and both shapes must keep working).
 The service's error channel is always `NotFound | Timeout`, so a leaf tag map
-needs both tags to discharge to `View<never>`; suites exercising a *partial*
+needs both tags to discharge to `View<never>`; suites exercising a _partial_
 map handle one tag and let the residual ride to a boundary.
 
 ## Setup

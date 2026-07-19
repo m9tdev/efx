@@ -9,7 +9,8 @@ import { chromium } from "playwright-core"
  */
 export const waitForText = (page, sel, re, timeout = 5000) =>
   page.waitForFunction(
-    ({ s, src, fl }) => new RegExp(src, fl).test(document.querySelector(s)?.innerText ?? ""),
+    ({ s, src, fl }) =>
+      new RegExp(src, fl).test(document.querySelector(s)?.innerText ?? ""),
     { s: sel, src: re.source, fl: re.flags },
     { timeout },
   )

@@ -26,8 +26,14 @@ const snapshotOf = (text: string): ts.IScriptSnapshot => ({
 
 const plugin = () => createVerrexLanguagePlugin<string>((scriptId) => scriptId)
 
-const compile = (p: ReturnType<typeof plugin>, fileName: string, source: string) =>
-  p.createVirtualCode!(fileName, "verrex", snapshotOf(source), { getAssociatedScript: () => undefined })
+const compile = (
+  p: ReturnType<typeof plugin>,
+  fileName: string,
+  source: string,
+) =>
+  p.createVirtualCode!(fileName, "verrex", snapshotOf(source), {
+    getAssociatedScript: () => undefined,
+  })
 
 describe("createVerrexLanguagePlugin transform-error recovery", () => {
   it("compiles parseable source (sanity)", () => {
@@ -82,7 +88,9 @@ describe("createVerrexLanguagePlugin transform-error recovery", () => {
       expect(mapping.data.format).toBe(false)
     }
     // The good compile's own mappings are untouched (no shared mutation).
-    expect(good.mappings.some((mapping) => mapping.data.semantic !== false)).toBe(true)
+    expect(
+      good.mappings.some((mapping) => mapping.data.semantic !== false),
+    ).toBe(true)
   })
 
   it("recompiles fresh once the source parses again", () => {
@@ -110,6 +118,8 @@ describe("createVerrexLanguagePlugin transform-error recovery", () => {
     compile(p, "/a.vx", GOOD)
     // Babel's message carries only line:col; batch hosts print this verbatim,
     // so the file must be named.
-    expect(() => compile(p, "/a.vx", BROKEN)).toThrow(/\/a\.vx: Unexpected token/)
+    expect(() => compile(p, "/a.vx", BROKEN)).toThrow(
+      /\/a\.vx: Unexpected token/,
+    )
   })
 })

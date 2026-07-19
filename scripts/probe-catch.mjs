@@ -18,7 +18,8 @@ await runProbe({
     const demo = page.locator(sel)
     await demo.waitFor({ state: "attached" })
     const waitForText = (re) => waitForTextIn(page, sel, re)
-    const demoText = async () => (await demo.innerText()).replace(/\s+/g, " ").trim()
+    const demoText = async () =>
+      (await demo.innerText()).replace(/\s+/g, " ").trim()
 
     // 1) tag-map (object form): the flaky request ~50% fails at construction with a
     //    random tagged error (caught + unwrapped) and ~50% succeeds. On success the
@@ -37,7 +38,12 @@ await runProbe({
     const kinds = new Set()
     const statuses = new Set()
     let retryReRan = false
-    for (let i = 0; i < 24 && !(kinds.has("error") && kinds.has("success") && kinds.has("live")); i++) {
+    for (
+      let i = 0;
+      i < 24 &&
+      !(kinds.has("error") && kinds.has("success") && kinds.has("live"));
+      i++
+    ) {
       const o = await observe()
       if (o.kind === "error") {
         kinds.add("error")
@@ -56,7 +62,12 @@ await runProbe({
         break
       }
     }
-    console.log("\n[tag-map] kinds:", [...kinds].join(", "), "| statuses:", [...statuses].join(", "))
+    console.log(
+      "\n[tag-map] kinds:",
+      [...kinds].join(", "),
+      "| statuses:",
+      [...statuses].join(", "),
+    )
     const tagMapCaughtConstruction = kinds.has("error") // construction error caught + unwrapped
     const sawSuccess = kinds.has("success") // ~50% path recovers
     const tagMapCaughtLive = kinds.has("live") // success's live HttpError caught too
@@ -74,16 +85,31 @@ await runProbe({
     await waitForText(/catch-all caught/i).catch(() => {})
     const afterCrash = await demoText()
     console.log("\n[after crash]\n" + afterCrash)
-    const catchAllCaught = /catch-all caught/i.test(afterCrash) && /BoomError/i.test(afterCrash)
+    const catchAllCaught =
+      /catch-all caught/i.test(afterCrash) && /BoomError/i.test(afterCrash)
     const crashGone = (await demo.locator(".crasher .crash").count()) === 0
 
     // 4) Reset → the catch-all re-runs construction; the working button returns.
     await demo.locator(".reset").first().click()
-    await demo.locator(".crasher .crash").first().waitFor({ state: "attached", timeout: 5000 }).catch(() => {})
+    await demo
+      .locator(".crasher .crash")
+      .first()
+      .waitFor({ state: "attached", timeout: 5000 })
+      .catch(() => {})
     const recovered = (await demo.locator(".crasher .crash").count()) > 0
     console.log("\n[after reset] crash button back:", recovered)
 
-    const results = { tagMapCaughtConstruction, sawSuccess, tagMapCaughtLive, tagMapHandled, retryReRan, crashVisible, catchAllCaught, crashGone, recovered }
+    const results = {
+      tagMapCaughtConstruction,
+      sawSuccess,
+      tagMapCaughtLive,
+      tagMapHandled,
+      retryReRan,
+      crashVisible,
+      catchAllCaught,
+      crashGone,
+      recovered,
+    }
     console.log("\n[results]", JSON.stringify(results, null, 2))
     const ok = Object.values(results).every(Boolean) && errors.length === 0
     if (!ok) {

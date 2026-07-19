@@ -46,7 +46,8 @@ export interface RenderResult {
 
 const el = (container: HTMLElement, selector: string): HTMLElement => {
   const found = container.querySelector(selector)
-  if (!found) throw new Error(`render(): no element matches ${JSON.stringify(selector)}`)
+  if (!found)
+    throw new Error(`render(): no element matches ${JSON.stringify(selector)}`)
   return found as HTMLElement
 }
 
@@ -89,10 +90,15 @@ const renderImpl = async (
   // harness discharges an undischarged construction error by turning it into a
   // defect, so a component that fails to build (with no boundary) rejects the
   // `render(...)` promise loudly — exactly the failure a test wants to see.
-  const discharged = Effect.catchCause(app, (cause) => Effect.die(Cause.squash(cause)))
+  const discharged = Effect.catchCause(app, (cause) =>
+    Effect.die(Cause.squash(cause)),
+  )
   await Effect.runPromise(
     Scope.provide(
-      mount(discharged, container).pipe(Effect.provide(layer), Effect.provide(VerrexLive)),
+      mount(discharged, container).pipe(
+        Effect.provide(layer),
+        Effect.provide(VerrexLive),
+      ),
       scope,
     ),
   )

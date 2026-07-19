@@ -89,7 +89,9 @@ const PARSER_OPTIONS: ParserOptions = {
  * Convert a JSX attribute name to an object-property key.
  * JSX allows `data-foo` and `aria-bar` — wrap those in string literals.
  */
-const attrName = (id: t.JSXIdentifier | t.JSXNamespacedName): t.Identifier | t.StringLiteral => {
+const attrName = (
+  id: t.JSXIdentifier | t.JSXNamespacedName,
+): t.Identifier | t.StringLiteral => {
   if (t.isJSXNamespacedName(id)) {
     return t.stringLiteral(`${id.namespace.name}:${id.name.name}`)
   }
@@ -192,13 +194,26 @@ const isWriteTarget = (path: NodePath<t.MemberExpression>): boolean => {
     const cn = cur.node
     if (t.isAssignmentExpression(pn)) return pn.left === cn
     if (t.isUpdateExpression(pn)) return pn.argument === cn
-    if (t.isUnaryExpression(pn) && pn.operator === "delete") return pn.argument === cn
+    if (t.isUnaryExpression(pn) && pn.operator === "delete")
+      return pn.argument === cn
     if (t.isForOfStatement(pn) || t.isForInStatement(pn)) return pn.left === cn
     if (t.isArrayPattern(pn) || t.isObjectPattern(pn)) return true
     // Connectors — climb only via their target sub-position.
-    if (t.isRestElement(pn) && pn.argument === cn) { cur = parent; parent = parent.parentPath; continue }
-    if (t.isAssignmentPattern(pn) && pn.left === cn) { cur = parent; parent = parent.parentPath; continue }
-    if (t.isObjectProperty(pn) && pn.value === cn) { cur = parent; parent = parent.parentPath; continue }
+    if (t.isRestElement(pn) && pn.argument === cn) {
+      cur = parent
+      parent = parent.parentPath
+      continue
+    }
+    if (t.isAssignmentPattern(pn) && pn.left === cn) {
+      cur = parent
+      parent = parent.parentPath
+      continue
+    }
+    if (t.isObjectProperty(pn) && pn.value === cn) {
+      cur = parent
+      parent = parent.parentPath
+      continue
+    }
     return false
   }
   return false
@@ -230,7 +245,9 @@ const rewriteValueRead = (path: NodePath<t.MemberExpression>): boolean => {
   if (!t.isIdentifier(n.property)) return false
   if (n.property.name !== "value") return false
   if (isWriteTarget(path)) return false
-  path.replaceWith(copyLoc(t.callExpression(hRead(), [n.object as t.Expression]), n))
+  path.replaceWith(
+    copyLoc(t.callExpression(hRead(), [n.object as t.Expression]), n),
+  )
   return true
 }
 
@@ -244,11 +261,11 @@ const rewriteValueRead = (path: NodePath<t.MemberExpression>): boolean => {
  */
 const matchNamelessComponentMake = (node: t.Node): t.CallExpression | null =>
   t.isCallExpression(node) &&
-    node.arguments.length === 1 &&
-    t.isMemberExpression(node.callee) &&
-    !node.callee.computed &&
-    t.isIdentifier(node.callee.object, { name: "Component" }) &&
-    t.isIdentifier(node.callee.property, { name: "make" })
+  node.arguments.length === 1 &&
+  t.isMemberExpression(node.callee) &&
+  !node.callee.computed &&
+  t.isIdentifier(node.callee.object, { name: "Component" }) &&
+  t.isIdentifier(node.callee.property, { name: "make" })
     ? node
     : null
 
@@ -314,7 +331,10 @@ const rewriteTrackedExpression = (
     CallExpression(path) {
       const matched = matchValueMapCall(path.node)
       if (!matched) return
-      const newCall = t.callExpression(t.identifier("list"), [matched.source, matched.arrow])
+      const newCall = t.callExpression(t.identifier("list"), [
+        matched.source,
+        matched.arrow,
+      ])
       path.replaceWith(copyLoc(newCall, path.node))
       state.wroteList = true
       path.skip()
@@ -352,7 +372,10 @@ const buildProps = (
         : wrapTracked(attr.value.expression, state)
     } else {
       // JSXElement/JSXFragment values are exotic — fall back to recursive transform
-      value = transformJsxNode(attr.value as t.JSXElement | t.JSXFragment, state)
+      value = transformJsxNode(
+        attr.value as t.JSXElement | t.JSXFragment,
+        state,
+      )
     }
     properties.push(
       t.objectProperty(
@@ -390,7 +413,9 @@ const copyLoc = <T extends t.Node>(target: T, source: t.Node): T => {
 const isIntrinsicName = (name: string): boolean => /^[a-z]/.test(name)
 
 /** Decide the tag expression: lowercase → string literal, otherwise identifier. */
-const tagExpression = (name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName): t.Expression => {
+const tagExpression = (
+  name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName,
+): t.Expression => {
   if (t.isJSXNamespacedName(name)) {
     const lit = t.stringLiteral(`${name.namespace.name}:${name.name.name}`)
     return copyLoc(lit, name)
@@ -469,7 +494,10 @@ const transformChild = (
 
 const RUNTIME_PKG = "@verrex/core"
 
-const ensureRuntimeImports = (program: t.Program, wanted: Set<string>): void => {
+const ensureRuntimeImports = (
+  program: t.Program,
+  wanted: Set<string>,
+): void => {
   // First pass: find an existing import from the runtime; drop names that
   // are already imported under their own identifier (no `as` alias).
   let existing: t.ImportDeclaration | undefined
@@ -561,7 +589,8 @@ const collectJsxRange = (node: t.JSXElement | t.JSXFragment): JsxRange => {
 const isComponentTag = (
   name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName,
 ): boolean =>
-  t.isJSXMemberExpression(name) || (t.isJSXIdentifier(name) && !isIntrinsicName(name.name))
+  t.isJSXMemberExpression(name) ||
+  (t.isJSXIdentifier(name) && !isIntrinsicName(name.name))
 
 /**
  * Transform a JSX element or fragment node into its compiled call:
@@ -599,16 +628,24 @@ const transformJsxNode = (
 
     const props = isFragment
       ? t.objectExpression([])
-      : (buildProps(node.openingElement.attributes, state) as t.ObjectExpression)
+      : (buildProps(
+          node.openingElement.attributes,
+          state,
+        ) as t.ObjectExpression)
     if (childArgs.length > 0) {
       props.properties = props.properties.filter(
         (p) =>
-          !(t.isObjectProperty(p) &&
+          !(
+            t.isObjectProperty(p) &&
             (t.isIdentifier(p.key, { name: "children" }) ||
-              t.isStringLiteral(p.key, { value: "children" }))),
+              t.isStringLiteral(p.key, { value: "children" }))
+          ),
       )
       props.properties.push(
-        t.objectProperty(t.identifier("children"), t.arrayExpression(childArgs)),
+        t.objectProperty(
+          t.identifier("children"),
+          t.arrayExpression(childArgs),
+        ),
       )
     }
     // No attrs, no children → zero-arg call, so propless `function* ()`
@@ -671,7 +708,11 @@ export const transformVerrex = (
     },
   })
 
-  const state: RewriteState = { wroteList: false, usedH: false, usedFragment: false }
+  const state: RewriteState = {
+    wroteList: false,
+    usedH: false,
+    usedFragment: false,
+  }
 
   traverse(ast, {
     JSXElement(path: NodePath<t.JSXElement>) {

@@ -19,7 +19,8 @@ class NotFound {
 class Timeout {
   readonly _tag = "Timeout"
 }
-const get = (): Effect.Effect<string, NotFound | Timeout> => Effect.fail(new NotFound("x"))
+const get = (): Effect.Effect<string, NotFound | Timeout> =>
+  Effect.fail(new NotFound("x"))
 const child = h("div", {}, Async(get, { success: (n) => h("span", {}, n) }))
 
 // Satisfies TagHandlers at the type level (methods match the constraint), but
@@ -33,7 +34,10 @@ class ProtoHandlers {
 describe("tag-map construction validation (#91)", () => {
   it("Async rejects a prototype-keyed handler object at the call site", () => {
     expect(() =>
-      Async(get, { success: (n) => h("span", {}, n), failure: new ProtoHandlers() }),
+      Async(get, {
+        success: (n) => h("span", {}, n),
+        failure: new ProtoHandlers(),
+      }),
     ).toThrow(/Async: a tag-map of handlers must be a plain object/)
   })
 
@@ -43,7 +47,10 @@ describe("tag-map construction validation (#91)", () => {
     expect(() =>
       Async(get, {
         success: (n) => h("span", {}, n),
-        failure: { NotFound: (e: NotFound) => h("p", {}, e.id), Timeout: undefined } as never,
+        failure: {
+          NotFound: (e: NotFound) => h("p", {}, e.id),
+          Timeout: undefined,
+        } as never,
       }),
     ).toThrow(/Async: tag-map handler "Timeout" is not a function/)
   })
@@ -56,7 +63,10 @@ describe("tag-map construction validation (#91)", () => {
 
   it("Catch rejects a non-function handler slot, naming the key", () => {
     expect(() =>
-      Catch(child, { NotFound: (e: NotFound) => h("p", {}, e.id), Timeout: undefined } as never),
+      Catch(child, {
+        NotFound: (e: NotFound) => h("p", {}, e.id),
+        Timeout: undefined,
+      } as never),
     ).toThrow(/Catch: tag-map handler "Timeout" is not a function/)
   })
 

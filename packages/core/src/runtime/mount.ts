@@ -1,6 +1,11 @@
 import { Cause, Context, Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { coerceSync, type ErrorSink, getTrackDispose, isAtomRef } from "./coerce.ts"
+import {
+  coerceSync,
+  type ErrorSink,
+  getTrackDispose,
+  isAtomRef,
+} from "./coerce.ts"
 import { plan } from "./reconcile.ts"
 import { type BoundaryState, type Props, View, type ViewNode } from "./View.ts"
 
@@ -112,12 +117,19 @@ const applyProp = (
     const listener: EventListener = (e) => {
       const result = userHandler(e)
       if (Effect.isEffect(result)) {
-        runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, ctx, scope)
+        runHandlerEffect(
+          result as Effect.Effect<unknown, unknown, never>,
+          ctx,
+          scope,
+        )
       }
     }
     el.addEventListener(event, listener)
     Effect.runSync(
-      Scope.addFinalizer(scope, Effect.sync(() => el.removeEventListener(event, listener))),
+      Scope.addFinalizer(
+        scope,
+        Effect.sync(() => el.removeEventListener(event, listener)),
+      ),
     )
     return
   }
@@ -143,7 +155,12 @@ const applyProp = (
   el.setAttribute(key, String(value))
 }
 
-const applyProps = (el: Element, props: Props, ctx: BuildCtx, scope: Scope.Scope): void => {
+const applyProps = (
+  el: Element,
+  props: Props,
+  ctx: BuildCtx,
+  scope: Scope.Scope,
+): void => {
   for (const [k, v] of Object.entries(props)) {
     if (k === "children") continue
     applyProp(el, k, v, ctx, scope)
@@ -256,7 +273,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 
       // A plan's `before` is a row key; resolve it to the reference node.
       const nodeBefore = (key: AtomRef.AtomRef<unknown> | null): Node | null =>
-        key === null ? null : rendered.get(key)?.node ?? null
+        key === null ? null : (rendered.get(key)?.node ?? null)
 
       const setIndex = (row: Row, index: number): void => {
         if (row.indexRef.value !== index) row.indexRef.set(index)
@@ -264,7 +281,9 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 
       // The diff itself lives in the pure `plan` (see reconcile.ts); this is the
       // interpreter — it just applies the ops to real DOM + scopes.
-      const reconcile = (next: ReadonlyArray<AtomRef.AtomRef<unknown>>): void => {
+      const reconcile = (
+        next: ReadonlyArray<AtomRef.AtomRef<unknown>>,
+      ): void => {
         for (const op of plan(snapshot, next)) {
           switch (op.op) {
             case "remove": {
@@ -273,7 +292,8 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
               const row = rendered.get(op.key)
               if (row) {
                 closeScope(row.rowScope)
-                if (row.node.parentNode === wrapper) wrapper.removeChild(row.node)
+                if (row.node.parentNode === wrapper)
+                  wrapper.removeChild(row.node)
                 rendered.delete(op.key)
               }
               break
@@ -400,6 +420,6 @@ export const mount = <R>(
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         if (node.parentNode === el) el.removeChild(node)
-      })
+      }),
     )
   })

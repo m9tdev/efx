@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { AsyncResult, AtomRef } from "effect/unstable/reactivity"
 import { asyncRef, h } from "@verrex/core"
 import { render } from "./index.ts"
-import { makeUsersFixture, NotFound } from "./fixtures.ts"
+import { makeUsersFixture, NotFound, waitForText } from "./fixtures.ts"
 
 const { Users: Api, usersWith } = makeUsersFixture("async")
 
@@ -37,31 +37,26 @@ const Widget = (id: AtomRef.AtomRef<string>) =>
     )
   })
 
-const settle = () => new Promise<void>((r) => setTimeout(r, 30))
-
 describe("Async — reactive AsyncResult", () => {
   it("renders loading → success, refetches on dep change, surfaces failure", async () => {
     const id = AtomRef.make("42")
     const ui = await render(Widget(id)(), ApiLive)
 
+    // Synchronous: the loading arm renders before the fetch can resolve.
     expect(ui.text(".out")).toBe("loading")
-    await settle()
-    expect(ui.text(".out")).toBe("user-42")
+    await waitForText(ui, "user-42")
 
     // reactive refetch: changing id re-runs the effect
     id.set("7")
-    await settle()
-    expect(ui.text(".out")).toBe("user-7")
+    await waitForText(ui, "user-7")
 
     // failure is a value (Failure variant), matched at the use site
     id.set("bad")
-    await settle()
-    expect(ui.text(".out")).toContain("error")
+    await waitForText(ui, "error")
 
     // and it recovers on the next good value
     id.set("99")
-    await settle()
-    expect(ui.text(".out")).toBe("user-99")
+    await waitForText(ui, "user-99")
 
     await ui.unmount()
   })
