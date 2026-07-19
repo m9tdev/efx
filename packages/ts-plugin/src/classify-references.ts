@@ -24,13 +24,15 @@ export type ClassifiedRef<R> = {
  * shapes (a flat `ReferenceEntry[]` vs the flattened nested
  * `ReferencedSymbol[]`), so they share the key formula, not the loop.
  */
-export const refKey = (ref: { fileName: string; textSpan: ts.TextSpan }): string =>
-  `${ref.fileName}:${ref.textSpan.start}`
+export const refKey = (ref: {
+  fileName: string
+  textSpan: ts.TextSpan
+}): string => `${ref.fileName}:${ref.textSpan.start}`
 
 /** Drop duplicate reference hits (same `refKey`), preserving first-seen order. */
-export function dedupeRefs<R extends { fileName: string; textSpan: ts.TextSpan }>(
-  refs: ReadonlyArray<R>,
-): R[] {
+export function dedupeRefs<
+  R extends { fileName: string; textSpan: ts.TextSpan },
+>(refs: ReadonlyArray<R>): R[] {
   const seen = new Set<string>()
   const out: R[] = []
   for (const ref of refs) {
@@ -59,7 +61,9 @@ export function sortClassifiedRefs<R>(
   })
 }
 
-export function classifyRefs<R extends { fileName: string; textSpan: ts.TextSpan }>(
+export function classifyRefs<
+  R extends { fileName: string; textSpan: ts.TextSpan },
+>(
   refs: ReadonlyArray<R>,
   def: { fileName: string; textSpan: ts.TextSpan },
   readFile: (path: string) => string | undefined,
@@ -73,7 +77,9 @@ export function classifyRefs<R extends { fileName: string; textSpan: ts.TextSpan
   }
   return refs.map((ref) => ({
     ref,
-    isDef: ref.fileName === def.fileName && ref.textSpan.start === def.textSpan.start,
+    isDef:
+      ref.fileName === def.fileName &&
+      ref.textSpan.start === def.textSpan.start,
     isImport: isImportLine(ref, readCached),
   }))
 }

@@ -4,7 +4,10 @@ import { plan, type ReconcileOp } from "./reconcile.ts"
 // Oracle: apply a plan to a plain array of keys the same way the DOM
 // interpreter would (remove / insert-before / move-before / keep), so we can
 // assert the plan actually produces `next` from `prev` — no DOM needed.
-const applyToArray = <K>(prev: ReadonlyArray<K>, ops: ReadonlyArray<ReconcileOp<K>>): K[] => {
+const applyToArray = <K>(
+  prev: ReadonlyArray<K>,
+  ops: ReadonlyArray<ReconcileOp<K>>,
+): K[] => {
   const arr = [...prev]
   const drop = (k: K) => {
     const i = arr.indexOf(k)
@@ -37,21 +40,34 @@ const domOps = <K>(ops: ReadonlyArray<ReconcileOp<K>>) =>
   ops.filter((o) => o.op !== "keep")
 
 describe("plan() — produces `next` from `prev`", () => {
-  const cases: ReadonlyArray<{ name: string; prev: string[]; next: string[] }> = [
-    { name: "no-op", prev: ["a", "b", "c"], next: ["a", "b", "c"] },
-    { name: "initial mount (empty → full)", prev: [], next: ["a", "b", "c"] },
-    { name: "clear (full → empty)", prev: ["a", "b", "c"], next: [] },
-    { name: "append", prev: ["a"], next: ["a", "b"] },
-    { name: "prepend", prev: ["b", "c"], next: ["a", "b", "c"] },
-    { name: "insert middle", prev: ["a", "b"], next: ["a", "c", "b"] },
-    { name: "remove middle", prev: ["a", "b", "c"], next: ["a", "c"] },
-    { name: "reverse", prev: ["a", "b", "c"], next: ["c", "b", "a"] },
-    { name: "rotate left", prev: ["a", "b", "c"], next: ["b", "c", "a"] },
-    { name: "move tail to head", prev: ["a", "b", "c", "d"], next: ["d", "a", "b", "c"] },
-    { name: "swap ends", prev: ["a", "b", "c", "d"], next: ["d", "b", "c", "a"] },
-    { name: "interleave new + reorder", prev: ["a", "b", "c"], next: ["x", "c", "a", "y", "b"] },
-    { name: "full replace", prev: ["a", "b"], next: ["c", "d"] },
-  ]
+  const cases: ReadonlyArray<{ name: string; prev: string[]; next: string[] }> =
+    [
+      { name: "no-op", prev: ["a", "b", "c"], next: ["a", "b", "c"] },
+      { name: "initial mount (empty → full)", prev: [], next: ["a", "b", "c"] },
+      { name: "clear (full → empty)", prev: ["a", "b", "c"], next: [] },
+      { name: "append", prev: ["a"], next: ["a", "b"] },
+      { name: "prepend", prev: ["b", "c"], next: ["a", "b", "c"] },
+      { name: "insert middle", prev: ["a", "b"], next: ["a", "c", "b"] },
+      { name: "remove middle", prev: ["a", "b", "c"], next: ["a", "c"] },
+      { name: "reverse", prev: ["a", "b", "c"], next: ["c", "b", "a"] },
+      { name: "rotate left", prev: ["a", "b", "c"], next: ["b", "c", "a"] },
+      {
+        name: "move tail to head",
+        prev: ["a", "b", "c", "d"],
+        next: ["d", "a", "b", "c"],
+      },
+      {
+        name: "swap ends",
+        prev: ["a", "b", "c", "d"],
+        next: ["d", "b", "c", "a"],
+      },
+      {
+        name: "interleave new + reorder",
+        prev: ["a", "b", "c"],
+        next: ["x", "c", "a", "y", "b"],
+      },
+      { name: "full replace", prev: ["a", "b"], next: ["c", "d"] },
+    ]
 
   for (const { name, prev, next } of cases) {
     it(name, () => {
@@ -73,7 +89,9 @@ describe("plan() — op shapes", () => {
 
   it("move tail to head is a single move (matches the old single-pass)", () => {
     const ops = plan(["a", "b", "c", "d"], ["d", "a", "b", "c"])
-    expect(domOps(ops)).toEqual([{ op: "move", key: "d", before: "a", index: 0 }])
+    expect(domOps(ops)).toEqual([
+      { op: "move", key: "d", before: "a", index: 0 },
+    ])
   })
 
   it("reverse is two moves before the settled tail", () => {

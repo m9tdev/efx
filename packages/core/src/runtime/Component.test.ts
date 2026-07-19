@@ -27,9 +27,11 @@ describe("Component.make", () => {
   })
 
   it("accepts a plain Effect-returning body (the signature-preserving form)", () => {
-    const Plain = Component.make((_props: {}) => Effect.succeed(View.Empty()), "Plain")
+    const Plain = Component.make(
+      (_props: {}) => Effect.succeed(View.Empty()),
+      "Plain",
+    )
     const exit = Effect.runSyncExit(Plain({}))
     expect(Exit.isSuccess(exit)).toBe(true)
   })
 })
-

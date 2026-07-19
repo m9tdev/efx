@@ -41,7 +41,11 @@ export interface ViewErr<E> {
  */
 export type BoundaryState =
   | { readonly _tag: "ok"; readonly view: ViewNode; readonly gen: number }
-  | { readonly _tag: "error"; readonly cause: Cause.Cause<unknown>; readonly gen: number }
+  | {
+      readonly _tag: "error"
+      readonly cause: Cause.Cause<unknown>
+      readonly gen: number
+    }
 
 // Per-variant named interfaces — required so TS preserves the `View` alias
 // in hovers. `Data.TaggedEnum<{...}>` runs every variant through
@@ -149,10 +153,12 @@ export type View<E = never> = ViewNode & ViewErr<E>
 
 export const View = Data.taggedEnum<ViewNode>()
 
-export const VIEW_TAGS: ReadonlySet<ViewNode["_tag"]> = new Set<ViewNode["_tag"]>([
-  "Text", "Element", "Fragment", "Reactive", "List", "Boundary", "Empty",
-])
+export const VIEW_TAGS: ReadonlySet<ViewNode["_tag"]> = new Set<
+  ViewNode["_tag"]
+>(["Text", "Element", "Fragment", "Reactive", "List", "Boundary", "Empty"])
 
 export const isView = (u: unknown): u is ViewNode =>
-  typeof u === "object" && u !== null && "_tag" in u &&
+  typeof u === "object" &&
+  u !== null &&
+  "_tag" in u &&
   VIEW_TAGS.has((u as { _tag: ViewNode["_tag"] })._tag)

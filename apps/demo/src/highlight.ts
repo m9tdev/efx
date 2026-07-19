@@ -24,13 +24,38 @@ export type Token = {
 }
 
 const KEYWORDS = new Set([
-  "const", "let", "var", "yield", "return", "new", "function", "if", "else",
-  "for", "of", "in", "true", "false", "null", "undefined", "void", "await",
-  "async", "import", "export", "from", "as", "interface", "type", "extends",
-  "class", "typeof",
+  "const",
+  "let",
+  "var",
+  "yield",
+  "return",
+  "new",
+  "function",
+  "if",
+  "else",
+  "for",
+  "of",
+  "in",
+  "true",
+  "false",
+  "null",
+  "undefined",
+  "void",
+  "await",
+  "async",
+  "import",
+  "export",
+  "from",
+  "as",
+  "interface",
+  "type",
+  "extends",
+  "class",
+  "typeof",
 ])
 
-const isSpace = (c: string) => c === " " || c === "\t" || c === "\n" || c === "\r"
+const isSpace = (c: string) =>
+  c === " " || c === "\t" || c === "\n" || c === "\r"
 const isDigit = (c: string) => c >= "0" && c <= "9"
 const isIdentStart = (c: string) => /[A-Za-z_$]/.test(c)
 const isIdent = (c: string) => /[A-Za-z0-9_$]/.test(c)
@@ -76,8 +101,14 @@ export const highlight = (src: string): ReadonlyArray<Token> => {
     if (c === "`" || c === '"' || c === "'") {
       let j = i + 1
       while (j < n) {
-        if (src[j] === "\\") { j += 2; continue }
-        if (src[j] === c) { j++; break }
+        if (src[j] === "\\") {
+          j += 2
+          continue
+        }
+        if (src[j] === c) {
+          j++
+          break
+        }
         j++
       }
       push(src.slice(i, j), "str")
@@ -99,10 +130,16 @@ export const highlight = (src: string): ReadonlyArray<Token> => {
     // it appears, e.g. `failed</p>`); `<name` only *opens* a tag in expression
     // position, so generics like `collection<Todo>` aren't mistaken for tags.
     const afterLt = src[i + 1] ?? ""
-    if (c === "<" && (afterLt === "/" || (isExprPos(prev) && /[A-Za-z]/.test(afterLt)))) {
+    if (
+      c === "<" &&
+      (afterLt === "/" || (isExprPos(prev) && /[A-Za-z]/.test(afterLt)))
+    ) {
       let j = i + 1
       let open = "<"
-      if (src[j] === "/") { open = "</"; j++ }
+      if (src[j] === "/") {
+        open = "</"
+        j++
+      }
       let k = j
       while (k < n && /[A-Za-z0-9_.]/.test(src[k]!)) k++
       const name = src.slice(j, k)

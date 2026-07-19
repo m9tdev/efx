@@ -15,7 +15,11 @@ describe("render() harness", () => {
       return yield* h(
         "div",
         { class: "counter" },
-        h("button", { class: "inc", onclick: () => count.update((n) => n + 1) }, "+"),
+        h(
+          "button",
+          { class: "inc", onclick: () => count.update((n) => n + 1) },
+          "+",
+        ),
         h("span", { class: "n" }, count),
       )
     })
@@ -54,9 +58,12 @@ describe("render() harness", () => {
   })
 
   it("renders a component once its required service is provided via layer", async () => {
-    class Greeter extends Context.Service<Greeter, {
-      readonly hello: (name: string) => string
-    }>()("test/Greeter") {}
+    class Greeter extends Context.Service<
+      Greeter,
+      {
+        readonly hello: (name: string) => string
+      }
+    >()("test/Greeter") {}
 
     const GreeterTest: Layer.Layer<Greeter> = Layer.succeed(Greeter, {
       hello: (name) => `hi ${name}`,

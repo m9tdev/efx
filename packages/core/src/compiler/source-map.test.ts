@@ -59,7 +59,10 @@ describe("transformVerrex — mappings shape", () => {
     const result = compile(src)
     const seen = new Set<number>()
     for (const m of result.mappings) {
-      expect(seen.has(m.source.offset), `duplicate at offset ${m.source.offset}`).toBe(false)
+      expect(
+        seen.has(m.source.offset),
+        `duplicate at offset ${m.source.offset}`,
+      ).toBe(false)
       seen.add(m.source.offset)
     }
   })
@@ -73,7 +76,10 @@ describe("transformVerrex — mappings shape", () => {
       const containing = result.mappings.filter(
         (m) => i >= m.source.offset && i < m.source.offset + m.source.length,
       )
-      expect(containing.length, `offset ${i} claimed by ${containing.length}`).toBeLessThanOrEqual(1)
+      expect(
+        containing.length,
+        `offset ${i} claimed by ${containing.length}`,
+      ).toBeLessThanOrEqual(1)
     }
   })
 
@@ -83,7 +89,9 @@ describe("transformVerrex — mappings shape", () => {
     `
     const result = compile(src)
     for (let i = 1; i < result.mappings.length; i++) {
-      expect(result.mappings[i]!.source.offset).toBeGreaterThan(result.mappings[i - 1]!.source.offset)
+      expect(result.mappings[i]!.source.offset).toBeGreaterThan(
+        result.mappings[i - 1]!.source.offset,
+      )
     }
   })
 })
@@ -109,9 +117,14 @@ describe("transformVerrex — mapping kinds", () => {
     // look up by containment rather than exact match.
     const classSrc = src.indexOf("class")
     const containing = result.mappings.find(
-      (m) => m.source.offset <= classSrc && m.source.offset + m.source.length > classSrc,
+      (m) =>
+        m.source.offset <= classSrc &&
+        m.source.offset + m.source.length > classSrc,
     )
-    expect(containing, "expected a mapping covering the `class` attribute").toBeDefined()
+    expect(
+      containing,
+      "expected a mapping covering the `class` attribute",
+    ).toBeDefined()
     expect(containing!.kind).toBe("h-call")
   })
 

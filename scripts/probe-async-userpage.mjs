@@ -8,9 +8,15 @@ await runProbe({
   run: async (page) => {
     await page.waitForSelector(".async-user-page", { timeout: 5000 })
     // The success arm renders `.user-body` once the fetch resolves.
-    await page.waitForSelector(".async-user-page .user-body h1", { timeout: 5000 })
-    const name = await page.locator(".async-user-page .user-body h1").innerText()
-    const posts = await page.locator(".async-user-page .user-body .posts li").count()
+    await page.waitForSelector(".async-user-page .user-body h1", {
+      timeout: 5000,
+    })
+    const name = await page
+      .locator(".async-user-page .user-body h1")
+      .innerText()
+    const posts = await page
+      .locator(".async-user-page .user-body .posts li")
+      .count()
     console.log("name:", JSON.stringify(name))
     console.log("post count:", posts)
     console.log(

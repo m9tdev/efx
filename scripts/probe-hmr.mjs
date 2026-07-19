@@ -23,13 +23,22 @@ try {
       console.log("initial text:", JSON.stringify(initialText))
 
       // Mutate the .vx file: change "clicks" to "CLICKED"
-      writeFileSync(COUNTER_PATH, original.replace("clicks:", "CLICKED:"), "utf8")
+      writeFileSync(
+        COUNTER_PATH,
+        original.replace("clicks:", "CLICKED:"),
+        "utf8",
+      )
 
       // Wait for Vite HMR to propagate
-      await page.waitForFunction(
-        () => document.querySelector(".counter .count")?.textContent?.includes("CLICKED"),
-        { timeout: 5000 },
-      ).catch(() => null)
+      await page
+        .waitForFunction(
+          () =>
+            document
+              .querySelector(".counter .count")
+              ?.textContent?.includes("CLICKED"),
+          { timeout: 5000 },
+        )
+        .catch(() => null)
 
       afterEdit = await page.locator(".counter .count").innerText()
       console.log("after edit text:", JSON.stringify(afterEdit))

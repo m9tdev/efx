@@ -1,8 +1,24 @@
-import { Cause, Effect, Exit, Fiber, Layer, Option, Queue, Scope, type Types } from "effect"
+import {
+  Cause,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  Queue,
+  Scope,
+  type Types,
+} from "effect"
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { coerceAsync, type ErrorSink, isAtomRef, trackDeps } from "./coerce.ts"
+import {
+  coerceAsync,
+  type ErrorSink,
+  isAtomRef,
+  makeDepSubscription,
+  trackDeps,
+} from "./coerce.ts"
 import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
-import { type BoundaryState, type Props, View } from "./View.ts"
+import { type BoundaryState, View } from "./View.ts"
 
 export * as Component from "./Component.ts"
 export { h } from "./h.ts"
@@ -20,7 +36,11 @@ export type {
   FoldPropsR,
   FoldR,
 } from "./types/Fold.ts"
-export type { EventHandler, HtmlEventHandlers, IntrinsicProps } from "./types/Html.ts"
+export type {
+  EventHandler,
+  HtmlEventHandlers,
+  IntrinsicProps,
+} from "./types/Html.ts"
 
 /**
  * Reactive keyed list. Renders one row per item in `from`, keyed by the
@@ -66,7 +86,8 @@ export const list = <T, E = never, R = never>(
         item: AtomRef.AtomRef<unknown>,
         index: AtomRef.ReadonlyRef<number>,
       ) => unknown,
-    }))
+    }),
+  )
 
 /**
  * What `asyncRef` returns: the reactive result plus a manual `refetch`.
@@ -93,7 +114,9 @@ export interface AsyncHandle<A, E> {
  * default. A callable value is ALWAYS treated as a thunk, even if it also
  * carries handle-shaped properties — don't build callable handle hybrids.
  */
-type AsyncSource<A, E, R = never> = (() => Effect.Effect<A, E, R>) | AsyncHandle<A, E>
+type AsyncSource<A, E, R = never> =
+  | (() => Effect.Effect<A, E, R>)
+  | AsyncHandle<A, E>
 
 /**
  * The reactive effectful data primitive — the async leaf of the
@@ -123,24 +146,29 @@ export const asyncRef = <A, E, R>(
   effect: () => Effect.Effect<A, E, R>,
 ): Effect.Effect<AsyncHandle<A, E>, never, R | Scope.Scope> =>
   Effect.gen(function* () {
-    const state = AtomRef.make<AsyncResult.AsyncResult<A, E>>(AsyncResult.initial(true))
+    const state = AtomRef.make<AsyncResult.AsyncResult<A, E>>(
+      AsyncResult.initial(true),
+    )
     const scope = yield* Effect.scope
 
     // A "run" request carries the effect to fork. The first is produced by
     // running the thunk under dep-tracking; each tracked ref's change enqueues
     // a fresh run (re-running the thunk to pick up new ref values + deps).
     const runs = yield* Queue.unbounded<Effect.Effect<A, E, R>>()
-    let unsubs: Array<() => void> = []
-    let closed = false
+    // `sub` owns the dep-subscription bookkeeping (resubscribe-fresh per run,
+    // the non-idempotent-unsubscribe guard, the closed-after-teardown gate);
+    // its `onChange` fires `schedule`, defined below.
+    let schedule: () => boolean
+    const sub = makeDepSubscription(() => schedule())
 
-    const schedule = (): boolean => {
+    schedule = (): boolean => {
       // `schedule` escapes this scope as `refetch`/`retry` (handed to failure
       // arms), so a retained reference can fire after teardown — a stashed
       // retry in a setTimeout, a click racing a boundary swap. Once the scope
       // closes this must be a no-op: re-subscribing would register
       // subscriptions the (already-run) finalizer can never clean, and the
       // queue's only consumer is dead. `false` is the caller's only signal.
-      if (closed) return false
+      if (sub.closed) return false
       // Flip to waiting SYNCHRONOUSLY, before the run is even enqueued: a
       // rebuild in the same tick — `refetch(); reset()` in either order —
       // must observe waiting, not re-escalate the stale non-waiting Failure.
@@ -149,23 +177,15 @@ export const asyncRef = <A, E, R>(
       // between. At construction the state is already Initial(waiting) — the
       // set dedups to a no-op.)
       state.set(AsyncResult.waitingFrom(Option.some(state.value)))
-      for (const u of unsubs) u()
-      unsubs = []
       const { result: eff, deps } = trackDeps(effect)
-      for (const dep of deps) unsubs.push(dep.subscribe(schedule))
+      sub.resubscribe(deps)
       Queue.offerUnsafe(runs, eff)
       return true
     }
     schedule() // initial run + dep subscriptions
     yield* Scope.addFinalizer(
       scope,
-      Effect.sync(() => {
-        closed = true
-        for (const u of unsubs) u()
-        // Cleared so nothing can ever replay the already-run unsubscribers —
-        // AtomRef's unsubscribe is not idempotent.
-        unsubs = []
-      }),
+      Effect.sync(() => sub.dispose()),
     )
 
     // Supervisor loop on the mount fiber: one child at a time; a new run
@@ -179,7 +199,11 @@ export const asyncRef = <A, E, R>(
           if (child) yield* Fiber.interrupt(child)
           // First run shows Initial(waiting); a refetch keeps the prior result with
           // a waiting flag (stale-while-revalidate) instead of flashing to Initial.
-          state.set(first ? AsyncResult.initial(true) : AsyncResult.waitingFrom(Option.some(state.value)))
+          state.set(
+            first
+              ? AsyncResult.initial(true)
+              : AsyncResult.waitingFrom(Option.some(state.value)),
+          )
           first = false
           child = yield* Effect.forkChild(
             Effect.matchCause(eff, {
@@ -187,9 +211,12 @@ export const asyncRef = <A, E, R>(
                 // A refetch interrupts the prior run; an interrupt-only cause is that
                 // teardown, not a real failure — don't surface it as a Failure (the
                 // guard every other sink in the runtime applies).
-                if (!Cause.hasInterruptsOnly(cause)) state.set(AsyncResult.failure(cause))
+                if (!Cause.hasInterruptsOnly(cause))
+                  state.set(AsyncResult.failure(cause))
               },
-              onSuccess: (value) => { state.set(AsyncResult.success(value)) },
+              onSuccess: (value) => {
+                state.set(AsyncResult.success(value))
+              },
             }),
           )
         }
@@ -237,7 +264,10 @@ type TagHandlers<E, Extra extends ReadonlyArray<unknown> = []> = {
  * declares keys the value doesn't carry — is invisible at runtime (erasure)
  * and stays a documented limitation.
  */
-const assertHandlerMap = (handlers: Record<string, unknown>, surface: string): void => {
+const assertHandlerMap = (
+  handlers: Record<string, unknown>,
+  surface: string,
+): void => {
   const proto = Object.getPrototypeOf(handlers)
   if (proto !== Object.prototype && proto !== null) {
     throw new TypeError(
@@ -268,11 +298,16 @@ const taggedMatch = (
   handlers: Record<string, unknown>,
   cause: Cause.Cause<unknown>,
 ):
-  | { readonly handler: (error: any, extra: () => void) => unknown; readonly error: unknown }
+  | {
+      readonly handler: (error: any, extra: () => void) => unknown
+      readonly error: unknown
+    }
   | undefined => {
   const err = Option.getOrUndefined(Cause.findErrorOption(cause))
   const t =
-    typeof err === "object" && err !== null && "_tag" in err ? (err as Tagged)._tag : undefined
+    typeof err === "object" && err !== null && "_tag" in err
+      ? (err as Tagged)._tag
+      : undefined
   if (t === undefined || !Object.hasOwn(handlers, t)) return undefined
   const fn = handlers[t]
   return typeof fn === "function"
@@ -373,12 +408,18 @@ export function Async<
   E,
   // `never` when E has no tagged members: without it, Types.Tags<E> = never makes
   // the constraint the empty mapped type and ANY map compiles, silently dead.
-  Handlers extends [Types.Tags<E>] extends [never] ? never : TagHandlers<E, [retry: () => void]>,
+  Handlers extends [Types.Tags<E>] extends [never]
+    ? never
+    : TagHandlers<E, [retry: () => void]>,
   R = never,
 >(
   from: AsyncSource<A, E, R>,
   arms: AsyncArmsBase<A> & { readonly failure: Handlers },
-): Effect.Effect<View<Types.ExcludeTag<E, keyof Handlers & string>>, never, R | Scope.Scope>
+): Effect.Effect<
+  View<Types.ExcludeTag<E, keyof Handlers & string>>,
+  never,
+  R | Scope.Scope
+>
 export function Async<A, E, R = never>(
   from: AsyncSource<A, E, R>,
   arms: AsyncArmsOpen<A>,
@@ -387,7 +428,10 @@ export function Async<A, E, R = never>(
   from: AsyncSource<A, E, R>,
   arms: AsyncArmsBase<A> & {
     readonly failure?:
-      | ((cause: Cause.Cause<E>, retry: () => void) => View | Effect.Effect<View, any, any>)
+      | ((
+          cause: Cause.Cause<E>,
+          retry: () => void,
+        ) => View | Effect.Effect<View, any, any>)
       | Record<string, unknown>
   },
 ): Effect.Effect<View<E>, never, R | Scope.Scope> {
@@ -402,48 +446,56 @@ export function Async<A, E, R = never>(
   // Fail fast on a non-handle smuggled past the types (cast, JS) — same
   // stance as assertHandlerMap.
   if (typeof from !== "function" && !isAtomRef(from.state)) {
-    throw new TypeError("Async: `from` is neither a thunk nor an AsyncHandle (`state` is not an AtomRef)")
+    throw new TypeError(
+      "Async: `from` is neither a thunk nor an AsyncHandle (`state` is not an AtomRef)",
+    )
   }
   // Capture the construction context onto the Reactive node so every arm
   // render (incl. post-refetch re-renders) runs on it — see ViewReactive.context.
   return Effect.flatMap(Effect.context<never>(), (context) =>
     (typeof from === "function" ? asyncRef(from) : Effect.succeed(from)).pipe(
-    Effect.map(({ refetch, state }) =>
-      View.Reactive({
-        context,
-        source: state.map((r) =>
-          AsyncResult.match(r, {
-            onInitial: () => arms.initial ?? null,
-            // Function arm: catch-all, renders the full Cause. Tag map: a
-            // matched tag renders locally — the asyncRef stays live, so a dep
-            // change still refetches and can recover. Unmatched/absent: emit
-            // the cause as a failing Effect; the Reactive render path
-            // (`coerceSync`) runs it, routes the cause to the subtree's error
-            // sink — the nearest `Catch`'s `report` — and renders nothing. The
-            // interrupt-only guard already ran in `asyncRef` (teardown never
-            // reaches the Failure state).
-            onFailure: (f) => {
-              // Retry/refetch in flight (`waiting` flag): render the initial
-              // arm instead of re-invoking the failure arm with the stale
-              // cause. Stale-while-revalidate keeps CONTENT (success-waiting
-              // renders the success arm); a stale error isn't content, and
-              // re-invoking the arm would rebuild its DOM (including any
-              // retry button) mid-flight. Also the observable that makes
-              // "retry is running" testable.
-              if (f.waiting) return arms.initial ?? null
-              if (typeof failure === "function") return failure(f.cause, refetch)
-              // Truthiness (not === undefined): a nullish `failure` smuggled
-              // past the types degrades to the open form instead of crashing
-              // `Object.hasOwn` — matching the pre-tag-map behavior.
-              const match = failure ? taggedMatch(failure, f.cause) : undefined
-              return match ? match.handler(match.error, refetch) : Effect.failCause(f.cause)
-            },
-            onSuccess: (s) => arms.success(s.value),
-          }),
-        ) as AtomRef.ReadonlyRef<unknown>,
-      }),
+      Effect.map(({ refetch, state }) =>
+        View.Reactive({
+          context,
+          source: state.map((r) =>
+            AsyncResult.match(r, {
+              onInitial: () => arms.initial ?? null,
+              // Function arm: catch-all, renders the full Cause. Tag map: a
+              // matched tag renders locally — the asyncRef stays live, so a dep
+              // change still refetches and can recover. Unmatched/absent: emit
+              // the cause as a failing Effect; the Reactive render path
+              // (`coerceSync`) runs it, routes the cause to the subtree's error
+              // sink — the nearest `Catch`'s `report` — and renders nothing. The
+              // interrupt-only guard already ran in `asyncRef` (teardown never
+              // reaches the Failure state).
+              onFailure: (f) => {
+                // Retry/refetch in flight (`waiting` flag): render the initial
+                // arm instead of re-invoking the failure arm with the stale
+                // cause. Stale-while-revalidate keeps CONTENT (success-waiting
+                // renders the success arm); a stale error isn't content, and
+                // re-invoking the arm would rebuild its DOM (including any
+                // retry button) mid-flight. Also the observable that makes
+                // "retry is running" testable.
+                if (f.waiting) return arms.initial ?? null
+                if (typeof failure === "function")
+                  return failure(f.cause, refetch)
+                // Truthiness (not === undefined): a nullish `failure` smuggled
+                // past the types degrades to the open form instead of crashing
+                // `Object.hasOwn` — matching the pre-tag-map behavior.
+                const match = failure
+                  ? taggedMatch(failure, f.cause)
+                  : undefined
+                return match
+                  ? match.handler(match.error, refetch)
+                  : Effect.failCause(f.cause)
+              },
+              onSuccess: (s) => arms.success(s.value),
+            }),
+          ) as AtomRef.ReadonlyRef<unknown>,
+        }),
+      ),
     ),
-  ))
+  )
 }
 
 // ─── Error boundary (Catch) ────────────────
@@ -459,7 +511,10 @@ export function Async<A, E, R = never>(
 // its construction-time effects live in, or a cause this boundary doesn't accept.
 type BuildOutcome =
   | { readonly content: BoundaryState; readonly scope: Scope.Closeable }
-  | { readonly rejected: Cause.Cause<unknown>; readonly scope: Scope.Closeable }
+  | {
+      readonly rejected: Cause.Cause<unknown>
+      readonly scope: Scope.Closeable
+    }
 
 const makeBoundary = <R>(
   child: Effect.Effect<View<any>, any, R>,
@@ -471,7 +526,9 @@ const makeBoundary = <R>(
     // Ambient (parent) sink — set by mount via the node's `setAmbient`. A cause
     // this boundary doesn't `accept` escalates here. A catch-all never escalates.
     let ambient: ErrorSink = () => {}
-    const setAmbient = (sink: ErrorSink): void => { ambient = sink }
+    const setAmbient = (sink: ErrorSink): void => {
+      ambient = sink
+    }
 
     // Monotonic generation: `AtomRef.set` dedups via `Equal.equals`, so a build
     // that fails with a structurally-identical `Cause` would be `Equal`-equal to
@@ -504,13 +561,19 @@ const makeBoundary = <R>(
     const build = (): Effect.Effect<BuildOutcome, never, R> =>
       Effect.suspend(() => {
         const scope = Scope.forkUnsafe(mountScope, "sequential")
-        return Effect.matchCause(Effect.provideService(child, Scope.Scope, scope), {
-          onSuccess: (view): BuildOutcome => ({ content: { _tag: "ok", view, gen: gen++ }, scope }),
-          onFailure: (cause): BuildOutcome =>
-            accepts(cause) && !Cause.hasInterruptsOnly(cause)
-              ? { content: { _tag: "error", cause, gen: gen++ }, scope }
-              : { rejected: cause, scope },
-        })
+        return Effect.matchCause(
+          Effect.provideService(child, Scope.Scope, scope),
+          {
+            onSuccess: (view): BuildOutcome => ({
+              content: { _tag: "ok", view, gen: gen++ },
+              scope,
+            }),
+            onFailure: (cause): BuildOutcome =>
+              accepts(cause) && !Cause.hasInterruptsOnly(cause)
+                ? { content: { _tag: "error", cause, gen: gen++ }, scope }
+                : { rejected: cause, scope },
+          },
+        )
       })
 
     // Initial build inline (folds R; no first-paint flash). A rejected cause here
@@ -524,10 +587,13 @@ const makeBoundary = <R>(
     if (first.content._tag === "error") close(first.scope)
     else activeBuild = first.scope
     const state = AtomRef.make<BoundaryState>(first.content)
-    const runs = yield* Queue.unbounded<{ readonly _tag: "reset" } | {
-      readonly _tag: "error"
-      readonly cause: Cause.Cause<unknown>
-    }>()
+    const runs = yield* Queue.unbounded<
+      | { readonly _tag: "reset" }
+      | {
+          readonly _tag: "error"
+          readonly cause: Cause.Cause<unknown>
+        }
+    >()
 
     // Live failures: accepted → error state (via the queue, off the render stack —
     // a synchronous mutation would close the child scope mid-render); non-accepted
@@ -618,7 +684,10 @@ const makeBoundary = <R>(
  */
 export function Catch<EV, EC, R>(
   child: Effect.Effect<View<EV>, EC, R>,
-  handler: (cause: Cause.Cause<EC | EV>, reset: () => void) => View | Effect.Effect<View, any, any>,
+  handler: (
+    cause: Cause.Cause<EC | EV>,
+    reset: () => void,
+  ) => View | Effect.Effect<View, any, any>,
 ): Effect.Effect<View<never>, never, R | Scope.Scope>
 export function Catch<
   EV,
@@ -671,9 +740,9 @@ export function Catch(
  * non-generic `Child[]` — `Child` includes `Effect<View, any, any>`, and
  * folding `any` poisons the channel (an `any` E defeats the `mount` gate).
  */
-export const Fragment = <Cs extends ReadonlyArray<unknown>>(
-  props: { readonly children?: Cs },
-): Effect.Effect<View<FoldLiveE<Cs>>, FoldE<Cs>, FoldR<Cs>> =>
+export const Fragment = <Cs extends ReadonlyArray<unknown>>(props: {
+  readonly children?: Cs
+}): Effect.Effect<View<FoldLiveE<Cs>>, FoldE<Cs>, FoldR<Cs>> =>
   Effect.gen(function* () {
     const out: View<any>[] = []
     for (const c of props.children ?? []) out.push(yield* coerceAsync(c))
@@ -687,4 +756,5 @@ export const Fragment = <Cs extends ReadonlyArray<unknown>>(
  * Merge this with your app-specific Layers (Http, Db, Theme, etc.) before
  * passing to `Effect.provide`.
  */
-export const VerrexLive: Layer.Layer<AtomRegistry.AtomRegistry> = AtomRegistry.layer
+export const VerrexLive: Layer.Layer<AtomRegistry.AtomRegistry> =
+  AtomRegistry.layer

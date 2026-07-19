@@ -44,9 +44,22 @@ const copy = (meta: {
     </div>
     <p class="concept">{meta.concept}</p>
     <p class="sig-label">inferred type</p>
-    <pre class="sig"><code>{meta.type}</code></pre>
-    <pre class="code"><code>{highlight(meta.code).map((t) => <span class={`tok-${t.kind}`}>{t.text}</span>)}</code></pre>
-    <a class="src" href={`${SRC}/${meta.file}`} target="_blank" rel="noreferrer">
+    <pre class="sig">
+      <code>{meta.type}</code>
+    </pre>
+    <pre class="code">
+      <code>
+        {highlight(meta.code).map((t) => (
+          <span class={`tok-${t.kind}`}>{t.text}</span>
+        ))}
+      </code>
+    </pre>
+    <a
+      class="src"
+      href={`${SRC}/${meta.file}`}
+      target="_blank"
+      rel="noreferrer"
+    >
       view full source ↗
     </a>
   </div>
@@ -79,11 +92,15 @@ const App = (
       <p class="eyebrow">a guided tour</p>
       <h1>verrex</h1>
       <p class="tagline">
-        an <a href="https://effect.website" target="_blank" rel="noreferrer">Effect</a>-native
-        UI framework where the <code>{"<A, E, R>"}</code> channels survive from
-        every leaf of the view tree to the root. Forget to provide a service{" "}
-        <code>Layer</code> and you get a <em>compile-time error that names the
-          missing service</em> — not a runtime crash.
+        an{" "}
+        <a href="https://effect.website" target="_blank" rel="noreferrer">
+          Effect
+        </a>
+        -native UI framework where the <code>{"<A, E, R>"}</code> channels
+        survive from every leaf of the view tree to the root. Forget to provide
+        a service <code>Layer</code> and you get a{" "}
+        <em>compile-time error that names the missing service</em> — not a
+        runtime crash.
       </p>
       <div class="how">
         <h3>the trick, in one breath</h3>
@@ -100,19 +117,23 @@ const App = (
           <code>h()</code>'s conditional-type signature unions every child's{" "}
           <code>E</code> and <code>R</code> into the result — a component's
           channels are just its call's Effect type, and generic components keep
-          their type parameter. tsc only ever type-checks plain function calls
-          — so the channels can't be erased.
+          their type parameter. tsc only ever type-checks plain function calls —
+          so the channels can't be erased.
         </p>
         <p class="how-note">
           Every <code>inferred type</code> below is real, checked by{" "}
-          <a href={`${REPO}/blob/main/apps/demo/src/channels.test-d.ts`} target="_blank" rel="noreferrer">
+          <a
+            href={`${REPO}/blob/main/apps/demo/src/channels.test-d.ts`}
+            target="_blank"
+            rel="noreferrer"
+          >
             channels.test-d.ts
           </a>
           . Each section pairs the source on the left with the running component
           on the right. Interact with any demo — the brief highlight marks the
           exact DOM node that re-rendered; nothing around it does. Hit{" "}
-          <strong>↻ reset</strong> to recreate a component and watch its
-          initial state (loading, count 0) from the top.
+          <strong>↻ reset</strong> to recreate a component and watch its initial
+          state (loading, count 0) from the top.
         </p>
       </div>
     </header>
@@ -381,7 +402,9 @@ const tagUser = yield* asyncRef(() => fetchUser(userId.value))
     <footer class="site-footer">
       <p>
         verrex is an experimental proof-of-concept.{" "}
-        <a href={REPO} target="_blank" rel="noreferrer">source on GitHub ↗</a>
+        <a href={REPO} target="_blank" rel="noreferrer">
+          source on GitHub ↗
+        </a>
       </p>
     </footer>
   </div>
@@ -409,7 +432,10 @@ type DemoR = AtomRegistry.AtomRegistry | Http | Theme | Scope.Scope
  * `make`'s `R` is constrained to `DemoR`, so a component needing a service
  * APP_LAYER doesn't provide won't type-check here.
  */
-const setupDemo = <E>(id: string, make: () => Effect.Effect<View, E, DemoR>): void => {
+const setupDemo = <E,>(
+  id: string,
+  make: () => Effect.Effect<View, E, DemoR>,
+): void => {
   const container = rootEl.querySelector<HTMLElement>(`[data-demo="${id}"]`)
   if (!container) throw new Error(`missing demo container: ${id}`)
 
@@ -434,7 +460,9 @@ const setupDemo = <E>(id: string, make: () => Effect.Effect<View, E, DemoR>): vo
           container,
         ).pipe(
           Effect.catchCause((cause) =>
-            Effect.sync(() => console.error(`[verrex demo: ${id}]`, Cause.pretty(cause))),
+            Effect.sync(() =>
+              console.error(`[verrex demo: ${id}]`, Cause.pretty(cause)),
+            ),
           ),
           Effect.provide(APP_LAYER),
         ),

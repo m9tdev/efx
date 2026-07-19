@@ -125,6 +125,5 @@ export interface HtmlEventHandlers {
  * `aria-*`, `class`, `style`, `id`, custom attributes — anything the user
  * needs — pass through without strict-typing each one.
  */
-export type IntrinsicProps =
-  & HtmlEventHandlers
-  & Readonly<Record<string, unknown>>
+export type IntrinsicProps = HtmlEventHandlers &
+  Readonly<Record<string, unknown>>

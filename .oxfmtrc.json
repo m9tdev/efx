@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "semi": false,
+  "printWidth": 80,
+  "ignorePatterns": ["**/CHANGELOG.md"],
+  "overrides": [
+    {
+      "files": ["apps/demo/index.html"],
+      "options": {
+        "embeddedLanguageFormatting": "off"
+      }
+    }
+  ]
+}

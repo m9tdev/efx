@@ -20,17 +20,31 @@ import type {
 import type { View } from "../View.ts"
 
 // Test fixtures
-interface HttpService { readonly _tag: "HttpService" }
-interface DbService { readonly _tag: "DbService" }
-class HttpError { readonly _tag = "HttpError" as const }
-class NotFound { readonly _tag = "NotFound" as const }
+interface HttpService {
+  readonly _tag: "HttpService"
+}
+interface DbService {
+  readonly _tag: "DbService"
+}
+class HttpError {
+  readonly _tag = "HttpError" as const
+}
+class NotFound {
+  readonly _tag = "NotFound" as const
+}
 
 type Eff1 = Effect.Effect<View, HttpError, HttpService>
 type Eff2 = Effect.Effect<View, NotFound, DbService>
 
 // Helper: assignability assertion (lhs must be subtype of rhs and vice versa)
-type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
-declare function assertEquals<A, B extends Equals<A, B> extends true ? unknown : never>(): void
+type Equals<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false
+declare function assertEquals<
+  A,
+  B extends Equals<A, B> extends true ? unknown : never,
+>(): void
 
 // 1) Single Effect child contributes its E and R
 assertEquals<ChildE<Eff1>, HttpError>()
@@ -41,8 +55,14 @@ assertEquals<FoldE<readonly [Eff1, Eff2]>, HttpError | NotFound>()
 assertEquals<FoldR<readonly [Eff1, Eff2]>, HttpService | DbService>()
 
 // 3) Primitives contribute nothing
-assertEquals<FoldE<readonly [string, number, null, undefined, boolean]>, never>()
-assertEquals<FoldR<readonly [string, number, null, undefined, boolean]>, never>()
+assertEquals<
+  FoldE<readonly [string, number, null, undefined, boolean]>,
+  never
+>()
+assertEquals<
+  FoldR<readonly [string, number, null, undefined, boolean]>,
+  never
+>()
 
 // 4) Mixed primitives + effects only contribute the effects' channels
 assertEquals<FoldE<readonly [string, Eff1, number]>, HttpError>()
@@ -99,7 +119,9 @@ assertEquals<ChildE<View>, never>()
 // ─── Props fold: typed event handlers (#72) ──────────────────────────────
 
 // 14) An Effect-returning handler contributes its E (live) and R.
-type FailingClick = { onclick: (e: MouseEvent) => Effect.Effect<void, HttpError, HttpService> }
+type FailingClick = {
+  onclick: (e: MouseEvent) => Effect.Effect<void, HttpError, HttpService>
+}
 assertEquals<FoldPropsLiveE<FailingClick>, HttpError>()
 assertEquals<FoldPropsR<FailingClick>, HttpService>()
 
@@ -129,7 +151,9 @@ assertEquals<FoldPropsLiveE<TwoHandlers>, HttpError | NotFound>()
 assertEquals<FoldPropsR<TwoHandlers>, HttpService | DbService>()
 
 // 18) An optional handler still folds (the `undefined` branch drops).
-type OptionalClick = { onclick?: (e: MouseEvent) => Effect.Effect<void, HttpError, HttpService> }
+type OptionalClick = {
+  onclick?: (e: MouseEvent) => Effect.Effect<void, HttpError, HttpService>
+}
 assertEquals<FoldPropsLiveE<OptionalClick>, HttpError>()
 assertEquals<FoldPropsR<OptionalClick>, HttpService>()
 
@@ -162,8 +186,14 @@ assertEquals<FoldPropsR<{ onclick: any }>, never>()
 // 22) The bare key "on" does NOT fold — runtime parity with applyProp's
 //     `key.length > 2` gate (the runtime stringifies it, never attaches a
 //     listener; folding would force a Catch that can never fire).
-assertEquals<FoldPropsLiveE<{ on: () => Effect.Effect<void, HttpError> }>, never>()
-assertEquals<FoldPropsR<{ on: () => Effect.Effect<void, never, HttpService> }>, never>()
+assertEquals<
+  FoldPropsLiveE<{ on: () => Effect.Effect<void, HttpError> }>,
+  never
+>()
+assertEquals<
+  FoldPropsR<{ on: () => Effect.Effect<void, never, HttpService> }>,
+  never
+>()
 
 // 23) UNION-typed props fold each member independently (a spread of a
 //     conditional: `{...(cond ? withHandler : plain)}`). `keyof` of a union is
@@ -179,17 +209,27 @@ assertEquals<FoldPropsR<UnionProps>, HttpService>()
 //     startsWith("on")) — `coerce.test.ts` pins the same table on the runtime
 //     side. Minimum handler key is THREE chars ("onx"); the bare-"on"
 //     exclusion is case 22's pin.
-assertEquals<FoldPropsLiveE<{ onx: () => Effect.Effect<void, HttpError> }>, HttpError>()
-assertEquals<FoldPropsLiveE<{ click: () => Effect.Effect<void, HttpError> }>, never>()
+assertEquals<
+  FoldPropsLiveE<{ onx: () => Effect.Effect<void, HttpError> }>,
+  HttpError
+>()
+assertEquals<
+  FoldPropsLiveE<{ click: () => Effect.Effect<void, HttpError> }>,
+  never
+>()
 
 // 25) An AtomRef-valued handler folds THROUGH the ref to the inner function —
 //     applyProp's AtomRef branch unwraps and re-applies it as a live listener,
 //     so the wrapper must not hide the channels (custom `on*` keys admit refs
 //     via the index signature).
 type RefHandler = {
-  onsave: AtomRef.ReadonlyRef<(e: Event) => Effect.Effect<void, HttpError, HttpService>>
+  onsave: AtomRef.ReadonlyRef<
+    (e: Event) => Effect.Effect<void, HttpError, HttpService>
+  >
 }
 assertEquals<FoldPropsLiveE<RefHandler>, HttpError>()
 assertEquals<FoldPropsR<RefHandler>, HttpService>()
-assertEquals<FoldPropsLiveE<{ onsave: AtomRef.ReadonlyRef<(e: Event) => void> }>, never>()
-
+assertEquals<
+  FoldPropsLiveE<{ onsave: AtomRef.ReadonlyRef<(e: Event) => void> }>,
+  never
+>()

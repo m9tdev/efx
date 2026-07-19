@@ -2,29 +2,36 @@
   "name": "@verrex/core",
   "version": "0.2.0",
   "description": "An Effect-native UI framework where Effect's <A, E, R> channels propagate from every leaf of the view tree to the root — a forgotten Layer becomes a compile-time error that names the missing service.",
+  "keywords": [
+    "effect",
+    "framework",
+    "jsx",
+    "reactivity",
+    "ui",
+    "verrex",
+    "vx"
+  ],
+  "homepage": "https://github.com/m9tdev/verrex#readme",
+  "bugs": "https://github.com/m9tdev/verrex/issues",
   "license": "MIT",
   "author": "Mathieu Post",
-  "homepage": "https://github.com/m9tdev/verrex#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/m9tdev/verrex.git",
     "directory": "packages/core"
   },
-  "bugs": "https://github.com/m9tdev/verrex/issues",
-  "keywords": [
-    "effect",
-    "ui",
-    "framework",
-    "jsx",
-    "reactivity",
-    "verrex",
-    "vx"
+  "bin": {
+    "verrex-check": "./src/check/cli.ts"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.test.ts",
+    "!**/*.test-d.ts",
+    "!**/AGENTS.md"
   ],
   "type": "module",
   "sideEffects": false,
-  "engines": {
-    "node": ">=20.19.0"
-  },
   "exports": {
     ".": {
       "types": "./src/runtime/index.ts",
@@ -51,18 +58,10 @@
       "default": "./src/check/index.ts"
     }
   },
-  "bin": {
-    "verrex-check": "./src/check/cli.ts"
-  },
-  "files": [
-    "dist",
-    "src",
-    "!**/*.test.ts",
-    "!**/*.test-d.ts",
-    "!**/AGENTS.md"
-  ],
   "publishConfig": {
-    "access": "public",
+    "bin": {
+      "verrex-check": "./dist/check/cli.js"
+    },
     "exports": {
       ".": {
         "types": "./dist/runtime/index.d.ts",
@@ -89,9 +88,7 @@
         "default": "./dist/check/index.js"
       }
     },
-    "bin": {
-      "verrex-check": "./dist/check/cli.js"
-    }
+    "access": "public"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
@@ -100,10 +97,10 @@
     "test": "vitest run && node --experimental-strip-types test/check/integration.mjs"
   },
   "dependencies": {
-    "@babel/generator": "^7.29.7",
-    "@babel/parser": "^7.29.7",
-    "@babel/traverse": "^7.29.7",
-    "@babel/types": "^7.29.7",
+    "@babel/generator": "^8.0.0",
+    "@babel/parser": "^8.0.0",
+    "@babel/traverse": "^8.0.0",
+    "@babel/types": "^8.0.0",
     "@jridgewell/sourcemap-codec": "^1.5.5",
     "@volar/kit": "^2.4.28",
     "@volar/language-core": "^2.4.28",
@@ -113,10 +110,18 @@
     "volar-service-typescript": "^0.0.71",
     "vscode-uri": "^3.1.0"
   },
-  "peerDependencies": {
-    "effect": "4.0.0-beta.78",
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-beta.98",
+    "effect": "4.0.0-beta.98",
+    "happy-dom": "^20.10.6",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.1.4",
+    "vitest": "^4.1.10"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-beta.98",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.4"
   },
   "peerDependenciesMeta": {
     "typescript": {
@@ -126,14 +131,7 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@effect/vitest": "4.0.0-beta.78",
-    "@types/babel__generator": "^7",
-    "@types/babel__traverse": "^7",
-    "effect": "4.0.0-beta.78",
-    "happy-dom": "^20.10.2",
-    "typescript": "^6.0.3",
-    "vite": "^8.0.16",
-    "vitest": "^4.1.8"
+  "engines": {
+    "node": ">=20.19.0"
   }
 }

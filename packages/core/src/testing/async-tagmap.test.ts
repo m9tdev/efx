@@ -22,19 +22,26 @@ const { Users, UsersLive } = makeUsersFixture("tagmap")
 const Page = (userId: AtomRef.AtomRef<string>) =>
   Effect.fn(function* () {
     const client = yield* Users
-    return yield* h("div", { class: "page" },
+    return yield* h(
+      "div",
+      { class: "page" },
       yield* Catch(
-        h("section", { class: "content" },
+        h(
+          "section",
+          { class: "content" },
           Async(() => client.get(h.read(userId)), {
             initial: h("span", { class: "loading" }, "…"),
             success: (n) => h("span", { class: "ok" }, n),
             failure: {
-              NotFound: (e) => h("span", { class: "missing" }, `no user ${e.id}`),
+              NotFound: (e) =>
+                h("span", { class: "missing" }, `no user ${e.id}`),
             },
           }),
         ),
         (_cause, reset) =>
-          h("div", { class: "fallback" },
+          h(
+            "div",
+            { class: "fallback" },
             h("button", { class: "retry", onclick: reset }, "retry"),
           ),
       ),
@@ -44,7 +51,9 @@ const Page = (userId: AtomRef.AtomRef<string>) =>
 describe("Async tag-map failure arm", () => {
   it("renders a matched tag's handler in place (unwrapped error), boundary untouched", async () => {
     const ui = await render(Page(AtomRef.make("999")), UsersLive)
-    expect((await ui.waitFor(".missing")).textContent?.trim()).toBe("no user 999")
+    expect((await ui.waitFor(".missing")).textContent?.trim()).toBe(
+      "no user 999",
+    )
     expect(ui.query(".fallback")).toBeNull()
     expect(ui.query(".content")).not.toBeNull()
     await ui.unmount()
@@ -87,7 +96,9 @@ describe("Async tag-map failure arm", () => {
     const NullPage = Effect.fn(function* () {
       const client = yield* Users
       return yield* Catch(
-        h("section", {},
+        h(
+          "section",
+          {},
           Async(() => client.get("999"), {
             success: (n) => h("span", { class: "ok" }, n),
             failure: null as never,
@@ -105,12 +116,16 @@ describe("Async tag-map failure arm", () => {
   it("types: matched tags are excluded from the live channel", () => {
     // Compile-time pin, kept next to the runtime proof: a partial tag map
     // narrows by Exclude; a full map discharges to View<never>.
-    const partial = (get: (id: string) => Effect.Effect<string, NotFound | Timeout>) =>
+    const partial = (
+      get: (id: string) => Effect.Effect<string, NotFound | Timeout>,
+    ) =>
       Async(() => get("42"), {
         success: (n) => h("span", {}, n),
         failure: { NotFound: (e) => h("span", {}, e.id) },
       }) satisfies Effect.Effect<View<Timeout>, never, Scope.Scope>
-    const full = (get: (id: string) => Effect.Effect<string, NotFound | Timeout>) =>
+    const full = (
+      get: (id: string) => Effect.Effect<string, NotFound | Timeout>,
+    ) =>
       Async(() => get("42"), {
         success: (n) => h("span", {}, n),
         failure: {

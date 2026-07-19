@@ -18,14 +18,16 @@ import { Http } from "./services.ts"
  *
  * Inferred type: `Effect<View, never, Http | Scope>`
  */
-export const AsyncUserPage = Component.make(function* (props: { userId: string }) {
+export const AsyncUserPage = Component.make(function* (props: {
+  userId: string
+}) {
   const http = yield* Http
   const getUser = () => http.getUser(props.userId)
 
   return yield* (
     <article class="async-user-page">
       {Async(getUser, {
-        initial: <p class="loading">  loading user…</p>,
+        initial: <p class="loading"> loading user…</p>,
         failure: (cause) => <p class="error">error: {Cause.pretty(cause)}</p>,
         success: (user) => (
           <div class="user-body">

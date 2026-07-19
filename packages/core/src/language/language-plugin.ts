@@ -1,4 +1,8 @@
-import type { CodeInformation, LanguagePlugin, VirtualCode } from "@volar/language-core"
+import type {
+  CodeInformation,
+  LanguagePlugin,
+  VirtualCode,
+} from "@volar/language-core"
 import type * as ts from "typescript"
 import { transformVerrex } from "@verrex/core/compiler"
 import { convertSourceMap } from "./source-map.ts"
@@ -88,7 +92,10 @@ export function createVerrexLanguagePlugin<T>(
   // project's .vx file count (evicted via disposeVirtualCode); entries are
   // the size of the compiled output. No jsxRanges: the fallback never serves
   // them (see below).
-  const lastGood = new Map<string, Pick<VerrexVirtualCode, "compiled" | "mappings">>()
+  const lastGood = new Map<
+    string,
+    Pick<VerrexVirtualCode, "compiled" | "mappings">
+  >()
 
   return {
     getLanguageId(scriptId) {
@@ -109,7 +116,12 @@ export function createVerrexLanguagePlugin<T>(
         const result = transformVerrex(source, fileName)
         const mappings = convertSourceMap(result.mappings)
         lastGood.set(fileName, { compiled: result.code, mappings })
-        return new VerrexVirtualCode(source, result.code, mappings, result.jsxRanges)
+        return new VerrexVirtualCode(
+          source,
+          result.code,
+          mappings,
+          result.jsxRanges,
+        )
       } catch (error) {
         if (onTransformError === "throw") {
           // Babel's message carries only line:col — name the file for batch
@@ -130,7 +142,10 @@ export function createVerrexLanguagePlugin<T>(
           // highlights), bypassing the mapping gates, and shifted ranges
           // would decorate the wrong tokens — the failure FALLBACK_DATA
           // exists to prevent.
-          const mappings = cached.mappings.map((mapping) => ({ ...mapping, data: FALLBACK_DATA }))
+          const mappings = cached.mappings.map((mapping) => ({
+            ...mapping,
+            data: FALLBACK_DATA,
+          }))
           return new VerrexVirtualCode(source, cached.compiled, mappings, [])
         }
         // Never compiled successfully (file created mid-edit): an empty

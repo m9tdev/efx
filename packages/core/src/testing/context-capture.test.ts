@@ -17,7 +17,10 @@ import { render } from "./index.ts"
 
 // Shared rows fixture: identical UI for the two list tests — they differ
 // ONLY in where the Step layer is applied (mid-tree provide vs render root).
-const makeRows = (coll: AtomRef.Collection<string>, count: AtomRef.AtomRef<number>) =>
+const makeRows = (
+  coll: AtomRef.Collection<string>,
+  count: AtomRef.AtomRef<number>,
+) =>
   h(
     "ul",
     {},
@@ -29,7 +32,8 @@ const makeRows = (coll: AtomRef.Collection<string>, count: AtomRef.AtomRef<numbe
           {},
           h("button", { class: "row-btn", onClick: stepClick(count) }, item),
         )
-      })),
+      }),
+    ),
     h("span", { class: "total" }, "total: ", count),
   )
 
@@ -43,7 +47,12 @@ describe("per-node context capture", () => {
     // provide).
     const Provided = Effect.fn("Provided")(function* (_props: {} = {}) {
       const count = AtomRef.make(0)
-      const btn = h("button", { class: "btn", onClick: stepClick(count) }, "count: ", count)
+      const btn = h(
+        "button",
+        { class: "btn", onClick: stepClick(count) },
+        "count: ",
+        count,
+      )
       return yield* h("div", {}, Effect.provide(btn, stepLayer(7)))
     })
 
@@ -62,7 +71,11 @@ describe("per-node context capture", () => {
     const coll = AtomRef.collection<string>(["a"])
     const Provided = Effect.fn("ProvidedRows")(function* (_props: {} = {}) {
       const count = AtomRef.make(0)
-      return yield* h("div", {}, Effect.provide(makeRows(coll, count), stepLayer(3)))
+      return yield* h(
+        "div",
+        {},
+        Effect.provide(makeRows(coll, count), stepLayer(3)),
+      )
     })
 
     const ui = await render(Provided())
@@ -75,7 +88,9 @@ describe("per-node context capture", () => {
     coll.push("b")
     await ui.tick()
     expect(ui.all(".row-btn").length).toBe(2)
-    ui.all(".row-btn")[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    ui.all(".row-btn")[1]!.dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    )
     await ui.tick()
     expect(ui.text(".total")).toBe("total: 6")
     await ui.unmount()
@@ -101,7 +116,9 @@ describe("per-node context capture", () => {
     // handler against the ROOT-provided context too (not only mid-tree).
     coll.push("b")
     await ui.tick()
-    ui.all(".row-btn")[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    ui.all(".row-btn")[1]!.dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    )
     await ui.tick()
     expect(ui.text(".total")).toBe("total: 10")
     await ui.unmount()
@@ -112,7 +129,8 @@ describe("per-node context capture", () => {
     // swapped in long after mount still builds (and captures for its
     // handlers) the mid-tree-provided context — not just the first paint.
     const count = AtomRef.make(0)
-    const makeBtn = () => h("button", { class: "btn", onClick: stepClick(count) }, "go")
+    const makeBtn = () =>
+      h("button", { class: "btn", onClick: stepClick(count) }, "go")
     const slot = AtomRef.make<unknown>(makeBtn())
 
     const Provided = Effect.fn("ProvidedReactive")(function* (_props: {} = {}) {
@@ -120,7 +138,11 @@ describe("per-node context capture", () => {
         "div",
         {},
         Effect.provide(
-          h("section", {}, slot as AtomRef.AtomRef<Effect.Effect<unknown, never, Step>>),
+          h(
+            "section",
+            {},
+            slot as AtomRef.AtomRef<Effect.Effect<unknown, never, Step>>,
+          ),
           stepLayer(4),
         ),
         h("span", { class: "total" }, "total: ", count),
@@ -149,7 +171,8 @@ describe("per-node context capture", () => {
 
     const Provided = Effect.fn("ProvidedFallback")(function* (_props: {} = {}) {
       const guarded = Catch(Failing(), (_cause, _reset) =>
-        h("button", { class: "retry", onClick: stepClick(count) }, "retry"))
+        h("button", { class: "retry", onClick: stepClick(count) }, "retry"),
+      )
       return yield* h(
         "div",
         {},
@@ -174,22 +197,26 @@ describe("per-node context capture", () => {
     const makeView = (on: boolean) =>
       on
         ? h(
-          "button",
-          {
-            class: "btn",
-            onClick: () =>
-              Effect.acquireRelease(
-                Effect.sync(() => log.push("acquire")),
-                () => Effect.sync(() => log.push("release")),
-              ),
-          },
-          "go",
-        )
+            "button",
+            {
+              class: "btn",
+              onClick: () =>
+                Effect.acquireRelease(
+                  Effect.sync(() => log.push("acquire")),
+                  () => Effect.sync(() => log.push("release")),
+                ),
+            },
+            "go",
+          )
         : h("p", {}, "gone")
     const slot = AtomRef.make<unknown>(makeView(true))
 
     const App = Effect.fn("ScopedHandler")(function* (_props: {} = {}) {
-      return yield* h("div", {}, slot as AtomRef.AtomRef<Effect.Effect<unknown, never, never>>)
+      return yield* h(
+        "div",
+        {},
+        slot as AtomRef.AtomRef<Effect.Effect<unknown, never, never>>,
+      )
     })
 
     const ui = await render(App())

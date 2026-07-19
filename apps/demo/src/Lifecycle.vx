@@ -23,9 +23,7 @@ const Row = Component.make(function* (props: {
     Effect.sync(() => events.push(`mount:${id}`)),
     () => Effect.sync(() => events.push(`unmount:${id}`)),
   )
-  return yield* (
-    <li data-id={id}>row {id}</li>
-  )
+  return yield* <li data-id={id}>row {id}</li>
 })
 
 export const Lifecycle = Component.make(function* () {
@@ -47,11 +45,14 @@ export const Lifecycle = Component.make(function* () {
         <button onclick={removeLast}>− remove last</button>
       </div>
       <ul>
-        {items.value.map((item) => <Row item={item} />)}
+        {items.value.map((item) => (
+          <Row item={item} />
+        ))}
       </ul>
       <p class="hint">
         Open devtools and inspect <code>__lifecycle</code> — expect a paired{" "}
-        <code>unmount:N</code> for every <code>mount:N</code> once that row is removed.
+        <code>unmount:N</code> for every <code>mount:N</code> once that row is
+        removed.
       </p>
     </div>
   )

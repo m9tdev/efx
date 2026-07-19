@@ -44,8 +44,8 @@ local AST rewrite.
 
 Every JSX expression `{...}` triggers up to three local rewrites:
 
-1. **Wrap in `h.track(() => ...)`** — *only if a `.value` read got
-   rewritten*. See `wrapTracked` + `rewroteRead` flag in `transform.ts`.
+1. **Wrap in `h.track(() => ...)`** — _only if a `.value` read got
+   rewritten_. See `wrapTracked` + `rewroteRead` flag in `transform.ts`.
    This is load-bearing: `h.track`'s return is `unknown`, which would
    destroy the typing of static expressions like
    `<Row item={item} />` (where `item` is a generic `T`). Static
@@ -61,7 +61,7 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    bound to the user's own `list`/`Async`/`Catch` (a local const, a
    `.map(list => …)` param, an import from elsewhere) keeps its wrap, so
    its reactivity survives. A `.value` read sitting in a skipped call's
-   *argument* (rather than inside its thunk/row/handler function) reads
+   _argument_ (rather than inside its thunk/row/handler function) reads
    ONCE at construction — the same eager one-time semantics a statement
    read has (#3 below); not special-cased (reactive source selection
    belongs inside the function; manual-`list` source reactivity is #128).
@@ -72,18 +72,18 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    runtime no-op whose `unknown` would erase the handler's `E`/`R` from
    the props fold (#72). The inner `h.read` rewrites are kept; they run
    at call time with no tracker active, i.e. as plain `.value` reads. A
-   `.value` read *outside* the function (`onclick={cond.value ? a : b}`)
+   `.value` read _outside_ the function (`onclick={cond.value ? a : b}`)
    still wraps — but note that pattern does NOT pass the type gate: the
    wrap's `unknown` fails `h()`'s `IntrinsicProps` constraint (it always
-   did, pre-#72 too), so reactive handler *selection* is unsupported in
-   checked `.vx`. The typed form is selecting *inside* the handler —
+   did, pre-#72 too), so reactive handler _selection_ is unsupported in
+   checked `.vx`. The typed form is selecting _inside_ the handler —
    `onclick={(e) => (cond.value ? incr : decr)(e)}` — a function
    expression (wrap-skipped, channels intact) that reads the ref at
    click time. The wrap is still emitted for the untyped-JS path, where
    `applyProp`'s AtomRef branch re-binds the listener reactively.
 
 2. **`x.value` → `h.read(x)`** inside the wrapped expression. Tracks
-   AtomRef reads. (The *same* read rewrite also runs over the whole
+   AtomRef reads. (The _same_ read rewrite also runs over the whole
    component body in a separate pass — see "Whole-body `.value` reads"
    below — so reads in statements/extracted thunks track too. Both
    share `rewriteValueRead` in `transform.ts`.) Left bare on any **write
@@ -95,19 +95,19 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    JS stays well-formed: `h.read(x)++` / `[h.read(x)] = …` would be
    invalid, and `for (h.read(x) of …)` would even crash Babel's AST
    validator (`ForOfStatement.left` rejects a `CallExpression`). Read
-   sub-positions that only *look* write-adjacent are still rewritten — an
+   sub-positions that only _look_ write-adjacent are still rewritten — an
    assignment's RHS, an `AssignmentPattern` default (`[a = x.value]`), a
    computed pattern key, and the iterable of a `for…of`
    (`for (a of x.value)`). The compiler intentionally does not raise its
    own diagnostic for `.value++` on an AtomRef: TypeScript already
    surfaces `ts(2540) Cannot assign to 'value' because it is a
-   read-only property` at the right column for `=`, `+=`, `++`, and
+read-only property` at the right column for `=`, `+=`, `++`, and
    `--`, which is the familiar idiomatic error. The right idiom is
    `ref.update(v => v + 1)`.
 
    **Destructuring blind spot.** The rewrite matches `MemberExpression`
    shapes only, so `const { value } = ref` inside a JSX expression is
-   *not* rewritten — `value` is a bare identifier coming out of a
+   _not_ rewritten — `value` is a bare identifier coming out of a
    `VariableDeclarator`, the AtomRef read happens silently at
    destructuring time, and reactivity tracking never sees it. The
    user's render won't update on `ref` change. Document `.value`
@@ -150,7 +150,7 @@ diverge from the type TS assigns at the source site.
 ## Whole-body `.value` reads
 
 After the JSX pass, a third `traverse(ast, …)` over the **live** AST
-rewrites every *surviving* `obj.value` read — the ones in statements,
+rewrites every _surviving_ `obj.value` read — the ones in statements,
 helpers, and **extracted `Async` thunks** — to `h.read(obj)` (via the
 same `rewriteValueRead` helper, so the write-guards are identical). This
 closes the gap where a thunk lifted out of an `Async(...)` call site
@@ -162,9 +162,9 @@ analysis — the key design decision:
 
 - `h.read` is a **faithful, transparent wrapper** for `.value`: for any
   non-AtomRef it is byte-for-byte `obj.value`; for a branded AtomRef it
-  *additionally* records a dep iff a tracker is active (exact wrapper
+  _additionally_ records a dep iff a tracker is active (exact wrapper
   semantics live in [runtime AGENTS.md](../runtime/AGENTS.md)).
-  So emitting `h.read` for *every* `.value` read
+  So emitting `h.read` for _every_ `.value` read
   is sound; the runtime `isAtomRef` brand check is the only gate, and
   it's **exact** — it handles aliased imports, extracted refs,
   service-returned refs, and dynamic indirection that no syntactic
@@ -172,7 +172,7 @@ analysis — the key design decision:
   the read primitive, not in a compile-time graph. verrex routes `.value`
   through `h.read` only because Effect's `AtomRef.value` getter is inert
   and can't self-track.)
-- **Ordering matters.** The body pass runs *after* the JSX pass, so JSX
+- **Ordering matters.** The body pass runs _after_ the JSX pass, so JSX
   `.value` reads are already `h.read(...)` calls (callee property `read`,
   not `value`) and cannot be double-rewritten. The body pass only ever
   sees reads the JSX pass left behind.
@@ -180,7 +180,7 @@ analysis — the key design decision:
   (`const x = ref.value`) stay one-time reads — auto-deriving them would
   be the implicit-infection model Vue retracted (Reactivity Transform)
   and Svelte/Solid reject. Tracking activates only when the read
-  *executes* under a tracker: an `Async` thunk (run under `trackDeps`) or
+  _executes_ under a tracker: an `Async` thunk (run under `trackDeps`) or
   a JSX `h.track` scope. A statement read outside any tracker is just
   `.value`.
 
@@ -196,7 +196,7 @@ section) — an independent rewrite riding along to avoid a fourth pass.
 
 The whole-body pass also rewrites
 `const Counter = Component.make(fn)` → `Component.make(fn, "Counter")`,
-injecting the *declared* name as the span name so users don't repeat the
+injecting the _declared_ name as the span name so users don't repeat the
 export name (`matchNamelessComponentMake` + the `VariableDeclarator`
 visitor in `transformVerrex`). Deliberately narrow and additive:
 
@@ -255,7 +255,7 @@ trimmed on every line but the first, trailing spaces on every line but
 the last, blank lines dropped, surviving lines joined with a single
 space. Pure-whitespace nodes drop.
 
-The subtlety that bit us: a newline *between two words* must collapse to
+The subtlety that bit us: a newline _between two words_ must collapse to
 one space, not to nothing — otherwise multi-line prose renders
 `whosepoint`. Whitespace adjacent to an element/expression
 boundary still trims to nothing, so — exactly as in React — a tag on its
@@ -370,7 +370,7 @@ attributes, source maps. Run with `pnpm --filter @verrex/core test`.
 
 - No type checking. That's tsc's job (post-transform).
 - No reactivity wiring. `h.track`/`read` live in `verrex`;
-  the compiler only emits *calls* to them.
+  the compiler only emits _calls_ to them.
 - No `CodeInformation` profile assignment. The compiler classifies
   each span as `"user"` / `"h-call"` / `"punctuation"` (a
   Volar-free taxonomy); `@verrex/core/language` translates kind → Volar
@@ -384,17 +384,17 @@ attributes, source maps. Run with `pnpm --filter @verrex/core test`.
 `transformVerrex` on every keystroke; mid-edit source is routinely
 unparseable (`count.` with no property name yet). Without recovery,
 Babel throws → `createVirtualCode` propagates → Volar has no virtual
-code for the file → tsserver returns the project's *global scope*
+code for the file → tsserver returns the project's _global scope_
 (999 entries — every DOM ambient declaration) for completion
 requests instead of the member list the user expects.
 
-With recovery, Babel emits a partial AST for *recoverable* errors and
+With recovery, Babel emits a partial AST for _recoverable_ errors and
 attaches them to `ast.errors`. We don't read that array — downstream
 `tsc` will surface real errors as diagnostics. But recovery is **not a
 no-throw guarantee**: Babel still hard-throws on fatal states, including
 the most common mid-edit ones — `count.` at EOF, an unterminated tag
 ("Unexpected token"), `<div>{x.}</div>`. Recovery only helps when a
-following token exists to recover *into* (`x.` followed by `return` parses
+following token exists to recover _into_ (`x.` followed by `return` parses
 as `x.return`). Callers that must survive the hard-throws wrap this call:
 the language plugin degrades to the file's last good compile
 (`onTransformError: "recover"`, #102). The build path passes

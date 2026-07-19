@@ -1,0 +1,81 @@
+name: PR Preview
+
+# Deploys each PR's demo build to a subpath of the same GitHub Pages site
+# (gh-pages branch, pr-preview/pr-<N>/), comments the URL, and removes it
+# when the PR closes.
+#
+# Security model — external code can never gain write access:
+#   - Trigger is `pull_request`, NOT `pull_request_target`. Fork-PR runs get
+#     a read-only GITHUB_TOKEN with no repo secrets, enforced by GitHub at the
+#     token level (no permissions: block or edited-in-PR workflow can escalate
+#     it). Publishing a preview is a git push, so a fork simply cannot deploy
+#     — and we deliberately do NOT wire a PAT to let it.
+#   - The job is additionally gated to same-repo PRs (head repo == this repo),
+#     so fork PRs don't even build here. They still run ci.yml, which already
+#     executes PR code with no secrets — so this adds no new exec surface.
+#   - Only accounts with write access can push a same-repo branch, so every PR
+#     that deploys comes from someone already trusted with the repo.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+permissions:
+  contents: read
+
+# One preview run per PR ref. cancel-in-progress so a fresh push supersedes
+# an in-flight build (only the latest commit's preview matters), and a close
+# supersedes any in-flight build before removing the preview.
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    # Same-repo PRs only (excludes forks), and skip release-please's
+    # version-bump PRs — mirrors ci.yml's exclusion; a preview of a changelog
+    # bump has no value.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push/remove the preview on the gh-pages branch
+      pull-requests: write # comment the preview URL on the PR
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Build only when deploying (open/reopen/synchronize); on `closed` the
+      # preview action just removes the subtree, no build needed.
+      - if: github.event.action != 'closed'
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.3.0
+          run_install: false
+
+      - if: github.event.action != 'closed'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - if: github.event.action != 'closed'
+        run: pnpm install --frozen-lockfile
+
+      - if: github.event.action != 'closed'
+        run: pnpm --filter verrex-demo exec vite build --base=/verrex/pr-preview/pr-${{ github.event.pull_request.number }}/
+
+      - name: Deploy or remove preview
+        uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9 # v1.8.1
+        with:
+          source-dir: apps/demo/dist
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          # auto: deploy on open/reopen/synchronize, remove on close.
+          action: auto

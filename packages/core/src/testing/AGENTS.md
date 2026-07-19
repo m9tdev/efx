@@ -16,7 +16,10 @@ app is a smell — the hatch exists to be greppable.
 ## What it does
 
 ```ts
-const ui = await render(UserPage({ userId: "42" }), Layer.mergeAll(HttpTest, ThemeTest))
+const ui = await render(
+  UserPage({ userId: "42" }),
+  Layer.mergeAll(HttpTest, ThemeTest),
+)
 expect(ui.text(".user-card strong")).toBe("Ada Lovelace")
 ui.click(".refresh")
 await ui.tick()
@@ -100,7 +103,7 @@ ran on — shared by `event-handlers.test.ts` (dispatch pins) and
 `context-capture.test.ts` (THE per-node capture pins, one per
 capture-consuming path in the runtime AGENTS variant matrix).
 The service's error channel is always `NotFound | Timeout`, so a leaf tag map
-needs both tags to discharge to `View<never>`; suites exercising a *partial*
+needs both tags to discharge to `View<never>`; suites exercising a _partial_
 map handle one tag and let the residual ride to a boundary.
 
 ## Setup

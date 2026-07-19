@@ -15,7 +15,8 @@ export const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
  * key conditional in the same commit; `types/Fold.test-d.ts` pins the type
  * side of the matrix and `coerce.test.ts` pins this side.
  */
-export const isHandlerKey = (key: string): boolean => key.length > 2 && key.startsWith("on")
+export const isHandlerKey = (key: string): boolean =>
+  key.length > 2 && key.startsWith("on")
 
 /**
  * Where a runtime (post-mount) failure is routed instead of being swallowed.
@@ -55,6 +56,75 @@ export const recordDep = (ref: AtomRef.ReadonlyRef<unknown>): void => {
   if (currentTracker) currentTracker.add(ref)
 }
 
+/**
+ * Owns the subscribe/resubscribe/teardown bookkeeping that `h.track` and
+ * `asyncRef` both need: a fresh set of dependency subscriptions on every run,
+ * each firing `onChange`. Both callers re-run a thunk under `trackDeps` and
+ * must re-subscribe to whatever refs that run read (a ternary's other branch,
+ * an effect's new deps), so the prior subscriptions are dropped first.
+ *
+ * The `unsubs` array is nulled after each teardown because `AtomRef`'s
+ * unsubscribe is **not idempotent** — replaying a stale unsubscriber would
+ * corrupt a later subscription's bookkeeping. Once `dispose`d the manager is
+ * inert: `resubscribe` is a no-op (a retained `refetch`/derived can fire after
+ * its scope tears down), and `closed` lets a caller surface that to its own
+ * callers.
+ */
+export const makeDepSubscription = (
+  onChange: () => void,
+): {
+  resubscribe: (deps: Iterable<AtomRef.ReadonlyRef<unknown>>) => void
+  dispose: () => void
+  readonly closed: boolean
+} => {
+  let unsubs: Array<() => void> = []
+  let closed = false
+  const unsubscribeAll = () => {
+    for (const u of unsubs) u()
+    unsubs = []
+  }
+  return {
+    resubscribe: (deps) => {
+      if (closed) return
+      unsubscribeAll()
+      for (const dep of deps) unsubs.push(dep.subscribe(onChange))
+    },
+    dispose: () => {
+      closed = true
+      unsubscribeAll()
+    },
+    get closed() {
+      return closed
+    },
+  }
+}
+
+/**
+ * A `h.track` derived `AtomRef` stashes its `makeDepSubscription.dispose` here
+ * so the subtree that mounts it can tear down the derived→underlying-ref
+ * subscriptions on scope close. `h.track` has no scope of its own to register a
+ * finalizer on (it's a plain sync call in a compiled component body), so the
+ * one place that *does* scope the subscription — `subscribeRefScoped` in
+ * `mount.ts` — disposes it via `getTrackDispose`. User refs and `asyncRef`'s
+ * `state` (which owns its own teardown) carry no such tag, so the dispose is
+ * `h.track`-only by construction.
+ */
+const TrackDisposeId = Symbol.for("verrex/trackDispose")
+
+/** Tag `ref` with the `dispose` that tears down its tracked subscriptions. */
+export const setTrackDispose = (
+  ref: AtomRef.ReadonlyRef<unknown>,
+  dispose: () => void,
+): void => {
+  ;(ref as { [TrackDisposeId]?: () => void })[TrackDisposeId] = dispose
+}
+
+/** The tracked-subscription dispose for `ref`, if it is a `h.track` derived. */
+export const getTrackDispose = (
+  ref: AtomRef.ReadonlyRef<unknown>,
+): (() => void) | undefined =>
+  (ref as { [TrackDisposeId]?: () => void })[TrackDisposeId]
+
 const Empty = View.Empty()
 
 export function coerceAsync<C>(v: C): Effect.Effect<View, ChildE<C>, ChildR<C>>
@@ -87,13 +157,21 @@ export function coerceAsync(v: unknown): Effect.Effect<View, any, any> {
   // first paint (see ViewReactive.context).
   if (Atom.isAtom(v) || isAtomRef(v)) {
     return Effect.map(Effect.context<never>(), (context) =>
-      View.Reactive({ source: v as Atom.Atom<View> | AtomRef.ReadonlyRef<View>, context }))
+      View.Reactive({
+        source: v as Atom.Atom<View> | AtomRef.ReadonlyRef<View>,
+        context,
+      }),
+    )
   }
   return Effect.succeed(View.Text({ value: String(v) }))
 }
 
-function coerceChildren<C>(cs: ReadonlyArray<C>): Effect.Effect<View, ChildE<C>, ChildR<C>>
-function coerceChildren(cs: ReadonlyArray<unknown>): Effect.Effect<View, any, any> {
+function coerceChildren<C>(
+  cs: ReadonlyArray<C>,
+): Effect.Effect<View, ChildE<C>, ChildR<C>>
+function coerceChildren(
+  cs: ReadonlyArray<unknown>,
+): Effect.Effect<View, any, any> {
   return Effect.gen(function* () {
     const out: View[] = []
     for (const c of cs) {
@@ -109,7 +187,9 @@ function coerceChildren(cs: ReadonlyArray<unknown>): Effect.Effect<View, any, an
  * a `withContext` derivation for a context-carrying IR node) and reused for
  * every render, instead of re-applying the curried runner per coercion.
  */
-export type SyncRunner = <A, E>(effect: Effect.Effect<A, E, never>) => Exit.Exit<A, E>
+export type SyncRunner = <A, E>(
+  effect: Effect.Effect<A, E, never>,
+) => Exit.Exit<A, E>
 
 /**
  * Synchronously coerce an arbitrary value (typically read from a reactive
@@ -152,12 +232,12 @@ export const coerceSync = (
     const exit = Exit.isExit(v)
       ? (v as Exit.Exit<unknown, unknown>)
       : run(
-        Effect.provideService(
-          v as Effect.Effect<unknown, unknown, Scope.Scope>,
-          Scope.Scope,
-          scope,
-        ),
-      )
+          Effect.provideService(
+            v as Effect.Effect<unknown, unknown, Scope.Scope>,
+            Scope.Scope,
+            scope,
+          ),
+        )
     return Exit.match(exit, {
       onSuccess: (val) => coerceSync(val, scope, sink, run),
       onFailure: (cause) => {
@@ -167,7 +247,9 @@ export const coerceSync = (
     })
   }
   if (Array.isArray(v)) {
-    return View.Fragment({ children: v.map((x) => coerceSync(x, scope, sink, run)) })
+    return View.Fragment({
+      children: v.map((x) => coerceSync(x, scope, sink, run)),
+    })
   }
   return View.Text({ value: String(v) })
 }

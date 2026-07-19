@@ -1,7 +1,13 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Cause, Chunk, Context, Effect, Option, Result } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
-import { coerceAsync, coerceSync, type ErrorSink, isAtomRef, isHandlerKey } from "./coerce.ts"
+import {
+  coerceAsync,
+  coerceSync,
+  type ErrorSink,
+  isAtomRef,
+  isHandlerKey,
+} from "./coerce.ts"
 import { View } from "./View.ts"
 
 // A no-op sink for the success/primitive paths (the sink never fires there).
@@ -18,25 +24,29 @@ describe("coerceAsync — primitives", () => {
     Effect.gen(function* () {
       const view = yield* coerceAsync("hi")
       expect(view).toEqual(View.Text({ value: "hi" }))
-    }))
+    }),
+  )
 
   it.effect("number → View.Text via String()", () =>
     Effect.gen(function* () {
       const view = yield* coerceAsync(42)
       expect(view).toEqual(View.Text({ value: "42" }))
-    }))
+    }),
+  )
 
   it.effect("bigint → View.Text via String()", () =>
     Effect.gen(function* () {
       const view = yield* coerceAsync(7n)
       expect(view).toEqual(View.Text({ value: "7" }))
-    }))
+    }),
+  )
 
   it.effect.each([null, undefined, true, false])("%s → View.Empty", (v) =>
     Effect.gen(function* () {
       const view = yield* coerceAsync(v)
       expect(view).toEqual(View.Empty())
-    }))
+    }),
+  )
 })
 
 describe("coerceAsync — already-built View pass-through", () => {
@@ -45,7 +55,8 @@ describe("coerceAsync — already-built View pass-through", () => {
       const input = View.Text({ value: "already a view" })
       const view = yield* coerceAsync(input)
       expect(view).toEqual(input)
-    }))
+    }),
+  )
 })
 
 describe("coerceAsync — container peeling", () => {
@@ -53,37 +64,43 @@ describe("coerceAsync — container peeling", () => {
     Effect.gen(function* () {
       const view = yield* coerceAsync(Effect.succeed("from effect"))
       expect(view).toEqual(View.Text({ value: "from effect" }))
-    }))
+    }),
+  )
 
   it.effect("Effect<Effect<string>> → recursively unwrap", () =>
     Effect.gen(function* () {
       const view = yield* coerceAsync(Effect.succeed(Effect.succeed("nested")))
       expect(view).toEqual(View.Text({ value: "nested" }))
-    }))
+    }),
+  )
 
   it.effect("Option.none → Empty", () =>
     Effect.gen(function* () {
       const view = yield* coerceAsync(Option.none())
       expect(view).toEqual(View.Empty())
-    }))
+    }),
+  )
 
   it.effect("Option.some(x) → coerce x", () =>
     Effect.gen(function* () {
       const view = yield* coerceAsync(Option.some("inner"))
       expect(view).toEqual(View.Text({ value: "inner" }))
-    }))
+    }),
+  )
 
   it.effect("Result failure → Empty", () =>
     Effect.gen(function* () {
       const view = yield* coerceAsync(Result.fail("nope"))
       expect(view).toEqual(View.Empty())
-    }))
+    }),
+  )
 
   it.effect("Result success → coerce inner", () =>
     Effect.gen(function* () {
       const view = yield* coerceAsync(Result.succeed("ok"))
       expect(view).toEqual(View.Text({ value: "ok" }))
-    }))
+    }),
+  )
 
   it.effect("Array → Fragment of coerced children", () =>
     Effect.gen(function* () {
@@ -97,7 +114,8 @@ describe("coerceAsync — container peeling", () => {
           ],
         }),
       )
-    }))
+    }),
+  )
 
   it.effect("Chunk → Fragment of coerced children", () =>
     Effect.gen(function* () {
@@ -107,7 +125,8 @@ describe("coerceAsync — container peeling", () => {
           children: [View.Text({ value: "a" }), View.Text({ value: "b" })],
         }),
       )
-    }))
+    }),
+  )
 })
 
 describe("coerceAsync — reactive sources", () => {
@@ -120,19 +139,23 @@ describe("coerceAsync — reactive sources", () => {
       expect(view._tag).toBe("Reactive")
       expect((view as View & { _tag: "Reactive" }).source).toBe(ref)
       expect((view as View & { _tag: "Reactive" }).context).toBeDefined()
-    }))
+    }),
+  )
 
-  it.effect("Atom → View.Reactive carrying the atom (and the context capture)", () =>
-    Effect.gen(function* () {
-      const atom = Atom.make("hello")
-      const view = yield* coerceAsync(atom)
-      expect(view._tag).toBe("Reactive")
-      expect((view as View & { _tag: "Reactive" }).source).toBe(atom)
-      // Pin the capture on the Atom branch too — dropping it would pass the
-      // rest of the suite (the mid-tree rebuild test uses an AtomRef slot)
-      // while Atom-sourced subtrees silently rebuilt on the root context.
-      expect((view as View & { _tag: "Reactive" }).context).toBeDefined()
-    }))
+  it.effect(
+    "Atom → View.Reactive carrying the atom (and the context capture)",
+    () =>
+      Effect.gen(function* () {
+        const atom = Atom.make("hello")
+        const view = yield* coerceAsync(atom)
+        expect(view._tag).toBe("Reactive")
+        expect((view as View & { _tag: "Reactive" }).source).toBe(atom)
+        // Pin the capture on the Atom branch too — dropping it would pass the
+        // rest of the suite (the mid-tree rebuild test uses an AtomRef slot)
+        // while Atom-sourced subtrees silently rebuilt on the root context.
+        expect((view as View & { _tag: "Reactive" }).context).toBeDefined()
+      }),
+  )
 })
 
 describe("coerceAsync — unknown fallback", () => {
@@ -140,7 +163,8 @@ describe("coerceAsync — unknown fallback", () => {
     Effect.gen(function* () {
       const view = yield* coerceAsync({ toString: () => "obj!" })
       expect(view).toEqual(View.Text({ value: "obj!" }))
-    }))
+    }),
+  )
 })
 
 describe("isHandlerKey — runtime side of the key-gate parity matrix", () => {
@@ -162,41 +186,64 @@ describe("coerceSync — primitives + View pass-through", () => {
   it.effect("string → View.Text", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
-      expect(coerceSync("hi", scope, sink, Effect.runSyncExitWith(Context.empty()))).toEqual(View.Text({ value: "hi" }))
-    }))
+      expect(
+        coerceSync("hi", scope, sink, Effect.runSyncExitWith(Context.empty())),
+      ).toEqual(View.Text({ value: "hi" }))
+    }),
+  )
 
   it.effect("number → View.Text via String()", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
-      expect(coerceSync(42, scope, sink, Effect.runSyncExitWith(Context.empty()))).toEqual(View.Text({ value: "42" }))
-    }))
+      expect(
+        coerceSync(42, scope, sink, Effect.runSyncExitWith(Context.empty())),
+      ).toEqual(View.Text({ value: "42" }))
+    }),
+  )
 
   it.effect("bigint → View.Text via String()", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
-      expect(coerceSync(7n, scope, sink, Effect.runSyncExitWith(Context.empty()))).toEqual(View.Text({ value: "7" }))
-    }))
+      expect(
+        coerceSync(7n, scope, sink, Effect.runSyncExitWith(Context.empty())),
+      ).toEqual(View.Text({ value: "7" }))
+    }),
+  )
 
   it.effect.each([null, undefined, true, false])("%s → View.Empty", (v) =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
-      expect(coerceSync(v, scope, sink, Effect.runSyncExitWith(Context.empty()))).toEqual(View.Empty())
-    }))
+      expect(
+        coerceSync(v, scope, sink, Effect.runSyncExitWith(Context.empty())),
+      ).toEqual(View.Empty())
+    }),
+  )
 
   it.effect("View → pass through", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
       const input = View.Text({ value: "v" })
-      expect(coerceSync(input, scope, sink, Effect.runSyncExitWith(Context.empty()))).toEqual(input)
-    }))
+      expect(
+        coerceSync(input, scope, sink, Effect.runSyncExitWith(Context.empty())),
+      ).toEqual(input)
+    }),
+  )
 })
 
 describe("coerceSync — Effect handling", () => {
   it.effect("Effect.succeed(string) → coerce inner synchronously", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
-      expect(coerceSync(Effect.succeed("ok"), scope, sink, Effect.runSyncExitWith(Context.empty()))).toEqual(View.Text({ value: "ok" }))
-    }))
+      expect(
+        coerceSync(
+          Effect.succeed("ok"),
+          scope,
+          sink,
+          Effect.runSyncExitWith(Context.empty()),
+        ),
+      ).toEqual(View.Text({ value: "ok" }))
+    }),
+  )
 
   it.effect("Effect that requires Scope: runs with provided scope", () =>
     Effect.gen(function* () {
@@ -205,36 +252,60 @@ describe("coerceSync — Effect handling", () => {
         yield* Effect.addFinalizer(() => Effect.void)
         return "scoped"
       })
-      expect(coerceSync(eff, scope, sink, Effect.runSyncExitWith(Context.empty()))).toEqual(View.Text({ value: "scoped" }))
-    }))
+      expect(
+        coerceSync(eff, scope, sink, Effect.runSyncExitWith(Context.empty())),
+      ).toEqual(View.Text({ value: "scoped" }))
+    }),
+  )
 
-  it.effect("Effect that fails synchronously → routes Cause to sink, renders Empty", () =>
-    Effect.gen(function* () {
-      const scope = yield* Effect.scope
-      const caught: Array<Cause.Cause<unknown>> = []
-      const result = coerceSync(Effect.fail("boom"), scope, (c) => caught.push(c), Effect.runSyncExitWith(Context.empty()))
-      // No longer stringified into the DOM as `[effect failed: …]`.
-      expect(result).toEqual(View.Empty())
-      expect(caught).toHaveLength(1)
-      expect(Cause.squash(caught[0]!)).toBe("boom")
-    }))
+  it.effect(
+    "Effect that fails synchronously → routes Cause to sink, renders Empty",
+    () =>
+      Effect.gen(function* () {
+        const scope = yield* Effect.scope
+        const caught: Array<Cause.Cause<unknown>> = []
+        const result = coerceSync(
+          Effect.fail("boom"),
+          scope,
+          (c) => caught.push(c),
+          Effect.runSyncExitWith(Context.empty()),
+        )
+        // No longer stringified into the DOM as `[effect failed: …]`.
+        expect(result).toEqual(View.Empty())
+        expect(caught).toHaveLength(1)
+        expect(Cause.squash(caught[0]!)).toBe("boom")
+      }),
+  )
 
   it.effect("interrupted Effect (teardown) → NOT routed, renders Empty", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
       const caught: Array<Cause.Cause<unknown>> = []
       // A pure-interrupt cause is a scope tearing down mid-render, not an error.
-      const result = coerceSync(Effect.interrupt, scope, (c) => caught.push(c), Effect.runSyncExitWith(Context.empty()))
+      const result = coerceSync(
+        Effect.interrupt,
+        scope,
+        (c) => caught.push(c),
+        Effect.runSyncExitWith(Context.empty()),
+      )
       expect(result).toEqual(View.Empty())
       expect(caught).toHaveLength(0)
-    }))
+    }),
+  )
 })
 
 describe("coerceSync — Array → Fragment", () => {
   it.effect("array of primitives", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
-      expect(coerceSync(["a", 1, null], scope, sink, Effect.runSyncExitWith(Context.empty()))).toEqual(
+      expect(
+        coerceSync(
+          ["a", 1, null],
+          scope,
+          sink,
+          Effect.runSyncExitWith(Context.empty()),
+        ),
+      ).toEqual(
         View.Fragment({
           children: [
             View.Text({ value: "a" }),
@@ -243,16 +314,24 @@ describe("coerceSync — Array → Fragment", () => {
           ],
         }),
       )
-    }))
+    }),
+  )
 })
 
 describe("coerceSync — unknown fallback (String())", () => {
   it.effect("plain object → View.Text via String()", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
-      expect(coerceSync({ toString: () => "obj!" }, scope, sink, Effect.runSyncExitWith(Context.empty())))
-        .toEqual(View.Text({ value: "obj!" }))
-    }))
+      expect(
+        coerceSync(
+          { toString: () => "obj!" },
+          scope,
+          sink,
+          Effect.runSyncExitWith(Context.empty()),
+        ),
+      ).toEqual(View.Text({ value: "obj!" }))
+    }),
+  )
 })
 
 describe("coerceSync — asymmetry (does NOT peel async-only containers)", () => {
@@ -264,33 +343,57 @@ describe("coerceSync — asymmetry (does NOT peel async-only containers)", () =>
   it.effect("Option.some(x) → String() fallback, not unwrap", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
-      const result = coerceSync(Option.some("inner"), scope, sink, Effect.runSyncExitWith(Context.empty()))
+      const result = coerceSync(
+        Option.some("inner"),
+        scope,
+        sink,
+        Effect.runSyncExitWith(Context.empty()),
+      )
       expect(result._tag).toBe("Text")
       expect((result as { value: string }).value).not.toBe("inner")
-    }))
+    }),
+  )
 
   it.effect("Result.succeed(x) → String() fallback, not unwrap", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
-      const result = coerceSync(Result.succeed("inner"), scope, sink, Effect.runSyncExitWith(Context.empty()))
+      const result = coerceSync(
+        Result.succeed("inner"),
+        scope,
+        sink,
+        Effect.runSyncExitWith(Context.empty()),
+      )
       expect(result._tag).toBe("Text")
       expect((result as { value: string }).value).not.toBe("inner")
-    }))
+    }),
+  )
 
   it.effect("AtomRef → String() fallback, not View.Reactive", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
       const ref = AtomRef.make("x")
-      const result = coerceSync(ref, scope, sink, Effect.runSyncExitWith(Context.empty()))
+      const result = coerceSync(
+        ref,
+        scope,
+        sink,
+        Effect.runSyncExitWith(Context.empty()),
+      )
       expect(result._tag).toBe("Text")
-    }))
+    }),
+  )
 
   it.effect("Chunk → String() fallback, not Fragment", () =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
-      const result = coerceSync(Chunk.fromIterable(["a", "b"]), scope, sink, Effect.runSyncExitWith(Context.empty()))
+      const result = coerceSync(
+        Chunk.fromIterable(["a", "b"]),
+        scope,
+        sink,
+        Effect.runSyncExitWith(Context.empty()),
+      )
       expect(result._tag).toBe("Text")
-    }))
+    }),
+  )
 })
 
 describe("isAtomRef predicate", () => {

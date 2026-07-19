@@ -56,31 +56,35 @@ channels (see Html.ts).
 names the error — the runtime counterpart of a forgotten Layer naming a
 service. See [`types/Fold.ts`](./types/Fold.ts).
 
-### `h()` parameter naming — coupled to the TS plugin
+### Compiler-slot parameter naming — coupled to the TS plugin
 
-The `HFn` type's parameters are `_tag`, `_props`, `_children`
-(underscore prefix, in `h.ts`). This is **coupled to
+The `HFn` type's parameters are `_tag`, `_props`, `_children` (in
+`h.ts`) and `Component.make`'s name slot is `_name` (in `Component.ts`)
+— underscore prefix marks a compiler-filled slot. This is **coupled to
 [`@verrex/ts-plugin`](../../../ts-plugin/AGENTS.md)** — the plugin's
 inlay-hint filter drops any hint matching
-`/^_?(tag|props|children):?$/i`, so these labels never appear in
-the editor margin. If you rename them, update the regex.
+`/^(?:_?(?:tag|props|children)|_name):?$/i`, so these labels never
+appear in the editor margin (without the filter, the injected name
+argument's `_name:` hint would render after the call's `})`). `_name`
+is matched underscore-only — bare `name:` is a common user parameter
+and keeps its hint. If you rename a slot, update the regex.
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `h.ts` | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`) |
-| `Component.ts` | `Component.make` — the canonical component constructor (traced `Effect.fn` seam + compiler-filled name slot). `Component.test.ts` pins the span-in-Cause; `Component.test-d.ts` pins the channel inference and generic preservation |
-| `coerce.ts` | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`; takes a `SyncRunner` — runs on the owning node's context, with an `Exit` fast path so `Effect.succeed` children don't spin a fiber). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`), `isHandlerKey` (THE handler-key gate, shared with `applyProp` + `h()`'s capture predicate, mirrored by the type fold), and the shared dependency tracker `trackDeps`/`recordDep` (used by both `h.track` and `Async`) |
-| `View.ts` | `View<E>` IR. The runtime shape is `ViewNode` — a hand-written union of 7 phantom-free named interfaces (`ViewText`…`ViewBoundary`, `ViewEmpty`); constructors via `Data.taggedEnum<ViewNode>()`. `View<E = never> = ViewNode & ViewErr<E>` layers the runtime-error channel on via a covariant phantom (`ViewErr`), so `View<HttpError>` ⊄ `View<never>` (mount can require it) while a `ViewNode` ⊂ any `View<E>` (constructors need no casts). Plus `isView`, `VIEW_TAGS` |
-| `mount.ts` | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink, runSyncExit }` — `runSyncExit` is a context-paired `Effect.runSyncExitWith` cache for `coerceSync`; the Element handler path takes `context`/`sink` directly, never the ctx), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures) |
-| `reconcile.ts` | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops |
-| `index.ts` | Public exports + `list`, `Async`, `asyncRef`, `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`, `VerrexLive` |
-| `coerce.test.ts` | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin) |
-| `reconcile.test.ts` | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality; index updates on shift) |
-| `types/Fold.ts` | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls). Plus the props fold (#72): `FoldPropsLiveE`/`FoldPropsR` — an `on*` handler's `Effect` return contributes live `E` + `R`, via ONE cached `[E, R]` pass (`FoldPropsChannels`) with a zero-handler fast path, an `any`-guard, a bare-`on` exclusion, and AtomRef fold-through. Hard-won pin: the pair is read through a naked type param (`PairE`/`PairR`) — a non-distributive `never extends [infer E, any]` silently resolves to `unknown` |
-| `types/Html.ts` | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics. Handlers return `unknown` (the honest `applyProp` contract: an `Effect` return is run, anything else ignored); the precise `E`/`R` are read off the *inferred* props type by the props fold, not off this constraint |
-| `types/Fold.test-d.ts` | `assertEquals` matrix — every channel-fold shape |
+| File                   | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `h.ts`                 | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `Component.ts`         | `Component.make` — the canonical component constructor (traced `Effect.fn` seam + compiler-filled name slot). `Component.test.ts` pins the span-in-Cause; `Component.test-d.ts` pins the channel inference and generic preservation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `coerce.ts`            | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`; takes a `SyncRunner` — runs on the owning node's context, with an `Exit` fast path so `Effect.succeed` children don't spin a fiber). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`), `isHandlerKey` (THE handler-key gate, shared with `applyProp` + `h()`'s capture predicate, mirrored by the type fold), the shared dependency tracker `trackDeps`/`recordDep` and the subscription-lifecycle manager `makeDepSubscription` (both used by `h.track` and `Async`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `View.ts`              | `View<E>` IR. The runtime shape is `ViewNode` — a hand-written union of 7 phantom-free named interfaces (`ViewText`…`ViewBoundary`, `ViewEmpty`); constructors via `Data.taggedEnum<ViewNode>()`. `View<E = never> = ViewNode & ViewErr<E>` layers the runtime-error channel on via a covariant phantom (`ViewErr`), so `View<HttpError>` ⊄ `View<never>` (mount can require it) while a `ViewNode` ⊂ any `View<E>` (constructors need no casts). Plus `isView`, `VIEW_TAGS`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `mount.ts`             | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink, runSyncExit }` — `runSyncExit` is a context-paired `Effect.runSyncExitWith` cache for `coerceSync`; the Element handler path takes `context`/`sink` directly, never the ctx), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures). Form-control props (`value`/`checked`/`selected`/`indeterminate`) write DOM _properties_ — post-dirty-flag, attributes stop mirroring — with initial writes deferred past the children loop (`select.value` needs its `<option>`s) and guarded against no-op writes (caret); pins in `testing/form-props.test.ts`. **Known limitation (#156):** options arriving _after_ the value write silently reset the select to its first option |
+| `reconcile.ts`         | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `index.ts`             | Public exports + `list`, `Async`, `asyncRef`, `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`, `VerrexLive`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `coerce.test.ts`       | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `reconcile.test.ts`    | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality; index updates on shift)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `types/Fold.ts`        | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls). Plus the props fold (#72): `FoldPropsLiveE`/`FoldPropsR` — an `on*` handler's `Effect` return contributes live `E` + `R`, via ONE cached `[E, R]` pass (`FoldPropsChannels`) with a zero-handler fast path, an `any`-guard, a bare-`on` exclusion, and AtomRef fold-through. Hard-won pin: the pair is read through a naked type param (`PairE`/`PairR`) — a non-distributive `never extends [infer E, any]` silently resolves to `unknown`                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `types/Html.ts`        | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics. Handlers return `unknown` (the honest `applyProp` contract: an `Effect` return is run, anything else ignored); the precise `E`/`R` are read off the _inferred_ props type by the props fold, not off this constraint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `types/Fold.test-d.ts` | `assertEquals` matrix — every channel-fold shape                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## `Component.make` — the canonical component constructor
 
@@ -90,7 +94,7 @@ if it grows past these, it's grown too much:
 1. **Traced by default.** Component bodies run once at construction
    (fine-grained model), so the span costs per-mount, not per-update — and
    buys component stack traces in a failure `Cause` (the boundary fallback
-   can show *where*: `App > ProfilePage > UserCard`) plus OTel spans that
+   can show _where_: `App > ProfilePage > UserCard`) plus OTel spans that
    join UI to backend (the `asyncRef` supervisor forked during construction
    inherits the span context, so refetches nest under the component).
    Opt-out: write a plain `Effect.fnUntraced` function — components are
@@ -99,7 +103,7 @@ if it grows past these, it's grown too much:
    Framework internals stay untraced.
 2. **Signature-preserving type.** Two overloads: an Effect-returning
    component hits the identity-typed one (`(f: F) => F`), so a
-   *generic* component survives with its type parameter intact — which
+   _generic_ component survives with its type parameter intact — which
    `Effect.fn`'s overloads don't guarantee. Generator bodies (the common
    case) hit the second, which re-derives the channels the way `Effect.fn`
    does. TS cannot carry a generator's own type parameter through that one
@@ -110,7 +114,8 @@ if it grows past these, it's grown too much:
    no name → no span (the anonymous `Effect.fn` form never calls
    `useSpan`), but failures still carry definition + call-site stack
    frames via `CurrentStackFrame`. In plain `.ts` (tests, harnesses) pass
-   the name explicitly.
+   the name explicitly. The parameter is `_name` — see "Compiler-slot
+   parameter naming" above for the inlay-hint coupling.
 
 Runtime: `Effect.fn` accepts both body shapes (it checks
 `isEffect(body(...))` before iterating), so one implementation serves both
@@ -144,9 +149,9 @@ The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
 - `h.read(ref)` — a **faithful, transparent wrapper for `.value`**:
   byte-for-byte `ref.value` for any non-AtomRef (throws on null exactly
   as `.value` would — no `?.` swallow), and for a branded AtomRef it
-  *additionally* registers `ref` as a tracked dep when a tracker is
+  _additionally_ registers `ref` as a tracked dep when a tracker is
   active. This faithfulness is what lets the compiler emit `h.read` for
-  *every* `.value` read in a component body (not just JSX) without any
+  _every_ `.value` read in a component body (not just JSX) without any
   compile-time atom analysis — the `isAtomRef` brand is the exact gate.
 
 `h.track` itself (via `trackDeps` in `coerce.ts`, shared with `Async`):
@@ -165,6 +170,30 @@ The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
 **Invariant: the empty-deps early return is load-bearing.** Without
 it, every `<Row item={item} />` would erase `item`'s generic type to
 `unknown`.
+
+**The resubscribe-fresh bookkeeping is `makeDepSubscription` (in
+`coerce.ts`), shared by `h.track` and `asyncRef`.** It owns the one
+thing both got identically wrong-prone: drop-all-then-resubscribe per
+run, the **non-idempotent AtomRef unsubscribe** guard (null the array
+after teardown), and a `closed` gate so a retained `refetch`/derived is
+inert after its scope tears down. Each caller still runs its own
+`trackDeps` and handles its own result — only the subscription lifecycle
+lives behind the seam. Unit-tested directly in
+`dep-subscription.test.ts`. **Teardown asymmetry, resolved:** `asyncRef`
+calls `dispose()` in its finalizer; `h.track` has no scope to hang one
+on, so it stashes `dispose` on the derived via `setTrackDispose` and the
+mounting subtree's `subscribeRefScoped` (mount.ts) disposes it on scope
+close via `getTrackDispose`. Without this the derived's
+derived→underlying-ref subscriptions outlived the subtree, re-running the
+thunk for the life of the underlying ref. Pinned by
+`testing/track-teardown.test.ts`. Assumes one derived is mounted at one
+site (one body-eval → one derived → one Reactive/prop node); a rebuild
+reruns the body and produces a fresh derived. **Guarantee boundary:** the
+dispose only fires for deriveds that reach `subscribeRefScoped` — a
+derived that is created but never mounted (e.g. `buildDom` throws partway
+through a subtree after some `h.track` calls already ran) still leaks its
+subs. Acceptable for now; revisit if a tracked expression can be
+evaluated without its node attaching.
 
 ## View IR
 
@@ -210,24 +239,24 @@ inline form.
 The current 7 variants cover everything we need to render. Adding
 a variant is a coordinated edit across two files:
 
-  - `buildDom` (mount.ts) — exhaustive `switch (view._tag)` forces
-    a new case (TS will tell you)
-  - `coerce.ts` — `coerceAsync` if it can be authored from JSX,
-    and/or `coerceSync` if it can be emitted from a Reactive
-    source. Often one of the two is enough.
-  - **Context capture** — if the variant runs user code AFTER
-    construction (re-renders, rows, fallbacks, handlers), it MUST
-    capture the construction context. A DYNAMIC-render variant (built
-    via `coerceSync`) builds through `withContext`; the Element
-    handler path instead passes `view.context`/`sink` straight to
-    `applyProps` (handlers need only those) — see the variant matrix
-    in "Per-NODE context capture" below. Nothing forces this (the
-    `context` field is optional and mount silently falls back to the
-    root context), so a missed capture is the
-    rows-die-under-mid-tree-provide bug class all over again.
+- `buildDom` (mount.ts) — exhaustive `switch (view._tag)` forces
+  a new case (TS will tell you)
+- `coerce.ts` — `coerceAsync` if it can be authored from JSX,
+  and/or `coerceSync` if it can be emitted from a Reactive
+  source. Often one of the two is enough.
+- **Context capture** — if the variant runs user code AFTER
+  construction (re-renders, rows, fallbacks, handlers), it MUST
+  capture the construction context. A DYNAMIC-render variant (built
+  via `coerceSync`) builds through `withContext`; the Element
+  handler path instead passes `view.context`/`sink` straight to
+  `applyProps` (handlers need only those) — see the variant matrix
+  in "Per-NODE context capture" below. Nothing forces this (the
+  `context` field is optional and mount silently falls back to the
+  root context), so a missed capture is the
+  rows-die-under-mid-tree-provide bug class all over again.
 
 Channels are unaffected — they're folded at the `h()` call site
-via `FoldE`/`FoldR`, which operate on input child *shapes*
+via `FoldE`/`FoldR`, which operate on input child _shapes_
 (Effect, Option, Atom, …), not on the IR. (Recall: there is no
 "JSX call site" in the emitted code — the compiler turns every
 `<div>...</div>` into a plain `h(...)` call before tsc sees it.
@@ -237,7 +266,7 @@ hoisted into the surrounding Effect.
 
 Good candidates if a need arises: `Portal` (render children to a
 different DOM root). Note an async boundary did **not** need a new
-variant (`Async` builds a `Reactive` — see below), but the *error*
+variant (`Async` builds a `Reactive` — see below), but the _error_
 boundary **did** (`Boundary`): it has to redirect the error sink for its
 child subtree, which only `buildDom` can do when it descends into the
 node — not expressible by `Reactive`-over-a-ref alone. Anti-pattern:
@@ -251,7 +280,7 @@ Solid's Resource — **not** React Suspense). Two exports, both in `index.ts`:
 
 - **`asyncRef(() => effect)`** — the primitive. Runs the effect and returns an
   **`AsyncHandle<A, E>`**: a reactive `state:
-  AtomRef.ReadonlyRef<AsyncResult<A, E>>` plus a manual `refetch: () => boolean`
+AtomRef.ReadonlyRef<AsyncResult<A, E>>` plus a manual `refetch: () => boolean`
   (the same `schedule` a dep change triggers — fresh dep snapshot, stale run
   interrupted; a no-op once the creating scope closes). Handle the state with
   Effect's own `AsyncResult.match`. (`refetch` returns `boolean` — `false`
@@ -279,11 +308,13 @@ Solid's Resource — **not** React Suspense). Two exports, both in `index.ts`:
   shared loop = one fetch for two consumers, refetch+reset recovery, R/E
   pins):
   ```tsx
-  {Async(() => http.getUser(userId.value), {
-    initial: <Spinner/>,
-    failure: (cause) => <Err cause={cause}/>,
-    success: (user) => <UserCard user={user}/>,
-  })}
+  {
+    Async(() => http.getUser(userId.value), {
+      initial: <Spinner />,
+      failure: (cause) => <Err cause={cause} />,
+      success: (user) => <UserCard user={user} />,
+    })
+  }
   ```
   The compiler lowers the `<Async from initial failure success/>` JSX element to
   this positional call (planned). **It must stay positional** — a single props
@@ -310,10 +341,10 @@ mirroring `Catch`'s function-vs-object convention:
   distinction stands for both forms). The residual rides the live channel:
   `Effect<View<Exclude<E, { _tag }>>, never, R | Scope>`. Dispatch is shared
   with `Catch` (`taggedMatch`: own function-valued key, routed on the cause's
-  *first* error when it is tagged; the helper returns the matched
+  _first_ error when it is tagged; the helper returns the matched
   `{ handler, error }` pair so dispatch tag and handler argument can't drift)
   and inherits its caveats: a typo'd key mixed with ≥1 valid key is silently
-  dead (its tag stays on the channel — for *inline literals* the type never
+  dead (its tag stays on the channel — for _inline literals_ the type never
   lies; a typo as the only key is a compile error), and a tag map on an `E`
   with no tagged members is rejected outright (the overload's constraint
   collapses to `never`, not the accept-anything empty mapped type). The two
@@ -322,7 +353,7 @@ mirroring `Catch`'s function-vs-object convention:
   rejected at the `Async()`/`Catch()` call site by `assertHandlerMap`
   (TypeError naming the surface and key; pinned by
   `testing/tagmap-validation.test.ts`). The remaining gap — a pre-built map
-  whose *type* declares keys the value doesn't carry — is invisible at
+  whose _type_ declares keys the value doesn't carry — is invisible at
   runtime (erasure) and stays a documented limitation (#91): prefer inline
   handler literals.
   The handler-map shape itself is the shared `TagHandlers<E, Extra>` alias
@@ -330,10 +361,10 @@ mirroring `Catch`'s function-vs-object convention:
   failure handler — catch-all `(cause, retry)` and tag-map `(error, retry)` —
   receives **`retry`** last: it re-runs the thunk with a fresh dep snapshot
   (the handle's `refetch`, the same `schedule` a dep change triggers),
-  the leaf analog of `Catch`'s `reset` (which re-runs *construction*). The
+  the leaf analog of `Catch`'s `reset` (which re-runs _construction_). The
   same `refetch` is public on the `AsyncHandle` that `asyncRef` returns. Three retry invariants, each
   hard-won: (1) **failure-waiting renders the `initial` arm**, not the
-  failure arm with its stale cause — stale-while-revalidate keeps *content*
+  failure arm with its stale cause — stale-while-revalidate keeps _content_
   (success-waiting renders success), a stale error isn't content, and
   re-invoking the arm would rebuild its DOM (and retry button) mid-flight;
   this is also the observable that makes retry testable. (2) **Call `retry`
@@ -341,7 +372,7 @@ mirroring `Catch`'s function-vs-object convention:
   infinite loop (the alternating `waiting` flag defeats `Equal`-dedup).
   (2b) **`refetch` flips the state to waiting synchronously** (inside
   `schedule`, before enqueuing): a rebuild in the same tick — `refetch();
-  reset()` in either order — observes waiting instead of re-escalating the
+reset()` in either order — observes waiting instead of re-escalating the
   stale non-waiting Failure; the supervisor's own set on take is a deduped
   duplicate (and corrective in the rare interleaving where the prior run
   completed in between). Don't move the set back to the supervisor — the
@@ -375,27 +406,27 @@ The `from`/thunk runs under the **same dependency tracker as `h.track`**
 (`trackDeps`/`recordDep`, from `coerce.ts`): any reactive ref it reads via
 `.value`/`h.read` becomes a dependency, and the effect **re-runs when one
 changes**, interrupting the stale run. A thunk that reads no refs runs once —
-deps are *discovered, not declared*.
+deps are _discovered, not declared_.
 
 Arm channels are accepted permissively (`any`) and are not folded; that avoids a
 JSX conditional's `any`-folded channels breaking inference. **This also bounds
 the #72 handler guarantee**: a handler's `R` inside an arm (or a `Catch`
 fallback) is SWALLOWED by the arm's `any`, not folded — a missing Layer there
 surfaces only at click time, as a sink-routed defect (pinned explicitly in
-`channels.test-d.ts`). A typed *failing* handler in an arm/fallback is at
+`channels.test-d.ts`). A typed _failing_ handler in an arm/fallback is at
 least rejected (the arm's success is `View<never>`) — discharge it inside
 (nest a `Catch`). **Arms must be
-synchronous View-producers** — they render via `coerceSync` (`runSyncExitWith`
-on mount's context), so
-an *async* arm effect can never resolve. A *failing* arm effect is routed to the
+synchronous View-producers** — they render via `coerceSync` (the node's paired
+`runSyncExit`), so
+an _async_ arm effect can never resolve. A _failing_ arm effect is routed to the
 error sink (and renders `Empty`), not stringified — see "Runtime error routing".
 Keep arms pure markup.
 
 **Inline or extracted — both track.** The compiler rewrites `.value`→`h.read`
 across the whole component body, so an extracted thunk —
 `const get = () => http.getUser(userId.value)` then `Async(get, …)` — refetches
-identically to inline. The read must happen *inside* the thunk; a `.value` read
-into a local *before* it (`const id = userId.value; Async(() => http.getUser(id), …)`)
+identically to inline. The read must happen _inside_ the thunk; a `.value` read
+into a local _before_ it (`const id = userId.value; Async(() => http.getUser(id), …)`)
 captures a snapshot and won't refetch — ordinary eager-read semantics.
 
 **The compiler skips the `h.track` wrap for `Async(...)` calls** (`isSelfTrackingCall`
@@ -405,7 +436,7 @@ return carries the folded row channels) — `Async` self-tracks, and
 channels from the `h()` fold. The inner `.value`→`h.read` rewrite is kept (the
 tracker needs it). Which calls skip is decided **scope-correctly**
 (`resolveHelperCalls`): a call whose callee binds to the `@verrex/core` import
-is skipped *regardless of alias* (`import { Async as A }` → `A(...)` skips),
+is skipped _regardless of alias_ (`import { Async as A }` → `A(...)` skips),
 and a same-named call bound to the user's own function keeps its wrap. (An
 `@verrex/core` helper re-exported through a user barrel is the one miss —
 single-file resolution can't follow the chain.)
@@ -414,7 +445,7 @@ Neither is a View IR variant. `asyncRef` builds an `AtomRef<AsyncResult>`; `Asyn
 maps it through `AsyncResult.match` and returns a `View.Reactive` — the existing
 Reactive node does the DOM work. The design that makes this fit verrex:
 
-- **State** is Effect's `AsyncResult` in a *synchronous* `AtomRef` (the Reactive
+- **State** is Effect's `AsyncResult` in a _synchronous_ `AtomRef` (the Reactive
   node reads it immediately and re-renders on `.set`).
 - **Tracking + execution:** `schedule()` runs the thunk under `trackDeps`,
   subscribes to the refs it read (re-scheduling on change), and enqueues the
@@ -424,7 +455,7 @@ Reactive node does the DOM work. The design that makes this fit verrex:
 - **Channels:** because `forkScoped` forks the thunk's effect, the result folds
   its `R` — `asyncRef`/`Async` are `Effect<…, never, R | Scope>` with **no cast**.
   Extract services with `yield* Service` before the thunk so they fold into the
-  *component's* `R` (a missing Layer is a compile error at `mount`). The
+  _component's_ `R` (a missing Layer is a compile error at `mount`). The
   construction `E` is always `never` — the fetch never fails the build. The
   failure's home is the `failure`-arm choice above: rendered at the leaf
   (`View<never>`), or riding the live channel (`View<E>`) to the nearest
@@ -435,26 +466,26 @@ Why NOT `Atom`/`Atom.runtime` for this: an `Atom.runtime(layer)` bakes the
 Layer in and discharges `R` (loses the thesis); a per-call runtime built
 from a captured context dies "registry disposed" once the creating program
 returns. Running the user's Effect directly on the mount fiber is what
-keeps `R` folded. `Atom`/`AtomRef` remain the right tool for *synchronous*
+keeps `R` folded. `Atom`/`AtomRef` remain the right tool for _synchronous_
 reactive state (Counter, `list`) — just not the spine for effectful data.
 
 ## `Catch` — the view-level error boundary
 
 `Catch` mirrors Effect's `catch*`: recover the **failure** side of a view
 subtree, let success pass through (the child renders itself). Contrast `Async`,
-which matches a data `AsyncResult` and renders *every* state — a boundary only
+which matches a data `AsyncResult` and renders _every_ state — a boundary only
 supplies the failure fallback. **One overloaded helper, two forms** picked by the
 second argument:
 
 - **catch-all** — `Catch(child, (cause, reset) => fallback)`. The handler gets the
-  *precise* `Cause<EC | EV>` (both the construction `EC` and live `EV` of the
+  _precise_ `Cause<EC | EV>` (both the construction `EC` and live `EV` of the
   child — not `Cause<unknown>`) and discharges everything to
   `Effect<View<never>, never, R | Scope>`.
 - **tag-selective** — `Catch(child, { Tag: (error, reset) => …, … })`. Handles a
   subset of the child's error tags (each handler gets the unwrapped tagged error)
   and **narrows** both channels by `Exclude<E, { _tag }>`. Keys are constrained to
-  the child's actual error tags — a typo'd key is a compile error *when it is the
-  only key*; mixed with ≥1 valid key it is silently accepted (the exactness guard
+  the child's actual error tags — a typo'd key is a compile error _when it is the
+  only key_; mixed with ≥1 valid key it is silently accepted (the exactness guard
   is omitted to preserve per-handler `error` inference). That is a safe
   over-approximation, not a soundness hole: a bad key just yields a dead handler,
   and the residual keeps its tag in `E`, so no error is ever wrongly discharged —
@@ -467,7 +498,7 @@ tag-map = `_tag ∈ keys`) and how the handler is invoked. A cause a tag-map doe
 `accept` is **escalated**: at construction it re-raises on the Effect channel (its
 residual rides `EC`, so a parent boundary / `mount` still sees it); when live it
 goes to the ambient sink (the parent boundary — `mount` hands it over via the
-node's `setAmbient`). Tag-selective only catches errors in the *type*; an untyped
+node's `setAmbient`). Tag-selective only catches errors in the _type_; an untyped
 event-handler/reactive error needs the catch-all form.
 
 A subtree with undischarged errors won't pass `mount` — that's the thesis. (The
@@ -475,6 +506,7 @@ fallback's own `E`/`R` are permissive `any`/not folded — keep it pure markup, 
 `Async`'s arms.)
 
 Catches **both phases** through one fallback:
+
 - **construction** — `child`'s build Effect is run under `Effect.catchCause`; an
   accepted failure becomes the initial `error` state. Run **inline** in the gen
   (folds `R`, no first-paint flash), so a forgotten `Layer` is still a compile
@@ -483,7 +515,7 @@ Catches **both phases** through one fallback:
   re-render via `coerceSync`, or an event-handler Effect) is routed to the
   boundary's `report` sink, which `buildDom` swaps in as `ctx.sink` for the child
   subtree (see "Runtime error routing"). The fallback itself renders with the
-  *ambient* sink, so a failure in the fallback bubbles to the next boundary out.
+  _ambient_ sink, so a failure in the fallback bubbles to the next boundary out.
 
 `reset()` re-runs construction. **`report` and `reset` both go through a `Queue`
 drained by a `forkScoped` loop** (like `asyncRef`) — never mutating boundary
@@ -493,10 +525,11 @@ signature (`Cause<unknown>` sink); the precise types live in the two public
 overloads that front it.
 
 **Two lifecycle details that are easy to get wrong (and were):**
+
 - **Generation stamp.** Each `BoundaryState` carries a monotonic `gen`. Without
   it, `AtomRef.set` dedups via `Equal.equals`, and a reset that re-fails with a
   structurally-identical `Cause` is `Equal`-equal to the current state → no notify
-  → a *dead retry button*. `gen` makes every emission distinct. Nuance: an
+  → a _dead retry button_. `gen` makes every emission distinct. Nuance: an
   `Effect.fn` child's causes are never `Equal`-equal in practice (each run's span
   annotation differs), so the hazard bites only span-less subtrees — which is why
   the MF-1 regression test uses an `Effect.fnUntraced` child; an `Effect.fn`
@@ -507,7 +540,7 @@ overloads that front it.
   finalizers, `acquireRelease`) are released when we swap away or reset — not
   leaked onto the mount scope. The prior build's scope is closed on swap/reset
   (`adopt`); the live one closes on teardown via the fork cascade. A build that
-  fails with an *accepted* cause closes its scope immediately (nothing renders
+  fails with an _accepted_ cause closes its scope immediately (nothing renders
   from it — error content holds no live scope). A reset whose rebuild is
   rejected (non-accepted tag) discards its just-built scope and keeps the
   current content; a rejected cause that is interrupt-only (rebuild torn down
@@ -550,13 +583,13 @@ was ambient WHERE the node was constructed — that's what makes a mid-tree
 `list`'s row `R`). The variant matrix (get this right when adding an IR
 variant — the "new variant" checklist below points here):
 
-| Variant | Captures where | Consumed by | Why / why not |
-|---|---|---|---|
-| `Element` | `h()`, ONLY when a handler prop exists (`hasHandlerProp` over the shared `isHandlerKey` gate, own keys only) | handler dispatch — `applyProps` gets `context`/`sink` DIRECTLY (handlers need only those; the static-element path derives no node ctx/runner) | handler-less elements stay pure data |
-| `Reactive` | `coerceAsync`'s reactive-source branch; `Async` | every re-render (`buildScopedChild` with the node-scoped ctx) | re-renders run through `coerceSync`, not the construction fiber |
-| `List` | `list()` (an Effect precisely so it can capture) | every row build, incl. post-mount inserts | rows materialize at reconcile time |
-| `Boundary` | `makeBoundary` | the FALLBACK arm only | ok content is rebuilt by the drain fiber, which inherits the construction context natively |
-| `Text`/`Fragment`/`Empty` | — | — | no post-construction user code |
+| Variant                   | Captures where                                                                                               | Consumed by                                                                                                                                   | Why / why not                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `Element`                 | `h()`, ONLY when a handler prop exists (`hasHandlerProp` over the shared `isHandlerKey` gate, own keys only) | handler dispatch — `applyProps` gets `context`/`sink` DIRECTLY (handlers need only those; the static-element path derives no node ctx/runner) | handler-less elements stay pure data                                                       |
+| `Reactive`                | `coerceAsync`'s reactive-source branch; `Async`                                                              | every re-render (`buildScopedChild` with the node-scoped ctx)                                                                                 | re-renders run through `coerceSync`, not the construction fiber                            |
+| `List`                    | `list()` (an Effect precisely so it can capture)                                                             | every row build, incl. post-mount inserts                                                                                                     | rows materialize at reconcile time                                                         |
+| `Boundary`                | `makeBoundary`                                                                                               | the FALLBACK arm only                                                                                                                         | ok content is rebuilt by the drain fiber, which inherits the construction context natively |
+| `Text`/`Fragment`/`Empty` | —                                                                                                            | —                                                                                                                                             | no post-construction user code                                                             |
 
 Mechanics live at the definition sites: `withContext` (mount.ts — derives
 the node-scoped `BuildCtx` for the DYNAMIC-render variants that go through
@@ -598,7 +631,7 @@ teardown, not an error, and is dropped. The root sink (`mount`) logs via
 `Effect.logError` on the captured context; a `Catch` boundary replaces the
 sink per-subtree (`buildDom` swaps in the boundary's `report` for the child — see
 "`Catch`"). A handler that returns a non-Effect value runs as a plain
-imperative callback, unchanged. Since #72 producer (2) is also *typed*: the
+imperative callback, unchanged. Since #72 producer (2) is also _typed_: the
 handler's `E` rides the element's `View<E>` (the props fold), so an
 unboundaried failing handler is a compile error at `mount` — the sink is
 the runtime mechanism, no longer the only line of defense. The reactive
@@ -624,7 +657,7 @@ Source can be `Atom` or `AtomRef.ReadonlyRef`; dispatch on
 `Atom.isAtom` / `isAtomRef`. `coerceSync` (from `coerce.ts`) coerces
 the emitted value into a `View` — including `Effect`, which is run
 with the per-render child scope so `Effect.acquireRelease`
-registers releases on *that* render's scope. A failing render Effect
+registers releases on _that_ render's scope. A failing render Effect
 is routed to the `sink` (passed as `coerceSync`'s third arg) and renders
 `Empty` — see "Runtime error routing" above. `coerceSync` is
 deliberately asymmetric vs. `coerceAsync`: at this point in the
@@ -758,11 +791,11 @@ attrs pass through untouched (the empty-deps early return in `h.track`
 is what preserves them), and since #72 so do **function-valued attrs**
 (handlers, callbacks): a whole-expression function can't read deps while
 being tracked, so the compiler skips the wrap even when the function
-*body* reads `.value` — which is what lets a handler's `E`/`R` reach the
+_body_ reads `.value` — which is what lets a handler's `E`/`R` reach the
 props fold. The erasure is now scoped to non-function reactive attrs
 (`item={ref.value}`). Note the distinct case of a reactive attr on a
 DECLARED handler key — `onclick={cond.value ? a : b}` — which doesn't
-erase but is *rejected*: `h.track`'s `unknown` fails the
+erase but is _rejected_: `h.track`'s `unknown` fails the
 `IntrinsicProps` constraint (pre-#72 too). The typed form selects inside
 the handler: `onclick={(e) => (cond.value ? incr : decr)(e)}`.
 

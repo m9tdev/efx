@@ -59,7 +59,10 @@ describe("convertSourceMap — span lengths", () => {
     // next mapping (the `n`), which is 2 chars away (covering `((`).
     const outerParenSrc = src.indexOf("update(") + "update".length
     const m = findBySourceOffset(mappings, outerParenSrc)
-    expect(m, "expected a mapping at the outer `(` source position").toBeDefined()
+    expect(
+      m,
+      "expected a mapping at the outer `(` source position",
+    ).toBeDefined()
     expect(m!.lengths[0], "source span covers `((`").toBe(2)
     expect(m!.generatedLengths![0], "generated span covers only `(`").toBe(1)
   })
@@ -155,7 +158,9 @@ describe("convertSourceMap — span lengths", () => {
       m!.generatedOffsets[0],
       "source `Row` must map into the generated `Row({` callee",
     ).toBeGreaterThanOrEqual(rowGenStart)
-    expect(m!.generatedOffsets[0]).toBeLessThanOrEqual(rowGenStart + "Row".length)
+    expect(m!.generatedOffsets[0]).toBeLessThanOrEqual(
+      rowGenStart + "Row".length,
+    )
   })
 
   it("h.track wrap: source JSX expression becomes h.track(() => <expr>)", () => {
@@ -173,7 +178,9 @@ describe("convertSourceMap — span lengths", () => {
     // around the JSX expression container.
     const exprSrc = src.indexOf("{x.value + 1}") + 1
     const exprMappings = mappings.filter(
-      (m) => m.sourceOffsets[0]! >= exprSrc - 1 && m.sourceOffsets[0]! <= exprSrc + 12,
+      (m) =>
+        m.sourceOffsets[0]! >= exprSrc - 1 &&
+        m.sourceOffsets[0]! <= exprSrc + 12,
     )
     expect(exprMappings.length).toBeGreaterThan(0)
     for (const m of exprMappings) {
@@ -182,7 +189,7 @@ describe("convertSourceMap — span lengths", () => {
     }
   })
 
-  it("intrinsic tag span: source `<div>` (5 chars) ≠ generated `h(\"div\",` (8 chars)", () => {
+  it('intrinsic tag span: source `<div>` (5 chars) ≠ generated `h("div",` (8 chars)', () => {
     const src = `
       const x = <div>hi</div>
     `
@@ -213,7 +220,9 @@ describe("convertSourceMap — structural cases", () => {
     expect(code).toMatch(/h\("div",\s*\{\s*\.\.\.props\s*\}/)
     const spreadSrc = src.indexOf("{...props}")
     const region = mappings.filter(
-      (m) => m.sourceOffsets[0]! >= spreadSrc && m.sourceOffsets[0]! < spreadSrc + 10,
+      (m) =>
+        m.sourceOffsets[0]! >= spreadSrc &&
+        m.sourceOffsets[0]! < spreadSrc + 10,
     )
     expect(region.length).toBeGreaterThan(0)
     for (const m of region) {
@@ -241,7 +250,9 @@ describe("convertSourceMap — structural cases", () => {
     const seen = new Set<number>()
     for (const m of mappings) {
       const off = m.sourceOffsets[0]!
-      expect(seen.has(off), `duplicate mapping at source offset ${off}`).toBe(false)
+      expect(seen.has(off), `duplicate mapping at source offset ${off}`).toBe(
+        false,
+      )
       seen.add(off)
     }
   })
@@ -254,7 +265,12 @@ describe("convertSourceMap — structural cases", () => {
     expect(code).toContain("Fragment")
     // The opening `<>` is at the start.
     const openSrc = src.indexOf("<>")
-    expect(mappings.some((m) => m.sourceOffsets[0]! >= openSrc && m.sourceOffsets[0]! <= openSrc + 2)).toBe(true)
+    expect(
+      mappings.some(
+        (m) =>
+          m.sourceOffsets[0]! >= openSrc && m.sourceOffsets[0]! <= openSrc + 2,
+      ),
+    ).toBe(true)
   })
 
   it("member-expression tag: <X.Y>...</X.Y> lowers to the direct call X.Y(...)", () => {
@@ -276,14 +292,18 @@ describe("convertSourceMap — structural cases", () => {
       const view = <div>hi</div>
     `
     const { code, mappings } = buildMappings(src)
-    expect(code).toContain('import { h }')
+    expect(code).toContain("import { h }")
     // Find user-code source positions: every char in `src`. Each should be
     // covered by at most one mapping (no overlap).
     for (let i = 0; i < src.length; i++) {
       const containing = mappings.filter(
-        (m) => i >= m.sourceOffsets[0]! && i < m.sourceOffsets[0]! + m.lengths[0]!,
+        (m) =>
+          i >= m.sourceOffsets[0]! && i < m.sourceOffsets[0]! + m.lengths[0]!,
       )
-      expect(containing.length, `source offset ${i} claimed by ${containing.length} mappings`).toBeLessThanOrEqual(1)
+      expect(
+        containing.length,
+        `source offset ${i} claimed by ${containing.length} mappings`,
+      ).toBeLessThanOrEqual(1)
     }
   })
 
@@ -314,7 +334,9 @@ describe("convertSourceMap — CodeInformation profiles", () => {
     expect(m, "expected a mapping at the opening `<`").toBeDefined()
     // structuralOnlyData: navigation: false, semantic: false, completion: false.
     expect(m!.data.navigation, "`<` should not navigate").toBe(false)
-    expect(m!.data.semantic, "`<` should not have semantic features").toBe(false)
+    expect(m!.data.semantic, "`<` should not have semantic features").toBe(
+      false,
+    )
   })
 
   it("normal source code outside JSX gets the full profile", () => {

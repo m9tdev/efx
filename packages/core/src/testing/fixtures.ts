@@ -17,7 +17,9 @@ import { Context, Data, Effect, Layer } from "effect"
  * is a `Data.TaggedError`, `Timeout` a plain hand-rolled `_tag` class — because
  * tag maps key on `_tag` alone, and both shapes must keep working.
  */
-export class NotFound extends Data.TaggedError("NotFound")<{ readonly id: string }> {}
+export class NotFound extends Data.TaggedError("NotFound")<{
+  readonly id: string
+}> {}
 export class Timeout {
   readonly _tag = "Timeout"
 }
@@ -39,21 +41,52 @@ export interface UsersService {
 // count moves only if the Layer was reachable from there. Per-test layers
 // pick the increment (`stepLayer(7)`), so assertions read as `total: 7`.
 
-export class Step extends Context.Service<Step, { readonly by: number }>()("test/Step") {}
+export class Step extends Context.Service<Step, { readonly by: number }>()(
+  "test/Step",
+) {}
 
 export const stepLayer = (by: number) => Layer.succeed(Step, { by })
 
 /** An onClick handler that bumps `count` by the Step service's increment. */
-export const stepClick = (count: { readonly value: number; set: (n: number) => void }) => () =>
-  Effect.gen(function* () {
-    const step = yield* Step
-    count.set(count.value + step.by)
-  })
+export const stepClick =
+  (count: { readonly value: number; set: (n: number) => void }) => () =>
+    Effect.gen(function* () {
+      const step = yield* Step
+      count.set(count.value + step.by)
+    })
 
 const db: Record<string, string> = { "42": "Ada", "7": "Grace" }
 
+/**
+ * Poll `selector` until its text reaches `text` (the harness `waitFor` is
+ * selector-only, and these suites watch a node whose text changes while the
+ * node itself stays mounted).
+ *
+ * Use it for *awaited* async transitions, whose settle latency varies with
+ * machine load — a fixed sleep that passes on an idle machine fails under a
+ * loaded one. Assertions that must be exact on a specific tick (a held gate
+ * making the outcome deterministic) stay exact; this is only for "eventually".
+ */
+export const waitForText = async (
+  ui: { text(s: string): string },
+  text: string,
+  selector = ".out",
+  timeoutMs = 2000,
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs
+  while (ui.text(selector) !== text) {
+    if (Date.now() > deadline)
+      throw new Error(
+        `waitForText: ${JSON.stringify(selector)} never became ${JSON.stringify(text)} (last: ${JSON.stringify(ui.text(selector))})`,
+      )
+    await new Promise<void>((r) => setTimeout(r, 5))
+  }
+}
+
 export const makeUsersFixture = (tagPrefix: string) => {
-  class Users extends Context.Service<Users, UsersService>()(`${tagPrefix}/Users`) {}
+  class Users extends Context.Service<Users, UsersService>()(
+    `${tagPrefix}/Users`,
+  ) {}
 
   /** A layer over a custom getter — getters failing with a subset of `UsersError` fit as-is. */
   const usersWith = (get: UsersService["get"]) => Layer.succeed(Users, { get })

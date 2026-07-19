@@ -1,6 +1,13 @@
 import { Cause, Context, Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { coerceSync, type ErrorSink, isAtomRef, isHandlerKey, type SyncRunner } from "./coerce.ts"
+import {
+  coerceSync,
+  type ErrorSink,
+  getTrackDispose,
+  isAtomRef,
+  isHandlerKey,
+  type SyncRunner,
+} from "./coerce.ts"
 import { plan } from "./reconcile.ts"
 import { type BoundaryState, type Props, View, type ViewNode } from "./View.ts"
 
@@ -29,10 +36,18 @@ interface BuildCtx {
 // Reference-equal captures (same fiber, no mid-tree provide) keep the parent
 // ctx — no allocation on that path. (Static elements DON'T come here: their
 // handlers need only context+sink, passed straight to `applyProps`.)
-const withContext = (ctx: BuildCtx, context: Context.Context<never> | undefined): BuildCtx =>
+const withContext = (
+  ctx: BuildCtx,
+  context: Context.Context<never> | undefined,
+): BuildCtx =>
   context === undefined || context === ctx.context
     ? ctx
-    : { registry: ctx.registry, sink: ctx.sink, context, runSyncExit: Effect.runSyncExitWith(context) }
+    : {
+        registry: ctx.registry,
+        sink: ctx.sink,
+        context,
+        runSyncExit: Effect.runSyncExitWith(context),
+      }
 
 // The per-dispatch runner a listener uses for handler Effects: built on the
 // FIRST Effect-returning dispatch and reused for the listener's lifetime
@@ -76,7 +91,19 @@ const subscribeRefScoped = <A>(
   scope: Scope.Scope,
 ): void => {
   const dispose = ref.subscribe(fn)
-  Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
+  // If `ref` is a `h.track` derived, also tear down its own
+  // derived→underlying-ref subscriptions on scope close — `h.track` has no
+  // scope to do it itself. No-op for user refs / asyncRef state (untagged).
+  const trackDispose = getTrackDispose(ref as AtomRef.ReadonlyRef<unknown>)
+  Effect.runSync(
+    Scope.addFinalizer(
+      scope,
+      Effect.sync(() => {
+        dispose()
+        trackDispose?.()
+      }),
+    ),
+  )
 }
 
 // AtomRegistry uses a different subscribe shape (registry.subscribe(atom, fn))
@@ -92,6 +119,20 @@ const subscribeAtomScoped = <A>(
   Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
 }
 
+// Props that must be written as DOM *properties*, not attributes. After user
+// interaction the dirty value flag makes the `value` attribute and property
+// diverge permanently — setAttribute then changes nothing visible. Same story
+// for the boolean trio.
+const FORM_BOOL_PROPS = new Set(["checked", "selected", "indeterminate"])
+// `value` is restricted by tag — `key in el` alone over-matches elements with a
+// numeric `value` IDL (<li>, <progress>, <meter>), where a string property
+// write is wrong and the no-op guard is permanently defeated.
+const VALUE_TAGS = new Set(["INPUT", "SELECT", "TEXTAREA", "OPTION"])
+const isFormProp = (el: Element, key: string): boolean =>
+  key === "value"
+    ? VALUE_TAGS.has(el.tagName)
+    : FORM_BOOL_PROPS.has(key) && key in el
+
 // Handlers consume only the captured `context` (the runtime side of
 // FoldPropsR — a mid-tree provide is honored at dispatch) and the `sink`; they
 // never touch the full `BuildCtx`, so the static-Element path passes these two
@@ -103,25 +144,57 @@ const applyProp = (
   context: Context.Context<never>,
   sink: ErrorSink,
   scope: Scope.Scope,
+  deferred?: Array<() => void>,
 ): void => {
   // Reactive prop: AtomRef → subscribe and re-apply on changes.
   if (isAtomRef(value)) {
     const ref = value as AtomRef.ReadonlyRef<unknown>
     let lastChildScope: Scope.Closeable | null = null
-    const apply = (v: unknown) => {
+    const apply = (v: unknown, defer?: Array<() => void>) => {
       if (lastChildScope) {
         const e = Scope.closeUnsafe(lastChildScope, Exit.void)
         if (e) Effect.runFork(e)
       }
       lastChildScope = Scope.forkUnsafe(scope, "sequential")
-      applyProp(el, key, v, context, sink, lastChildScope)
+      applyProp(el, key, v, context, sink, lastChildScope, defer)
     }
-    apply(ref.value)
-    subscribeRefScoped(ref, apply, scope)
+    // Deferred initial apply reads `ref.value` at drain time, not now — a
+    // capture of the current value could go stale (user code running during
+    // the children build may set the ref; the subscription's immediate write
+    // must not be clobbered by a stale deferred one).
+    if (deferred && isFormProp(el, key)) deferred.push(() => apply(ref.value))
+    else apply(ref.value)
+    subscribeRefScoped(ref, (v) => apply(v), scope)
     return
   }
 
-  if (value == null || value === false) return
+  if (isFormProp(el, key)) {
+    const rec = el as unknown as Record<string, unknown>
+    // `false` maps to "" like null — `value={cond && str}` must not
+    // display "false".
+    const next =
+      key === "value"
+        ? value == null || value === false
+          ? ""
+          : String(value)
+        : Boolean(value)
+    const write = () => {
+      // Guard the write — assigning `value` unconditionally resets the caret
+      // to the end, breaking mid-string editing.
+      if (rec[key] !== next) rec[key] = next
+    }
+    // At initial build, children don't exist yet — `select.value = ...` would
+    // be a silent no-op. Defer to after the appendChild loop; reactive
+    // re-applications (no `deferred`) run immediately.
+    if (deferred) deferred.push(write)
+    else write()
+    return
+  }
+
+  if (value == null || value === false) {
+    el.removeAttribute(key)
+    return
+  }
   // Event handler: onClick, onInput, etc. (`isHandlerKey` — the gate shared
   // with h()'s capture predicate and mirrored by the type fold). The handler
   // may return an Effect — run it (on the element's captured context, so it
@@ -141,18 +214,21 @@ const applyProp = (
       const result = userHandler(e)
       if (Effect.isEffect(result)) {
         runFork ??= Effect.runForkWith(context)
-        runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, runFork, sink, scope)
+        runHandlerEffect(
+          result as Effect.Effect<unknown, unknown, never>,
+          runFork,
+          sink,
+          scope,
+        )
       }
     }
     el.addEventListener(event, listener)
     Effect.runSync(
-      Scope.addFinalizer(scope, Effect.sync(() => el.removeEventListener(event, listener))),
+      Scope.addFinalizer(
+        scope,
+        Effect.sync(() => el.removeEventListener(event, listener)),
+      ),
     )
-    return
-  }
-  // class / className
-  if (key === "class" || key === "className") {
-    el.setAttribute("class", String(value))
     return
   }
   // style object
@@ -178,10 +254,11 @@ const applyProps = (
   context: Context.Context<never>,
   sink: ErrorSink,
   scope: Scope.Scope,
+  deferred?: Array<() => void>,
 ): void => {
   for (const [k, v] of Object.entries(props)) {
     if (k === "children") continue
-    applyProp(el, k, v, context, sink, scope)
+    applyProp(el, k, v, context, sink, scope, deferred)
   }
 }
 
@@ -196,7 +273,11 @@ const buildScopedChild = (
   ctx: BuildCtx,
 ): { readonly node: Node; readonly scope: Scope.Closeable } => {
   const scope = Scope.forkUnsafe(parent, "sequential")
-  const node = buildDom(coerceSync(value, scope, ctx.sink, ctx.runSyncExit), ctx, scope)
+  const node = buildDom(
+    coerceSync(value, scope, ctx.sink, ctx.runSyncExit),
+    ctx,
+    scope,
+  )
   return { node, scope }
 }
 
@@ -222,10 +303,21 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       // those, so the static-element path never derives a node ctx/runner.
       // Children keep the ambient ctx. Hand-built nodes (no capture) fall
       // back to mount's context.
-      applyProps(el, view.props, view.context ?? ctx.context, ctx.sink, scope)
+      // Form-control property writes are deferred past the children loop:
+      // `select.value` assigned before its <option>s exist silently no-ops.
+      const deferred: Array<() => void> = []
+      applyProps(
+        el,
+        view.props,
+        view.context ?? ctx.context,
+        ctx.sink,
+        scope,
+        deferred,
+      )
       for (const child of view.children) {
         el.appendChild(buildDom(child, ctx, scope))
       }
+      for (const write of deferred) write()
       return el
     }
 
@@ -305,7 +397,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 
       // A plan's `before` is a row key; resolve it to the reference node.
       const nodeBefore = (key: AtomRef.AtomRef<unknown> | null): Node | null =>
-        key === null ? null : rendered.get(key)?.node ?? null
+        key === null ? null : (rendered.get(key)?.node ?? null)
 
       const setIndex = (row: Row, index: number): void => {
         if (row.indexRef.value !== index) row.indexRef.set(index)
@@ -313,7 +405,9 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 
       // The diff itself lives in the pure `plan` (see reconcile.ts); this is the
       // interpreter — it just applies the ops to real DOM + scopes.
-      const reconcile = (next: ReadonlyArray<AtomRef.AtomRef<unknown>>): void => {
+      const reconcile = (
+        next: ReadonlyArray<AtomRef.AtomRef<unknown>>,
+      ): void => {
         for (const op of plan(snapshot, next)) {
           switch (op.op) {
             case "remove": {
@@ -322,7 +416,8 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
               const row = rendered.get(op.key)
               if (row) {
                 closeScope(row.rowScope)
-                if (row.node.parentNode === wrapper) wrapper.removeChild(row.node)
+                if (row.node.parentNode === wrapper)
+                  wrapper.removeChild(row.node)
                 rendered.delete(op.key)
               }
               break
@@ -398,7 +493,11 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
         const built =
           st._tag === "ok"
             ? buildScopedChild(st.view, scope, childCtx)
-            : buildScopedChild(view.handler(st.cause, view.reset), scope, fallbackCtx)
+            : buildScopedChild(
+                view.handler(st.cause, view.reset),
+                scope,
+                fallbackCtx,
+              )
         if (currentNode.parentNode) {
           currentNode.parentNode.replaceChild(built.node, currentNode)
         }
@@ -445,7 +544,12 @@ export const mount = <R>(
     const sink: ErrorSink = (cause) => {
       Effect.runForkWith(context)(Effect.logError(cause))
     }
-    const ctx: BuildCtx = { registry, context, sink, runSyncExit: Effect.runSyncExitWith(context) }
+    const ctx: BuildCtx = {
+      registry,
+      context,
+      sink,
+      runSyncExit: Effect.runSyncExitWith(context),
+    }
     const view = yield* app
     const scope = yield* Effect.scope
     const node = buildDom(view, ctx, scope)
@@ -454,6 +558,6 @@ export const mount = <R>(
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         if (node.parentNode === el) el.removeChild(node)
-      })
+      }),
     )
   })

@@ -15,13 +15,13 @@ certainly want to depend on this package rather than copy it.
 
 ## Files
 
-| File | Purpose |
-|---|---|
+| File                 | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `language-plugin.ts` | `createVerrexLanguagePlugin<T>(asFileName, options?)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns each per-`.vx` `VerrexVirtualCode` to Volar, which owns and indexes it. Returns `LanguagePlugin<T, VerrexVirtualCode>` so consumers can rely on the concrete class type at the boundary. `options.onTransformError` picks the parse-failure policy (see below). |
-| `source-map.ts` | `convertSourceMap` — thin translator from `@verrex/core/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects. |
-| `virtual-code.ts` | `VerrexVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.vx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`. |
-| `source-map.test.ts` | Vitest suite pinning `convertSourceMap`'s span-length passthrough and the user/h-call/punctuation profile assignments. |
-| `index.ts` | Re-exports. |
+| `source-map.ts`      | `convertSourceMap` — thin translator from `@verrex/core/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects.                                                                                                                                                                                                       |
+| `virtual-code.ts`    | `VerrexVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.vx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`.                                                                                                            |
+| `source-map.test.ts` | Vitest suite pinning `convertSourceMap`'s span-length passthrough and the user/h-call/punctuation profile assignments.                                                                                                                                                                                                                                                                                                                                                           |
+| `index.ts`           | Re-exports.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ## Why a factory over a fixed plugin
 
@@ -75,7 +75,7 @@ Two things matter here, both copied from the Vue/Astro pattern:
   standalone enumeration. `Deferred` makes both code paths work.
 
 `getServiceScript` still returns `{ extension: ".ts", scriptKind:
-ScriptKind.TS }` — that describes the *virtual code's* content,
+ScriptKind.TS }` — that describes the _virtual code's_ content,
 which IS plain TypeScript. The two scriptKinds are not in conflict:
 one describes the on-disk file (Deferred → ask me), the other
 describes the buffer tsc will type-check (TS → no JSX inside).
@@ -85,7 +85,7 @@ tsc that's easy to get wrong silently.
 
 ### `extraFileExtensions` does not bend the module resolver
 
-Registering `.vx` here makes tsc willing to *consume* a file
+Registering `.vx` here makes tsc willing to _consume_ a file
 named `Foo.vx`. It does NOT make `import "./Foo"` resolve to
 `Foo.vx` — that's why user code carries the explicit `.vx`
 extension (see root [AGENTS.md](../../../../AGENTS.md)). If you ever
@@ -98,11 +98,11 @@ package's plugin shape, not to the convention.
 `CompilerMapping[]`. Each mapping carries a `kind` tag classified
 by the compiler; we map it to a Volar `CodeInformation` profile:
 
-| Kind (from compiler) | Profile | What's disabled | Why |
-|---|---|---|---|
-| `"user"` | `fullData` | nothing | Default. Normal user code. |
-| `"h-call"` | `noHighlightData` | `semantic.shouldHighlight: () => false` | Without this, cursor on a JSX tag name highlights every `h` identifier in the file. Hover/completions still work. |
-| `"punctuation"` | `structuralOnlyData` | `semantic: false`, `completion: false`, `navigation: false` | Cursor on `<` shouldn't navigate to `h`'s definition or highlight every `<`. |
+| Kind (from compiler) | Profile              | What's disabled                                             | Why                                                                                                               |
+| -------------------- | -------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `"user"`             | `fullData`           | nothing                                                     | Default. Normal user code.                                                                                        |
+| `"h-call"`           | `noHighlightData`    | `semantic.shouldHighlight: () => false`                     | Without this, cursor on a JSX tag name highlights every `h` identifier in the file. Hover/completions still work. |
+| `"punctuation"`      | `structuralOnlyData` | `semantic: false`, `completion: false`, `navigation: false` | Cursor on `<` shouldn't navigate to `h`'s definition or highlight every `<`.                                      |
 
 The compiler decides `kind` while building the mappings — it
 already knows what each emitted byte represents. This package's
@@ -154,9 +154,9 @@ Lifetime is Volar's concern: each tsserver session and each
 so two in-process `runCheck` calls never see each other's virtual
 codes. Re-compilation on edits, eviction of deleted files, and
 staleness are all handled by Volar's script lifecycle — this package
-holds no *authoritative* state that could drift. (The one piece of
+holds no _authoritative_ state that could drift. (The one piece of
 plugin-internal state is the `lastGood` fallback cache described in
-the next section: per-file compile *outputs* used only when the
+the next section: per-file compile _outputs_ used only when the
 current source won't parse, never an index of live objects.)
 
 ## Transform errors: recover in editors, throw in batch
@@ -175,12 +175,12 @@ picked by `options.onTransformError`:
 - **`"recover"`** (default — editor hosts, `@verrex/ts-plugin`): serve
   the file's **last good compile** with the current source text.
   Cross-file types stay stable (exports don't flicker in dependents).
-  The cached mappings refer to the *previous* source — every offset is
+  The cached mappings refer to the _previous_ source — every offset is
   suspect by the edit delta — so they're served **completion-only**
   (`FALLBACK_DATA`): completions/signature help stay live (the point
   of surviving mid-edit states; cursor-anchored, transient UI), while
-  features that *decorate* positions (inlay hints, hover, semantic
-  tokens, diagnostics) or *write* at them (rename, format) are off —
+  features that _decorate_ positions (inlay hints, hover, semantic
+  tokens, diagnostics) or _write_ at them (rename, format) are off —
   a shifted hint renders inside the wrong token, a shifted rename
   edits the wrong code. `jsxRanges` are **dropped, not served stale**:
   `@verrex/ts-plugin` consumes them directly off the instance

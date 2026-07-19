@@ -2,18 +2,27 @@
   "name": "@verrex/ts-plugin",
   "version": "0.1.0",
   "description": "Volar-based TypeScript Language Service plugin for .vx files — diagnostics, hover, go-to-definition, find-references, inlay hints, and JSX tag-pair highlights.",
+  "keywords": [
+    "effect",
+    "language-service-plugin",
+    "typescript",
+    "verrex",
+    "volar",
+    "vx"
+  ],
+  "homepage": "https://github.com/m9tdev/verrex#readme",
+  "bugs": "https://github.com/m9tdev/verrex/issues",
   "license": "MIT",
   "author": "Mathieu Post",
-  "homepage": "https://github.com/m9tdev/verrex#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/m9tdev/verrex.git",
     "directory": "packages/ts-plugin"
   },
-  "bugs": "https://github.com/m9tdev/verrex/issues",
-  "keywords": ["effect", "verrex", "vx", "typescript", "language-service-plugin", "volar"],
+  "files": [
+    "dist"
+  ],
   "main": "./dist/index.cjs",
-  "files": ["dist"],
   "publishConfig": {
     "access": "public"
   },
@@ -23,15 +32,15 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run && pnpm run build && node test/integration.mjs"
   },
-  "peerDependencies": {
-    "typescript": "^6.0.3"
-  },
   "devDependencies": {
+    "@effect/vitest": "4.0.0-beta.98",
     "@verrex/core": "workspace:*",
     "@volar/language-core": "^2.4.28",
     "@volar/typescript": "^2.4.28",
-    "@effect/vitest": "4.0.0-beta.78",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^6.0.3"
+  },
+  "peerDependencies": {
     "typescript": "^6.0.3"
   }
 }

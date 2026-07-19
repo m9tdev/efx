@@ -10,6 +10,7 @@ AI agents exploring large codebases face a fundamental constraint: **context
 windows are finite, but codebases are not**.
 
 Token scale:
+
 - Single file: ~8k tokens
 - Directory: ~120k tokens
 - Service repo: ~2.5M tokens
@@ -36,6 +37,7 @@ or similar files) placed at semantic boundaries throughout the codebase.
 ### Core Behavior
 
 If an Intent Node exists in a directory:
+
 1. It covers that directory and all subdirectories
 2. It auto-loads into context whenever an agent works there
 3. All ancestor nodes load automatically too (hierarchical context)
@@ -49,24 +51,30 @@ Each node is a dense, token-efficient briefing—the minimum high-signal
 context an agent needs to operate safely in that area.
 
 **Purpose & Scope**
+
 - What this area is responsible for
 - What it explicitly doesn't do
 
 **Entry Points & Contracts**
+
 - Main APIs, jobs, CLI commands
 - Invariants: "All outbound calls go through this client"
 
 **Usage Patterns**
+
 - Canonical examples: "To add a new rule, follow this pattern..."
 
 **Anti-patterns**
+
 - Negative examples: "Never call this directly from controllers"
 
 **Dependencies & Edges**
+
 - Which other directories or services it depends on
 - Downlinks to child Intent Nodes
 
 **Patterns & Pitfalls**
+
 - Things that repeatedly confused agents or humans
 - Hidden state, deploy-time overrides, non-obvious behavior
 
@@ -76,10 +84,12 @@ Related context outside the ancestor chain uses explicit pointers:
 
 ```markdown
 ## Related Context
+
 - Payment validation rules: `./validators/AGENTS.md`
 - Settlement engine: `./settlement/AGENTS.md`
 
 ## Architecture Decisions
+
 - Why we use eventual consistency: `/docs/adrs/004-eventual-consistency.md`
 ```
 
@@ -97,6 +107,7 @@ rather than loading everything upfront.
 ### Chunking Strategy
 
 Chunk size affects compression ratio:
+
 - 2k token file → 1k summary = poor ratio, high overhead
 - 64k token chunk → 2-3k summary = excellent ratio
 
@@ -114,6 +125,7 @@ The key compression mechanic:
 > they cover.
 
 This creates **fractal compression**:
+
 - Leaf nodes compress raw code into dense context
 - Parent nodes compress their children's Intent Nodes
 - A 2k token parent might cover 200k tokens of underlying code
@@ -124,12 +136,14 @@ Capture in order of clarity: **children before parents, well-understood
 areas before tangled ones**.
 
 For each chunk:
+
 1. Agent analyzes code + accumulated global state
 2. Agent describes what it sees, asks clarifying questions
 3. Human responds—corrects, explains history and landmines
 4. Iterate until aligned on Intent Node content
 
 Track what can't be resolved yet:
+
 - **Open questions**: parked until a neighboring chunk answers them
 - **Cross-references**: tracked until you find the right LCA
 - **Tasks**: dead code candidates, refactors that emerge
@@ -162,6 +176,7 @@ This can be automated—an agent handles it on every commit/merge.
 ### Reinforcement Learning
 
 When agents use the Intent Layer, they surface what's missing:
+
 - Edge cases: contradictions, undocumented patterns
 - Proposed updates: refined pitfalls, corrected invariants
 
@@ -172,11 +187,13 @@ agents get finetuned through better context, not expensive model training.
 ## File Naming
 
 Different tools auto-load different files:
+
 - Claude Code: `CLAUDE.md`
 - Codex: `AGENTS.md`
 - Cursor: rules and skill files
 
 Survey your team's tools and ensure nodes auto-load everywhere. Options:
+
 - Symlinks (e.g., `AGENTS.md` → `CLAUDE.md`)
 - Cursor rules/skills files
 - Custom harness configurations
@@ -199,6 +216,7 @@ has no intermediate nodes; if one is ever added between root and a leaf,
 extend the hook to inject every node on the walk up.)
 
 Approaches tested and rejected (2026-06, fresh-session experiments):
+
 - **Per-directory `CLAUDE.md` symlinks** — works natively but litters the
   tree with nine symlinks.
 - **`.claude/rules/` with `@`-imports** — imports expand **eagerly** at
@@ -214,6 +232,7 @@ verified end-to-end in a live session.
 ## Naive vs. Effective Implementation
 
 **Naive approach:**
+
 - Single root file ballooning to 15k+ tokens
 - Duplicates what's already in code
 - Structures for human readers, not token-limited agents
@@ -221,6 +240,7 @@ verified end-to-end in a live session.
 - Misses hierarchical loading behavior
 
 **Done right:**
+
 - Compresses aggressively—minimum high-signal tokens per node
 - Places nodes at semantic boundaries
 - Uses downlinks for progressive disclosure
@@ -231,11 +251,13 @@ verified end-to-end in a live session.
 ## Investment & Payoff
 
 **Cost:**
+
 - Experienced context engineer: 3-5 focused hours per 100k tokens
 - New to it: budget 2-3x
 - Maintenance: 5-10 minutes per PR (or automate entirely)
 
 **Payoff:**
+
 - Agents behave like senior engineers by default
 - Longer tasks, parallel agents, higher-level operation
 - Context compounds—explanations captured once, reused forever

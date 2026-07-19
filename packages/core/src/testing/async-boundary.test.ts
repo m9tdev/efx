@@ -10,9 +10,12 @@ import { Context, Effect, Layer, Scope } from "effect"
 import { Async, h, type View } from "@verrex/core"
 import { render } from "./index.ts"
 
-class Greeter extends Context.Service<Greeter, {
-  readonly greet: (name: string) => Effect.Effect<string, GreetError>
-}>()("spike/Greeter") {}
+class Greeter extends Context.Service<
+  Greeter,
+  {
+    readonly greet: (name: string) => Effect.Effect<string, GreetError>
+  }
+>()("spike/Greeter") {}
 
 class GreetError {
   readonly _tag = "GreetError"
@@ -68,7 +71,9 @@ describe("Async (once)", () => {
 
   it("renders the success arm after a suspended effect resolves", async () => {
     let release!: () => void
-    const gate = new Promise<void>((r) => { release = r })
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
     const gated = Effect.gen(function* () {
       const g = yield* Greeter
       yield* Effect.promise(() => gate)
@@ -94,10 +99,13 @@ describe("Async (once)", () => {
       return yield* h(
         "div",
         {},
-        yield* Async(() => Effect.never as Effect.Effect<string, never, never>, {
-          initial: h("span", { class: "loading" }, "…"),
-          success: () => h("span", {}, "x"),
-        }),
+        yield* Async(
+          () => Effect.never as Effect.Effect<string, never, never>,
+          {
+            initial: h("span", { class: "loading" }, "…"),
+            success: () => h("span", {}, "x"),
+          },
+        ),
       )
     })()
     const ui = await render(Never)

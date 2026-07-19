@@ -50,15 +50,23 @@ export type Child =
  * job). Distributes over unions automatically.
  */
 export type ChildE<C> =
-  C extends Effect.Effect<any, infer E, any> ? E :
-  C extends View<any> ? never :
-  C extends Option.Option<infer T> ? ChildE<T> :
-  C extends Result.Result<infer A, any> ? ChildE<A> :
-  C extends Chunk.Chunk<infer T> ? ChildE<T> :
-  C extends Atom.Atom<infer T> ? ChildE<T> :
-  C extends AtomRef.ReadonlyRef<infer T> ? ChildE<T> :
-  C extends ReadonlyArray<infer T> ? ChildE<T> :
-  never
+  C extends Effect.Effect<any, infer E, any>
+    ? E
+    : C extends View<any>
+      ? never
+      : C extends Option.Option<infer T>
+        ? ChildE<T>
+        : C extends Result.Result<infer A, any>
+          ? ChildE<A>
+          : C extends Chunk.Chunk<infer T>
+            ? ChildE<T>
+            : C extends Atom.Atom<infer T>
+              ? ChildE<T>
+              : C extends AtomRef.ReadonlyRef<infer T>
+                ? ChildE<T>
+                : C extends ReadonlyArray<infer T>
+                  ? ChildE<T>
+                  : never
 
 /**
  * Walk a single child's type, extracting the union of every **live** `E` — the
@@ -69,18 +77,28 @@ export type ChildE<C> =
  * View's children, so the recursion stays shallow.
  */
 export type ChildLiveE<C> =
-  C extends Effect.Effect<infer A, any, any> ? ChildLiveE<A> :
-  // Coalesce `unknown`→`never`: a phantom-free `ViewNode` (no `ViewErr`) matches
-  // `View<infer VE>` with `VE = unknown`; treat it as no live error rather than
-  // poisoning the fold. (Latent — `ViewNode` isn't part of the public child shapes.)
-  C extends View<infer VE> ? ([unknown] extends [VE] ? never : VE) :
-  C extends Option.Option<infer T> ? ChildLiveE<T> :
-  C extends Result.Result<infer A, any> ? ChildLiveE<A> :
-  C extends Chunk.Chunk<infer T> ? ChildLiveE<T> :
-  C extends Atom.Atom<infer T> ? ChildLiveE<T> :
-  C extends AtomRef.ReadonlyRef<infer T> ? ChildLiveE<T> :
-  C extends ReadonlyArray<infer T> ? ChildLiveE<T> :
-  never
+  C extends Effect.Effect<infer A, any, any>
+    ? ChildLiveE<A>
+    : // Coalesce `unknown`→`never`: a phantom-free `ViewNode` (no `ViewErr`) matches
+      // `View<infer VE>` with `VE = unknown`; treat it as no live error rather than
+      // poisoning the fold. (Latent — `ViewNode` isn't part of the public child shapes.)
+      C extends View<infer VE>
+      ? [unknown] extends [VE]
+        ? never
+        : VE
+      : C extends Option.Option<infer T>
+        ? ChildLiveE<T>
+        : C extends Result.Result<infer A, any>
+          ? ChildLiveE<A>
+          : C extends Chunk.Chunk<infer T>
+            ? ChildLiveE<T>
+            : C extends Atom.Atom<infer T>
+              ? ChildLiveE<T>
+              : C extends AtomRef.ReadonlyRef<infer T>
+                ? ChildLiveE<T>
+                : C extends ReadonlyArray<infer T>
+                  ? ChildLiveE<T>
+                  : never
 
 /**
  * Walk a single child's type, extracting the union of every `R` channel.
@@ -89,15 +107,23 @@ export type ChildLiveE<C> =
  * not an intersection — so we union here too. A `View<E>` carries no `R`.
  */
 export type ChildR<C> =
-  C extends Effect.Effect<any, any, infer R> ? R :
-  C extends View<any> ? never :
-  C extends Option.Option<infer T> ? ChildR<T> :
-  C extends Result.Result<infer A, any> ? ChildR<A> :
-  C extends Chunk.Chunk<infer T> ? ChildR<T> :
-  C extends Atom.Atom<infer T> ? ChildR<T> :
-  C extends AtomRef.ReadonlyRef<infer T> ? ChildR<T> :
-  C extends ReadonlyArray<infer T> ? ChildR<T> :
-  never
+  C extends Effect.Effect<any, any, infer R>
+    ? R
+    : C extends View<any>
+      ? never
+      : C extends Option.Option<infer T>
+        ? ChildR<T>
+        : C extends Result.Result<infer A, any>
+          ? ChildR<A>
+          : C extends Chunk.Chunk<infer T>
+            ? ChildR<T>
+            : C extends Atom.Atom<infer T>
+              ? ChildR<T>
+              : C extends AtomRef.ReadonlyRef<infer T>
+                ? ChildR<T>
+                : C extends ReadonlyArray<infer T>
+                  ? ChildR<T>
+                  : never
 
 /** Fold a tuple of children to the union of their construction `E` channels. */
 export type FoldE<Cs extends readonly unknown[]> = ChildE<Cs[number]>
@@ -144,12 +170,17 @@ type IsAny<T> = 0 extends 1 & T ? true : false
  * the pre-#72 status quo for untyped handler bodies.
  */
 type HandlerChannels<H> =
-  IsAny<H> extends true ? never :
-  H extends (...args: ReadonlyArray<any>) => infer Ret
-    ? IsAny<Ret> extends true ? never :
-      Ret extends Effect.Effect<any, infer E, infer R> ? [E, R] : never
-  : H extends AtomRef.ReadonlyRef<infer Inner> ? HandlerChannels<Inner>
-  : never
+  IsAny<H> extends true
+    ? never
+    : H extends (...args: ReadonlyArray<any>) => infer Ret
+      ? IsAny<Ret> extends true
+        ? never
+        : Ret extends Effect.Effect<any, infer E, infer R>
+          ? [E, R]
+          : never
+      : H extends AtomRef.ReadonlyRef<infer Inner>
+        ? HandlerChannels<Inner>
+        : never
 
 /**
  * One cached pass over the props object: the union of every `on*` handler's
@@ -164,12 +195,15 @@ type HandlerChannels<H> =
  * instantiation.
  */
 type FoldPropsChannels<P> = P extends unknown
-  ? [keyof P & `on${string}`] extends [never] ? never
-  : {
-    [K in keyof P]: K extends "on" ? never
-      : K extends `on${string}` ? HandlerChannels<P[K]>
-      : never
-  }[keyof P]
+  ? [keyof P & `on${string}`] extends [never]
+    ? never
+    : {
+        [K in keyof P]: K extends "on"
+          ? never
+          : K extends `on${string}`
+            ? HandlerChannels<P[K]>
+            : never
+      }[keyof P]
   : never
 
 // Read one side of the [E, R] pairs through a NAKED type parameter: the
