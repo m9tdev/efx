@@ -137,9 +137,10 @@ const isFormProp = (el: Element, key: string): boolean =>
     ? VALUE_TAGS.has(el.tagName)
     : FORM_BOOL_PROPS.has(key) && key in el
 
-// Handlers consume only `HandlerDeps` (the captured context + the sink); they
-// never touch the full `BuildCtx`, so the static-Element path passes that pair
-// instead of deriving a node-scoped ctx + runner it would never use.
+// Prop application consumes only `HandlerDeps` (captured context + sink +
+// registry); it never touches the full `BuildCtx`, so the static-Element path
+// passes that trio instead of deriving a node-scoped ctx + runner it would
+// never use.
 const applyProp = (
   el: Element,
   key: string,
@@ -312,7 +313,11 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       applyProps(
         el,
         view.props,
-        { context: view.context ?? ctx.context, sink: ctx.sink, registry: ctx.registry },
+        {
+          context: view.context ?? ctx.context,
+          sink: ctx.sink,
+          registry: ctx.registry,
+        },
         scope,
         deferred,
       )

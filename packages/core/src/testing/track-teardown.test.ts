@@ -5,11 +5,11 @@ import { h } from "@verrex/core"
 import { render } from "@verrex/core/testing"
 
 // Regression: a reactive expression compiles to `h.track(() => …)`, which
-// returns a derived AtomRef subscribed to whatever refs the thunk reads. When
-// the mounting subtree tears down, those derived→underlying-ref subscriptions
-// must be disposed too — not just the mount→derived one. Otherwise the thunk
-// keeps re-running (and the derived stays retained) for the life of the
-// underlying ref, every time it changes.
+// returns a demand-driven derived Atom over whatever refs the thunk reads.
+// When the mounting subtree tears down, the registry must drop the derived
+// and its ref bridges — otherwise the thunk keeps re-running (and the
+// derived stays retained) for the life of the underlying ref, every time
+// it changes.
 
 describe("h.track subscription teardown", () => {
   it("stops re-running the tracked thunk after the subtree unmounts", async () => {
@@ -28,6 +28,10 @@ describe("h.track subscription teardown", () => {
     )
 
     const ui = await render(app)
+    // Run-count invariant (runtime/AGENTS.md): exactly two runs before first
+    // paint — the creation-time classification run (result discarded) and the
+    // first registry read. A change to this count must be deliberate.
+    expect(runs).toBe(2)
     const afterMount = runs
 
     // Live update while mounted: the thunk re-runs.

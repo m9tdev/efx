@@ -113,9 +113,14 @@ export const makeDepSubscription = (
  * Memoized per ref: the graph keys dependencies by atom object identity, so
  * every `h.track` derived reading the same ref must `get` the same bridge.
  */
-const bridgeCache = new WeakMap<AtomRef.ReadonlyRef<unknown>, Atom.Atom<unknown>>()
+const bridgeCache = new WeakMap<
+  AtomRef.ReadonlyRef<unknown>,
+  Atom.Atom<unknown>
+>()
 
-export const bridgeAtom = (ref: AtomRef.ReadonlyRef<unknown>): Atom.Atom<unknown> => {
+export const bridgeAtom = (
+  ref: AtomRef.ReadonlyRef<unknown>,
+): Atom.Atom<unknown> => {
   let atom = bridgeCache.get(ref)
   if (atom === undefined) {
     atom = Atom.readable((get) => {
