@@ -32,9 +32,15 @@ export type {
   ChildR,
   FoldE,
   FoldLiveE,
+  FoldPropsLiveE,
+  FoldPropsR,
   FoldR,
 } from "./types/Fold.ts"
-export type { HtmlEventHandlers, IntrinsicProps } from "./types/Html.ts"
+export type {
+  EventHandler,
+  HtmlEventHandlers,
+  IntrinsicProps,
+} from "./types/Html.ts"
 
 /**
  * Reactive keyed list. Renders one row per item in `from`, keyed by the
@@ -54,24 +60,34 @@ export type { HtmlEventHandlers, IntrinsicProps } from "./types/Html.ts"
  * **Breaking:** `index` was a plain `number` in earlier versions; it is now a
  * `ReadonlyRef<number>`. Migrate `i` → `i.value` (and note `i` can no longer be
  * used in arithmetic without `.value`).
+ *
+ * Row channels fold through (#72 review): a row's live `E` (a typed failing
+ * handler, an open `Async`) rides `View<E>` out of the list, and a row's `R`
+ * (a service-using handler, a construction `yield*`) surfaces on the result —
+ * the node captures the construction context (`ViewList.context`) and every
+ * row builds on it, so the Layer demanded here is genuinely the one the rows
+ * see, including under a mid-tree `Effect.provide`. The per-row `Scope` is
+ * supplied by the list runtime and excluded from the folded `R`, so a parent
+ * rendering the list stays Scope-free. The Effect shell carries `E`/`R`
+ * through the child fold (and performs the capture).
  */
-export const list = <T>(
+export const list = <T, E = never, R = never>(
   from: AtomRef.Collection<T>,
   render: (
     item: AtomRef.AtomRef<T>,
     index: AtomRef.ReadonlyRef<number>,
-  ) =>
-    | View
-    | Effect.Effect<View, never, Scope.Scope>
-    | Effect.Effect<View, never, never>,
-): View =>
-  View.List({
-    source: from as AtomRef.Collection<unknown>,
-    render: render as (
-      item: AtomRef.AtomRef<unknown>,
-      index: AtomRef.ReadonlyRef<number>,
-    ) => unknown,
-  })
+  ) => View<E> | Effect.Effect<View<E>, never, R>,
+): Effect.Effect<View<E>, never, Exclude<R, Scope.Scope>> =>
+  Effect.map(Effect.context<never>(), (context) =>
+    View.List({
+      context,
+      source: from as AtomRef.Collection<unknown>,
+      render: render as (
+        item: AtomRef.AtomRef<unknown>,
+        index: AtomRef.ReadonlyRef<number>,
+      ) => unknown,
+    }),
+  )
 
 /**
  * What `asyncRef` returns: the reactive result plus a manual `refetch`.
@@ -434,45 +450,50 @@ export function Async<A, E, R = never>(
       "Async: `from` is neither a thunk nor an AsyncHandle (`state` is not an AtomRef)",
     )
   }
-  return (
-    typeof from === "function" ? asyncRef(from) : Effect.succeed(from)
-  ).pipe(
-    Effect.map(({ refetch, state }) =>
-      View.Reactive({
-        source: state.map((r) =>
-          AsyncResult.match(r, {
-            onInitial: () => arms.initial ?? null,
-            // Function arm: catch-all, renders the full Cause. Tag map: a
-            // matched tag renders locally — the asyncRef stays live, so a dep
-            // change still refetches and can recover. Unmatched/absent: emit
-            // the cause as a failing Effect; the Reactive render path
-            // (`coerceSync`) runs it, routes the cause to the subtree's error
-            // sink — the nearest `Catch`'s `report` — and renders nothing. The
-            // interrupt-only guard already ran in `asyncRef` (teardown never
-            // reaches the Failure state).
-            onFailure: (f) => {
-              // Retry/refetch in flight (`waiting` flag): render the initial
-              // arm instead of re-invoking the failure arm with the stale
-              // cause. Stale-while-revalidate keeps CONTENT (success-waiting
-              // renders the success arm); a stale error isn't content, and
-              // re-invoking the arm would rebuild its DOM (including any
-              // retry button) mid-flight. Also the observable that makes
-              // "retry is running" testable.
-              if (f.waiting) return arms.initial ?? null
-              if (typeof failure === "function")
-                return failure(f.cause, refetch)
-              // Truthiness (not === undefined): a nullish `failure` smuggled
-              // past the types degrades to the open form instead of crashing
-              // `Object.hasOwn` — matching the pre-tag-map behavior.
-              const match = failure ? taggedMatch(failure, f.cause) : undefined
-              return match
-                ? match.handler(match.error, refetch)
-                : Effect.failCause(f.cause)
-            },
-            onSuccess: (s) => arms.success(s.value),
-          }),
-        ) as AtomRef.ReadonlyRef<unknown>,
-      }),
+  // Capture the construction context onto the Reactive node so every arm
+  // render (incl. post-refetch re-renders) runs on it — see ViewReactive.context.
+  return Effect.flatMap(Effect.context<never>(), (context) =>
+    (typeof from === "function" ? asyncRef(from) : Effect.succeed(from)).pipe(
+      Effect.map(({ refetch, state }) =>
+        View.Reactive({
+          context,
+          source: state.map((r) =>
+            AsyncResult.match(r, {
+              onInitial: () => arms.initial ?? null,
+              // Function arm: catch-all, renders the full Cause. Tag map: a
+              // matched tag renders locally — the asyncRef stays live, so a dep
+              // change still refetches and can recover. Unmatched/absent: emit
+              // the cause as a failing Effect; the Reactive render path
+              // (`coerceSync`) runs it, routes the cause to the subtree's error
+              // sink — the nearest `Catch`'s `report` — and renders nothing. The
+              // interrupt-only guard already ran in `asyncRef` (teardown never
+              // reaches the Failure state).
+              onFailure: (f) => {
+                // Retry/refetch in flight (`waiting` flag): render the initial
+                // arm instead of re-invoking the failure arm with the stale
+                // cause. Stale-while-revalidate keeps CONTENT (success-waiting
+                // renders the success arm); a stale error isn't content, and
+                // re-invoking the arm would rebuild its DOM (including any
+                // retry button) mid-flight. Also the observable that makes
+                // "retry is running" testable.
+                if (f.waiting) return arms.initial ?? null
+                if (typeof failure === "function")
+                  return failure(f.cause, refetch)
+                // Truthiness (not === undefined): a nullish `failure` smuggled
+                // past the types degrades to the open form instead of crashing
+                // `Object.hasOwn` — matching the pre-tag-map behavior.
+                const match = failure
+                  ? taggedMatch(failure, f.cause)
+                  : undefined
+                return match
+                  ? match.handler(match.error, refetch)
+                  : Effect.failCause(f.cause)
+              },
+              onSuccess: (s) => arms.success(s.value),
+            }),
+          ) as AtomRef.ReadonlyRef<unknown>,
+        }),
+      ),
     ),
   )
 }
@@ -620,7 +641,13 @@ const makeBoundary = <R>(
       }),
     )
 
-    return View.Boundary({ state, handler, reset, report, setAmbient })
+    // Capture the construction context for the FALLBACK arm: the ok content
+    // is (re)built by the drain fiber above, which inherits this context, but
+    // the fallback renders through mount's coerceSync and would otherwise run
+    // on the ambient (root) context — the one dynamic-render path the
+    // per-node capture sweep would miss (see ViewBoundary.context).
+    const context = yield* Effect.context<never>()
+    return View.Boundary({ state, handler, reset, report, setAmbient, context })
   })
 
 /**

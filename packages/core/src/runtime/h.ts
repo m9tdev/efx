@@ -3,12 +3,19 @@ import { AtomRef } from "effect/unstable/reactivity"
 import {
   coerceAsync,
   isAtomRef,
+  isHandlerKey,
   makeDepSubscription,
   recordDep,
   setTrackDispose,
   trackDeps,
 } from "./coerce.ts"
-import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
+import type {
+  FoldE,
+  FoldLiveE,
+  FoldPropsLiveE,
+  FoldPropsR,
+  FoldR,
+} from "./types/Fold.ts"
 import type { IntrinsicProps } from "./types/Html.ts"
 import { type Props, View } from "./View.ts"
 
@@ -20,8 +27,16 @@ import { type Props, View } from "./View.ts"
 // that re-runs the thunk on dep changes; otherwise it returns the value
 // directly (no reactivity overhead for static expressions). The collector
 // itself lives in coerce.ts (`trackDeps`/`recordDep`) so `Async` can share it.
-
-const trackImpl = (thunk: () => unknown): unknown => {
+//
+// The return type is the HONEST union of those two paths — `T` when nothing
+// was read, `ReadonlyRef<T>` when something was. It used to be `unknown`,
+// which erased every channel the thunk's value carried: for an `on*` prop
+// that silently dropped a handler's `E`/`R` while the runtime still ran it
+// (#159). Both members of the union fold: `HandlerChannels` reads a function
+// directly and recurses through `ReadonlyRef`, and `ChildE`/`ChildLiveE`/
+// `ChildR` peel `AtomRef` the same way — so a tracked expression now carries
+// its channels wherever it lands, instead of laundering them into `unknown`.
+const trackImpl = <T>(thunk: () => T): T | AtomRef.ReadonlyRef<T> => {
   const { result, deps } = trackDeps(thunk)
   if (deps.size === 0) return result
 
@@ -47,7 +62,7 @@ const trackImpl = (thunk: () => unknown): unknown => {
   setTrackDispose(derived, sub.dispose)
 
   sub.resubscribe(deps)
-  return derived
+  return derived as AtomRef.ReadonlyRef<T>
 }
 
 type HasValue = { readonly value: unknown }
@@ -99,12 +114,36 @@ const _h = (
     )
   }
   return Effect.gen(function* () {
+    // Capture the ambient context at construction — but only when a handler
+    // prop exists to consume it (see ViewElement.context; handler dispatch is
+    // the capture's ONLY consumer). Handler-less elements — the majority —
+    // stay pure data: no extra yield, no retained Context.
     const out: View<any>[] = []
     for (const c of children) {
       out.push(yield* coerceAsync(c))
     }
+    if (hasHandlerProp(props)) {
+      const context = yield* Effect.context<never>()
+      return View.Element({ tag, props, children: out, context })
+    }
     return View.Element({ tag, props, children: out })
   })
+}
+
+// A prop that applyProp would treat as a handler: an `on*` key (the shared
+// `isHandlerKey` gate) holding a function — or an AtomRef (whose unwrapped
+// value applyProp re-applies live, possibly as a handler). OWN keys only
+// (`Object.hasOwn`): applyProps consumes props via Object.entries, so an
+// inherited/prototype-polluted `on*` key would make this gate capture a
+// context applyProps never consumes — the two must agree.
+const hasHandlerProp = (props: Props): boolean => {
+  for (const k in props) {
+    if (Object.hasOwn(props, k) && isHandlerKey(k)) {
+      const v = props[k]
+      if (typeof v === "function" || isAtomRef(v)) return true
+    }
+  }
+  return false
 }
 
 // Errors split by phase across the two channels: CONSTRUCTION errors
@@ -112,11 +151,23 @@ const _h = (
 // LIVE errors (`FoldLiveE`) on the `View<E>` success (errors the
 // rendered subtree can still produce). `mount` requires both `never`;
 // `Catch` discharges both. The position encodes the phase.
-type HFn = <Cs extends readonly unknown[]>(
+//
+// Props fold too (#72): `_props` is generic so an Effect-returning event
+// handler's channels survive — its `E` joins the LIVE channel (the handler
+// runs after the element is built; `View<E>` is the only honest home) and
+// its `R` joins the element's requirements. The `IntrinsicProps` constraint
+// is what contextually types the event parameter (`onclick: (e) => …` gets
+// `e: MouseEvent`); the fold reads the *inferred* `P`, so a handler's
+// precise `Effect<_, E, R>` return is what lands in the channels.
+type HFn = <P extends IntrinsicProps, Cs extends readonly unknown[]>(
   _tag: string,
-  _props: IntrinsicProps,
+  _props: P,
   ..._children: Cs
-) => Effect.Effect<View<FoldLiveE<Cs>>, FoldE<Cs>, FoldR<Cs>>
+) => Effect.Effect<
+  View<FoldLiveE<Cs> | FoldPropsLiveE<P>>,
+  FoldE<Cs>,
+  FoldR<Cs> | FoldPropsR<P>
+>
 
 /**
  * The view factory, plus two helper methods the compiler calls into:
