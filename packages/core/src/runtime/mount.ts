@@ -130,7 +130,9 @@ const subscribeAtomScoped = <A>(
 // for the rest of `scope`'s life. Dispatch on Atom (read/subscribe through
 // the registry — an `h.track` derived) vs AtomRef (direct). Both reactive
 // consumers — `applyProp` and the Reactive child case — go through here; a
-// third source shape means extending this, not a new dispatch site.
+// third source shape means extending this, not a new dispatch site. A value
+// that is neither is a no-op, matching what each call site did before the
+// consolidation (both guarded with `isAtom`/`isAtomRef` and fell through).
 const applyAndSubscribeSource = (
   source: unknown,
   registry: AtomRegistry.AtomRegistry,
@@ -140,7 +142,10 @@ const applyAndSubscribeSource = (
 ): void => {
   const read = Atom.isAtom(source)
     ? () => registry.get(source as Atom.Atom<unknown>)
-    : () => (source as AtomRef.ReadonlyRef<unknown>).value
+    : isAtomRef(source)
+      ? () => source.value
+      : null
+  if (read === null) return
   if (deferInitial) deferInitial.push(() => apply(read()))
   else apply(read())
   if (Atom.isAtom(source)) {

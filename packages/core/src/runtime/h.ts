@@ -54,7 +54,7 @@ const trackImpl = <T>(thunk: () => T): T | Atom.Atom<T> => {
     const { result: next, deps: nextDeps } = trackDeps(thunk)
     for (const dep of nextDeps) get(bridgeAtom(dep))
     return next
-  }) as Atom.Atom<T>
+  })
 }
 
 type HasValue = { readonly value: unknown }
