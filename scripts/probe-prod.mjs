@@ -33,7 +33,21 @@ await runProbe({
       .getAttribute("class")
     console.log("todos initial count:", todoCount)
     console.log("todos #2 class after toggle:", toggledClass)
+
+    // Assert, don't just narrate — this probe logged and always exited 0, so
+    // it could not have failed at any wait length.
+    const results = {
+      counterIncremented: /\b3\b/.test(counterText),
+      liveUserRefetched: liveUser === "Grace Hopper",
+      todosRendered: todoCount > 0,
+      todoToggled: /\bdone\b/.test(toggledClass ?? ""),
+    }
+    console.log("\n[results]", JSON.stringify(results, null, 2))
+    if (!Object.values(results).every(Boolean)) {
+      console.error("\nFAIL", results)
+      process.exitCode = 1
+    } else {
+      console.log("\nPASS — production bundle is interactive end-to-end")
+    }
   },
 })
-
-console.log("DONE")
