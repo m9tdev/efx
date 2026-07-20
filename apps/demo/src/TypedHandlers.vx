@@ -1,0 +1,60 @@
+import { Effect } from "effect"
+import { AtomRef } from "effect/unstable/reactivity"
+import { Catch, Component } from "@verrex/core"
+import { Http } from "./services.ts"
+
+// #72: the handler IS the program. Nothing in this component's body yields a
+// service or fails — both channels enter through `onclick` alone. A handler
+// returning `Effect<_, E, R>` stamps `E` on the element's LIVE channel (the
+// element is already rendered when a click runs, so `View<E>` is the only
+// honest home) and folds `R` into the element's requirements:
+//
+//   Loader : Effect<View<HttpError>, never, Http>
+//
+// Delete the Catch in `TypedHandlers` below and the demo stops compiling,
+// naming HttpError; drop HttpLive from main's APP_LAYER and it names Http.
+const Loader = Component.make(function* () {
+  const loaded = AtomRef.make("nobody yet")
+
+  const load = Effect.fn(function* (id: string) {
+    const http = yield* Http // the handler's R — folds into the element
+    const user = yield* http.getUser(id) // may 404 → HttpError, live
+    loaded.set(user.name)
+  })
+
+  return yield* (
+    <div class="typed-handlers">
+      <p>
+        loaded: <strong class="who">{loaded}</strong>
+      </p>
+      <button class="load-ada" onclick={() => load("42")}>
+        load Ada (42)
+      </button>
+      <button class="load-missing" onclick={() => load("999")}>
+        load #999
+      </button>
+    </div>
+  )
+})
+
+/**
+ * The discharged wrapper the demo mounts. The tag-map `Catch` handles the
+ * handler-born HttpError (unwrapped, `e.status` typed); `reset` re-runs
+ * Loader's construction, so the card comes back fresh ("nobody yet").
+ * Inferred: `Effect<View, never, Http | Scope>` — HttpError discharged,
+ * the handler's Http still riding R to the root.
+ */
+export const TypedHandlers = Component.make(function* () {
+  return yield* Catch(<Loader />, {
+    HttpError: (e, reset) => (
+      <div class="boundary-fallback">
+        <p class="caught">
+          handler failed: HttpError {e.status} — {e.message}
+        </p>
+        <button class="reset" onclick={reset}>
+          reset
+        </button>
+      </div>
+    ),
+  })
+})

@@ -46,14 +46,46 @@ Every JSX expression `{...}` triggers up to three local rewrites:
 
 1. **Wrap in `h.track(() => ...)`** — _only if a `.value` read got
    rewritten_. See `wrapTracked` + `rewroteRead` flag in `transform.ts`.
-   This is load-bearing: `h.track`'s return is `unknown`, which would
-   destroy the typing of static expressions like
+   This is load-bearing: `h.track` returns `T | ReadonlyRef<T>`, and the
+   ref member would destroy the typing of static expressions like
    `<Row item={item} />` (where `item` is a generic `T`). Static
    passes through with no wrap. The `.value.map → list(...)` rewrite
    (#3) also does **not** trigger a wrap — `list()` subscribes inside
    `mount`, so wrapping in `h.track` would be a redundant layer. Same
-   for `Async(...)` and `Catch(...)` calls (`isSelfTrackingCall`):
-   they self-track and must reach the `h()` fold un-erased.
+   for `Async(...)`, `Catch(...)`, and MANUAL `list(...)` calls
+   (`SELF_TRACKING_HELPERS`): they self-track/self-subscribe and must
+   reach the `h()` fold un-erased. **Which calls skip is decided
+   scope-correctly** by `resolveHelperCalls` — only a call whose callee
+   binds to the `@verrex/core` import (or is unresolved: the injected
+   `list`, or a forgotten import that's a TS error anyway) skips; a call
+   bound to the user's own `list`/`Async`/`Catch` (a local const, a
+   `.map(list => …)` param, an import from elsewhere) keeps its wrap, so
+   its reactivity survives. A `.value` read sitting in a skipped call's
+   _argument_ (rather than inside its thunk/row/handler function) reads
+   ONCE at construction — the same eager one-time semantics a statement
+   read has (#3 below); not special-cased (reactive source selection
+   belongs inside the function; manual-`list` source reactivity is #128).
+   And same
+   for a **whole-expression function value**
+   (`onclick={() => count.value + 1}`): evaluating a function expression
+   executes no reads, so the wrap's dep set is provably always empty — a
+   runtime no-op whose `unknown` would erase the handler's `E`/`R` from
+   the props fold (#72). The inner `h.read` rewrites are kept; they run
+   at call time with no tracker active, i.e. as plain `.value` reads. A
+   `.value` read _outside_ the function (`onclick={cond.value ? a : b}`)
+   still wraps — and for a handler key DECLARED in `HtmlEventHandlers`
+   that pattern does NOT pass the type gate: `h.track` returns
+   `T | ReadonlyRef<T>`, whose ref member fails the declared
+   `HandlerSlot<Ev>`, so reactive handler _selection_ is unsupported in
+   checked `.vx`. It is a LOUD rejection on every key now: before #159
+   `h.track` returned `unknown`, which an UNLISTED `on*` key
+   (`ontimeupdate`, a custom-element event) swallowed via the
+   `Record<string, unknown>` half of the intersection — erasing both
+   channels while the runtime still attached the listener. The typed form is selecting _inside_ the handler —
+   `onclick={(e) => (cond.value ? incr : decr)(e)}` — a function
+   expression (wrap-skipped, channels intact) that reads the ref at
+   click time. The wrap is still emitted for the untyped-JS path, where
+   `applyProp`'s AtomRef branch re-binds the listener reactively.
 
 2. **`x.value` → `h.read(x)`** inside the wrapped expression. Tracks
    AtomRef reads. (The _same_ read rewrite also runs over the whole
@@ -177,7 +209,8 @@ visitor in `transformVerrex`). Deliberately narrow and additive:
   argument, bound by a plain identifier declarator (`const X = …`,
   exported or not). A second argument already present (an explicit name)
   is left alone.
-- Matched by name, like `isSelfTrackingCall` — an aliased import
+- Matched by name on the `Component.make` member shape (unlike
+  `isSelfTrackingCall`, which is now scope-correct) — an aliased import
   (`import { Component as C }`) defeats it, which **fails soft**: the
   component still works, its span is just anonymous. No diagnostic.
 - `Component` is NOT auto-imported (it only appears in this rewrite when

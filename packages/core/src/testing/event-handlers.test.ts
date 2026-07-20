@@ -1,17 +1,19 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest"
-import { Cause, Context, Effect, Layer, Logger } from "effect"
+import { Cause, Effect, Logger } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { h } from "@verrex/core"
-import { render } from "./index.ts"
+import { stepClick, stepLayer } from "./fixtures.ts"
+import { render, untracked } from "./index.ts"
 
 // PR1 fix: an event handler that returns an Effect used to be added as a raw DOM
 // listener and the returned Effect was DROPPED unexecuted. Now applyProp detects
 // an Effect return and forks it on the mount's captured context, routing failures
-// to the error sink. These tests pin: it runs, it sees the app's services, plain
-// imperative handlers still work, and a failing handler is contained (not thrown
-// out of the DOM dispatch). The reactive-render sink routing is unit-tested in
-// runtime/coerce.test.ts; both paths share the same sink + interrupt guard.
+// to the error sink. These tests pin DISPATCH: it runs, it sees the app's
+// services, plain imperative handlers still work, and a failing handler is
+// contained (not thrown out of the DOM dispatch). The per-node context-capture
+// and handler-scope pins live in context-capture.test.ts; the reactive-render
+// sink routing is unit-tested in runtime/coerce.test.ts.
 
 describe("event handlers — Effect-returning", () => {
   it("runs the returned Effect (counter increments on click)", async () => {
@@ -42,25 +44,13 @@ describe("event handlers — Effect-returning", () => {
   })
 
   it("runs on the captured context — handler Effect can yield* a service", async () => {
-    class Step extends Context.Service<Step, { readonly by: number }>()(
-      "test/Step",
-    ) {}
-    const StepLive = Layer.succeed(Step, { by: 10 })
-
     const ServiceClicker = Effect.fn("ServiceClicker")(function* (
       _props: {} = {},
     ) {
       const count = AtomRef.make(0)
       return yield* h(
         "button",
-        {
-          class: "btn",
-          onClick: () =>
-            Effect.gen(function* () {
-              const step = yield* Step
-              count.set(count.value + step.by)
-            }),
-        },
+        { class: "btn", onClick: stepClick(count) },
         "count: ",
         count,
       )
@@ -68,7 +58,7 @@ describe("event handlers — Effect-returning", () => {
 
     // If the handler ran on the default runtime (no captured context), `yield* Step`
     // would fail and the count would never move — so this asserts context capture.
-    const ui = await render(ServiceClicker(), StepLive)
+    const ui = await render(ServiceClicker(), stepLayer(10))
     expect(ui.text(".btn")).toBe("count: 0")
 
     ui.click(".btn")
@@ -112,6 +102,11 @@ describe("event handlers — Effect-returning", () => {
 
     const Mixed = Effect.fn("Mixed")(function* (_props: {} = {}) {
       const count = AtomRef.make(0)
+      // The handler is typed HONESTLY (it fails with a string, so this
+      // component stamps View<string>); `untracked` below is the harness's
+      // sanctioned hatch for mounting it — since #72 a typed failing handler
+      // can't reach `render`/`mount` otherwise (pinned in channels.test-d.ts).
+      // The runtime containment must hold regardless of what the types track.
       return yield* h(
         "div",
         {},
@@ -132,7 +127,7 @@ describe("event handlers — Effect-returning", () => {
       )
     })
 
-    const ui = await render(Mixed(), CapturingLogger)
+    const ui = await render(untracked(Mixed()), CapturingLogger)
 
     // A failing handler must not throw out of dispatch nor break the app, and the
     // ACTUAL cause must reach the sink (not just "something logged"). The sink logs

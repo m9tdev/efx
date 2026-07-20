@@ -1,5 +1,5 @@
 import { Data } from "effect"
-import type { Cause } from "effect"
+import type { Cause, Context } from "effect"
 import type { Atom } from "effect/unstable/reactivity"
 import type { AtomRef } from "effect/unstable/reactivity"
 
@@ -62,6 +62,15 @@ export interface ViewElement {
   readonly tag: string
   readonly props: Props
   readonly children: ReadonlyArray<ViewNode>
+  /**
+   * Ambient Effect context captured when `h()` constructed this element.
+   * Event-handler Effects run on it (`runHandlerEffect` in mount.ts), so a
+   * mid-tree `Effect.provide` over a subtree is honored at click time — the
+   * runtime counterpart of `FoldPropsR` claiming the handler's `R` on the
+   * construction Effect. Absent on hand-built nodes (tests, stale compiled
+   * output); mount falls back to its own captured context.
+   */
+  readonly context?: Context.Context<never>
 }
 export interface ViewFragment {
   readonly _tag: "Fragment"
@@ -71,17 +80,30 @@ export interface ViewReactive {
   readonly _tag: "Reactive"
   // Source can carry any value; mount() normalizes it into a View at render time.
   readonly source: Atom.Atom<unknown> | AtomRef.ReadonlyRef<unknown>
+  /**
+   * Ambient context captured at construction — every re-render of this node
+   * runs on it (`buildScopedChild` via the node-scoped `BuildCtx`), so a
+   * mid-tree `Effect.provide` reaches dynamic REBUILDS, not just the first
+   * paint. Same contract as `ViewElement.context`; absent on hand-built
+   * nodes (mount falls back to its own capture).
+   */
+  readonly context?: Context.Context<never>
 }
 export interface ViewList {
   readonly _tag: "List"
   readonly source: AtomRef.Collection<unknown>
-  // Returns View or Effect<View, never, never> — mount's valueToView coerces.
+  // Returns a View or a sync Effect of one — mount's coerceSync materializes
+  // each row on this node's captured context (fallback: mount's), so row
+  // channels claimed by `list`'s signature are genuinely available, including
+  // under a mid-tree Effect.provide.
   // `index` is a reactive ref: mount pushes each row's current position into it
   // on reorder/shift, so `{index.value}` in a row updates without re-rendering.
   readonly render: (
     item: AtomRef.AtomRef<unknown>,
     index: AtomRef.ReadonlyRef<number>,
   ) => unknown
+  /** Construction-captured context — rows build on it. See ViewReactive.context. */
+  readonly context?: Context.Context<never>
 }
 export interface ViewEmpty {
   readonly _tag: "Empty"
@@ -102,6 +124,12 @@ export interface ViewBoundary {
   // so a tag-selective `Catch` (object form) can escalate a cause it
   // doesn't handle to the next boundary outward. A catch-all never escalates.
   readonly setAmbient: (sink: (cause: Cause.Cause<unknown>) => void) => void
+  /**
+   * Construction-captured context — the FALLBACK builds on it (the ok-content
+   * subtree needs no capture: it is built by the boundary's drain fiber, which
+   * inherits the construction context). See ViewReactive.context.
+   */
+  readonly context?: Context.Context<never>
 }
 
 /** The phantom-free runtime IR — the shape `mount` switches on and the

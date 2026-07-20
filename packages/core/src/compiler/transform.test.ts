@@ -150,6 +150,156 @@ describe("tracking-scope rewrites (h.track / h.read)", () => {
     ).not.toContain(`h.track`)
   })
 
+  it("function-valued attrs with `.value` reads keep h.read but are NOT h.track-wrapped", () => {
+    // Evaluating a function expression executes no reads, so the wrap's dep
+    // set is provably always empty — a runtime no-op whose `unknown` type
+    // would erase the handler's E/R from the props fold (#72). The inner
+    // h.read runs at call time (no tracker active → plain `.value`).
+    const out = compile(`
+      const x = <button onclick={() => count.set(count.value + 1)}>+</button>
+    `)
+    expect(out).toContain(`h.read(count)`)
+    expect(out).not.toContain(`h.track`)
+  })
+
+  it("classic function expressions in attrs are also left unwrapped", () => {
+    const out = compile(`
+      const x = <button onclick={function () { return count.value }}>+</button>
+    `)
+    expect(out).toContain(`h.read(count)`)
+    expect(out).not.toContain(`h.track`)
+  })
+
+  it("the skip is SCOPE-CORRECT — only a @verrex/core-bound call skips the wrap", () => {
+    // `list` is a common identifier. A call bound to the user's OWN function
+    // (a local const, an import from elsewhere) keeps its h.track wrap so its
+    // reactivity survives; only a call bound to the @verrex/core import skips.
+    const local = compile(`
+      const list = (xs) => xs.join(", ")
+      const x = <p>{list(tags.value)}</p>
+    `)
+    expect(local).toContain(`h.track(() =>`)
+    expect(local).toContain(`h.read(tags)`)
+
+    const imported = compile(`
+      import { list } from "rambda"
+      const x = <p>{list(tags.value)}</p>
+    `)
+    expect(imported).toContain(`h.track(() =>`)
+
+    // An import from @verrex/core IS the helper — the skip stays.
+    const verrex = compile(`
+      import { list } from "@verrex/core"
+      const x = <ul>{list(todos, (item) => <li>{item.value}</li>)}</ul>
+    `)
+    expect(verrex).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
+
+    // An ALIASED @verrex/core import resolves by the IMPORTED name → skips.
+    const aliased = compile(`
+      import { Async as A } from "@verrex/core"
+      const x = <div>{A(() => http.get(id.value), { success: (v) => <span>{v}</span> })}</div>
+    `)
+    expect(aliased).toContain(`h.read(id)`)
+    expect(aliased).not.toMatch(/h\.track\(\(\)\s*=>\s*A\(/)
+  })
+
+  it("an unrelated local `list` binding does NOT disable a real verrex list in the same file", () => {
+    // The round-4 file-level shadow over-approximated: a `.map(list => …)`
+    // param anywhere disabled the file's real verrex list. Scope-correct
+    // resolution keys on the CALL's binding, so the param (scoped to the
+    // arrow) never touches the module-scope verrex `list(...)`.
+    const out = compile(`
+      import { list } from "@verrex/core"
+      const labels = tags.map(list => list.label)
+      const x = <ul>{list(todos, (item) => <li>{item.value}</li>)}</ul>
+    `)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(todos/)
+  })
+
+  it("an eager .value read in a skip-listed call's argument compiles as a one-time read", () => {
+    // No special-casing: `{list(showDone.value ? …)}` reads ONCE at
+    // construction — the same eager semantics a statement read has. It is not
+    // a compile error (round-4 threw here, which also rejected valid
+    // construction-time reads in Catch/Async children — see the test below).
+    const out = compile(`
+      import { list } from "@verrex/core"
+      const x = <ul>{list(showDone.value ? doneColl : todoColl, (item) => <li>{item}</li>)}</ul>
+    `)
+    expect(out).toContain(`h.read(showDone)`)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
+  })
+
+  it("a construction-time .value read in a Catch/Async first-arg child compiles (snapshot)", () => {
+    // A boundary/async child is built once; a `.value` read in its props or
+    // text is a legitimate construction snapshot. Round-4's eager-read throw
+    // wrongly rejected these — they must compile.
+    const catchChild = compile(`
+      import { Catch } from "@verrex/core"
+      const x = <div>{Catch(<h1>{title.value}</h1>, (c) => <p>err</p>)}</div>
+    `)
+    expect(catchChild).toContain(`h.read(title)`)
+    expect(catchChild).not.toMatch(/h\.track\(\(\)\s*=>\s*Catch\(/)
+  })
+
+  it("MANUAL list() calls are not h.track-wrapped (self-subscribing, channel-carrying)", () => {
+    // The `.value.map → list` rewrite was always unwrapped; a hand-written
+    // list() with `.value` reads in its row arrow must get the same treatment
+    // — its return type carries the folded row channels since #72, and the
+    // wrap's `unknown` would erase them (rows with service-using handlers
+    // would compile without their Layer and die at runtime).
+    const out = compile(`
+      const x = <ul>{list(todos, (item) => <li>{item.value.title}</li>)}</ul>
+    `)
+    expect(out).toContain(`h.read(item)`)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
+  })
+
+  it("cast-wrapped Async / Catch / list calls keep the skip (peel before the check)", () => {
+    // `{Async(…) satisfies Effect<View<E>, …>}` is exactly how a user pins a
+    // boundary's channel — the wrap would erase the channel being pinned.
+    const out = compile(`
+      const x = <div>{Async(() => http.get(id.value), { success: (u) => <p>{u}</p> }) as A}</div>
+    `)
+    expect(out).toContain(`h.read(id)`)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Async\(/)
+
+    const sat = compile(`
+      const y = <div>{Catch(child, () => <p>{ref.value}</p>) satisfies C}</div>
+    `)
+    expect(sat).not.toMatch(/h\.track\(\(\)\s*=>\s*Catch\(/)
+  })
+
+  it("cast-wrapped function attrs are still recognized (as / satisfies / non-null)", () => {
+    // `(arrow) as EventHandler<…>` evaluates to the function unchanged — the
+    // wrap would be just as dead, and would erase exactly the annotation the
+    // docs recommend for extracted handlers.
+    const asOut = compile(`
+      const x = <button onclick={((e) => count.set(count.value + 1)) as EventHandler<MouseEvent>}>+</button>
+    `)
+    expect(asOut).toContain(`h.read(count)`)
+    expect(asOut).not.toContain(`h.track`)
+
+    const satisfiesOut = compile(`
+      const y = <button onclick={((e) => count.set(count.value + 1)) satisfies EventHandler<MouseEvent>}>+</button>
+    `)
+    expect(satisfiesOut).toContain(`h.read(count)`)
+    expect(satisfiesOut).not.toContain(`h.track`)
+  })
+
+  it("a `.value` read OUTSIDE the function value still wraps (untyped-JS reactive path)", () => {
+    // `cond.value ? a : b` reads during tracking, so the wrap is emitted and
+    // applyProp's AtomRef branch re-binds the listener when `cond` flips —
+    // but ONLY in untyped JS: the wrap's `unknown` fails h()'s IntrinsicProps
+    // constraint in checked .vx (it always did). The typed form selects
+    // INSIDE the handler: `onclick={(e) => (cond.value ? incr : decr)(e)}`
+    // (a function expression — wrap-skipped, channels intact).
+    const out = compile(`
+      const x = <button onclick={cond.value ? incr : decr}>+</button>
+    `)
+    expect(out).toContain(`h.read(cond)`)
+    expect(out).toContain(`h.track(() =>`)
+  })
+
   it("`.value` assignment (LHS) is NOT rewritten as a read", () => {
     // We only intercept reads — `obj.value = …` stays as a real assignment.
     expect(

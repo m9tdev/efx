@@ -7,6 +7,18 @@ export const isAtomRef = (u: unknown): u is AtomRef.ReadonlyRef<unknown> =>
   typeof u === "object" && u !== null && AtomRef.TypeId in u
 
 /**
+ * THE handler-key gate, shared by every consumer so they can't drift:
+ * `applyProp` (attach listener + run returned Effects), `h()`'s
+ * capture-context predicate, and — mirrored at the type level —
+ * `FoldPropsChannels` in types/Fold.ts (`on${string}` minus the bare `"on"`,
+ * which this `length > 2` excludes). If you change this, change the fold's
+ * key conditional in the same commit; `types/Fold.test-d.ts` pins the type
+ * side of the matrix and `coerce.test.ts` pins this side.
+ */
+export const isHandlerKey = (key: string): boolean =>
+  key.length > 2 && key.startsWith("on")
+
+/**
  * Where a runtime (post-mount) failure is routed instead of being swallowed.
  * A reactive re-render whose Effect fails, and (in `mount`) a failing event
  * handler, both hand their `Cause` to a sink threaded down from `mount`. The
@@ -140,12 +152,15 @@ export function coerceAsync(v: unknown): Effect.Effect<View, any, any> {
   }
   if (Chunk.isChunk(v)) return coerceChildren(Chunk.toReadonlyArray(v))
   if (Array.isArray(v)) return coerceChildren(v)
-  if (Atom.isAtom(v)) {
-    return Effect.succeed(View.Reactive({ source: v as Atom.Atom<View> }))
-  }
-  if (isAtomRef(v)) {
-    return Effect.succeed(
-      View.Reactive({ source: v as AtomRef.ReadonlyRef<View> }),
+  // Reactive nodes capture the construction context so their re-renders run
+  // on it — a mid-tree Effect.provide reaches every rebuild, not just the
+  // first paint (see ViewReactive.context).
+  if (Atom.isAtom(v) || isAtomRef(v)) {
+    return Effect.map(Effect.context<never>(), (context) =>
+      View.Reactive({
+        source: v as Atom.Atom<View> | AtomRef.ReadonlyRef<View>,
+        context,
+      }),
     )
   }
   return Effect.succeed(View.Text({ value: String(v) }))
@@ -167,10 +182,25 @@ function coerceChildren(
 }
 
 /**
+ * Runs a ready Effect to an Exit on a fixed context — a partially-applied
+ * `Effect.runSyncExitWith(context)`, built once per BuildCtx (mount root /
+ * a `withContext` derivation for a context-carrying IR node) and reused for
+ * every render, instead of re-applying the curried runner per coercion.
+ */
+export type SyncRunner = <A, E>(
+  effect: Effect.Effect<A, E, never>,
+) => Exit.Exit<A, E>
+
+/**
  * Synchronously coerce an arbitrary value (typically read from a reactive
  * source at render time) into a View. `scope` is provided to any Effect-shaped
  * value via `Effect.provideService`, so `Effect.acquireRelease` /
- * `Effect.addFinalizer` inside the effect register releases against it.
+ * `Effect.addFinalizer` inside the effect register releases against it — INSIDE
+ * the run, so the per-render scope wins over any stale `Scope` entry the
+ * runner's context may carry. `run` executes the effect on the right ambient
+ * context (see `SyncRunner` and ViewReactive/ViewList `.context`), which is
+ * what lets a dynamically-built subtree resolve construction services and
+ * capture real contexts for its handlers.
  *
  * **Asymmetric vs. coerceAsync**: this path does NOT peel
  * Option/Result/Chunk/Atom/AtomRef. At render-time those containers have
@@ -186,6 +216,7 @@ export const coerceSync = (
   v: unknown,
   scope: Scope.Scope,
   sink: ErrorSink,
+  run: SyncRunner,
 ): View => {
   if (v == null || v === false || v === true) return Empty
   if (typeof v === "string") return View.Text({ value: v })
@@ -194,14 +225,21 @@ export const coerceSync = (
   }
   if (isView(v)) return v
   if (Effect.isEffect(v)) {
-    const provided = Effect.provideService(
-      v as Effect.Effect<unknown, unknown, Scope.Scope>,
-      Scope.Scope,
-      scope,
-    )
-    const exit = Effect.runSyncExit(provided)
+    // An already-resolved Effect (an Exit — e.g. Effect.succeed) needs no
+    // scope, no context, and no fiber: feed it straight to Exit.match.
+    // Wrapping it in provideService first would defeat effect's own Exit fast
+    // path and spin a full fiber per re-render just to read a constant.
+    const exit = Exit.isExit(v)
+      ? (v as Exit.Exit<unknown, unknown>)
+      : run(
+          Effect.provideService(
+            v as Effect.Effect<unknown, unknown, Scope.Scope>,
+            Scope.Scope,
+            scope,
+          ),
+        )
     return Exit.match(exit, {
-      onSuccess: (val) => coerceSync(val, scope, sink),
+      onSuccess: (val) => coerceSync(val, scope, sink, run),
       onFailure: (cause) => {
         if (!Cause.hasInterruptsOnly(cause)) sink(cause)
         return Empty
@@ -210,7 +248,7 @@ export const coerceSync = (
   }
   if (Array.isArray(v)) {
     return View.Fragment({
-      children: v.map((x) => coerceSync(x, scope, sink)),
+      children: v.map((x) => coerceSync(x, scope, sink, run)),
     })
   }
   return View.Text({ value: String(v) })

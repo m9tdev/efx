@@ -5,7 +5,7 @@
  * Each `expectType` line is a compile-time assertion. If a fold returns the
  * wrong type, the assignment errors at type-check time.
  */
-import type { Effect } from "effect"
+import type { Effect, Scope } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
 import type {
   ChildE,
@@ -13,6 +13,8 @@ import type {
   ChildR,
   FoldE,
   FoldLiveE,
+  FoldPropsLiveE,
+  FoldPropsR,
   FoldR,
 } from "./Fold.ts"
 import type { View } from "../View.ts"
@@ -113,3 +115,164 @@ assertEquals<FoldLiveE<readonly [ViewErr, EffLive]>, HttpError>()
 // 13) A bare View<never> contributes nothing on any channel.
 assertEquals<ChildLiveE<View>, never>()
 assertEquals<ChildE<View>, never>()
+
+// ─── Props fold: typed event handlers (#72) ──────────────────────────────
+
+// 14) An Effect-returning handler contributes its E (live) and R.
+type FailingClick = {
+  onclick: (e: MouseEvent) => Effect.Effect<void, HttpError, HttpService>
+}
+assertEquals<FoldPropsLiveE<FailingClick>, HttpError>()
+assertEquals<FoldPropsR<FailingClick>, HttpService>()
+
+// 15) A void/imperative handler contributes nothing.
+type VoidClick = { onclick: (e: MouseEvent) => void }
+assertEquals<FoldPropsLiveE<VoidClick>, never>()
+assertEquals<FoldPropsR<VoidClick>, never>()
+
+// 16) Non-handler props — strings, numbers, even a function NOT keyed `on*`
+//     (the runtime stringifies it, never runs it) — contribute nothing.
+type NoHandlers = {
+  class: string
+  tabindex: number
+  format: () => Effect.Effect<void, HttpError, HttpService>
+}
+assertEquals<FoldPropsLiveE<NoHandlers>, never>()
+assertEquals<FoldPropsR<NoHandlers>, never>()
+
+// 17) Multiple handlers union their channels; mixed with inert props.
+type TwoHandlers = {
+  class: string
+  onclick: (e: MouseEvent) => Effect.Effect<void, HttpError, HttpService>
+  onkeydown: (e: KeyboardEvent) => Effect.Effect<void, NotFound, DbService>
+  oninput: (e: Event) => void
+}
+assertEquals<FoldPropsLiveE<TwoHandlers>, HttpError | NotFound>()
+assertEquals<FoldPropsR<TwoHandlers>, HttpService | DbService>()
+
+// 18) An optional handler still folds (the `undefined` branch drops).
+type OptionalClick = {
+  onclick?: (e: MouseEvent) => Effect.Effect<void, HttpError, HttpService>
+}
+assertEquals<FoldPropsLiveE<OptionalClick>, HttpError>()
+assertEquals<FoldPropsR<OptionalClick>, HttpService>()
+
+// 19) An `unknown`-typed attr contributes nothing — the channels were already
+//     erased upstream, so the fold must not invent any. (Since #159 `h.track`
+//     no longer PRODUCES `unknown`; this pins the general rule, and case 27
+//     pins the tracked shape it produces instead.)
+type TrackedClick = { onclick: unknown }
+assertEquals<FoldPropsLiveE<TrackedClick>, never>()
+assertEquals<FoldPropsR<TrackedClick>, never>()
+
+// 20) The empty props object (`h("div", {})` — the compiler's no-attrs shape).
+//     Regression pin for the never-vacuous-conditional trap: `never extends
+//     [infer E, any]` is true with NO candidates, resolving E to `unknown` —
+//     these must stay literally `never`, not `unknown`.
+assertEquals<FoldPropsLiveE<{}>, never>()
+assertEquals<FoldPropsR<{}>, never>()
+
+// 21) An `any`-typed handler (or handler RETURN — an untyped lib call) is
+//     INERT, not poison: without the guard it would infer [unknown, unknown],
+//     silently swallowing sibling handlers' channels one fold up and turning
+//     R into an undischargeable blob. The sibling's channels must survive.
+type AnyBeside = {
+  onclick: (e: MouseEvent) => any
+  onkeydown: (e: KeyboardEvent) => Effect.Effect<void, HttpError, HttpService>
+}
+assertEquals<FoldPropsLiveE<AnyBeside>, HttpError>()
+assertEquals<FoldPropsR<AnyBeside>, HttpService>()
+assertEquals<FoldPropsLiveE<{ onclick: any }>, never>()
+assertEquals<FoldPropsR<{ onclick: any }>, never>()
+
+// 22) The bare key "on" does NOT fold — runtime parity with applyProp's
+//     `key.length > 2` gate (the runtime stringifies it, never attaches a
+//     listener; folding would force a Catch that can never fire).
+assertEquals<
+  FoldPropsLiveE<{ on: () => Effect.Effect<void, HttpError> }>,
+  never
+>()
+assertEquals<
+  FoldPropsR<{ on: () => Effect.Effect<void, never, HttpService> }>,
+  never
+>()
+
+// 23) UNION-typed props fold each member independently (a spread of a
+//     conditional: `{...(cond ? withHandler : plain)}`). `keyof` of a union is
+//     the key INTERSECTION, so without the distributive head a handler present
+//     in only some members would silently erase.
+type UnionProps =
+  | { onclick: (e: MouseEvent) => Effect.Effect<void, HttpError, HttpService> }
+  | { class: string }
+assertEquals<FoldPropsLiveE<UnionProps>, HttpError>()
+assertEquals<FoldPropsR<UnionProps>, HttpService>()
+
+// 24) Key-gate parity matrix with the runtime's `isHandlerKey` (length > 2 &&
+//     startsWith("on")) — `coerce.test.ts` pins the same table on the runtime
+//     side. Minimum handler key is THREE chars ("onx"); the bare-"on"
+//     exclusion is case 22's pin.
+assertEquals<
+  FoldPropsLiveE<{ onx: () => Effect.Effect<void, HttpError> }>,
+  HttpError
+>()
+assertEquals<
+  FoldPropsLiveE<{ click: () => Effect.Effect<void, HttpError> }>,
+  never
+>()
+
+// 25) An AtomRef-valued handler folds THROUGH the ref to the inner function —
+//     applyProp's AtomRef branch unwraps and re-applies it as a live listener,
+//     so the wrapper must not hide the channels (custom `on*` keys admit refs
+//     via the index signature).
+type RefHandler = {
+  onsave: AtomRef.ReadonlyRef<
+    (e: Event) => Effect.Effect<void, HttpError, HttpService>
+  >
+}
+assertEquals<FoldPropsLiveE<RefHandler>, HttpError>()
+assertEquals<FoldPropsR<RefHandler>, HttpService>()
+assertEquals<
+  FoldPropsLiveE<{ onsave: AtomRef.ReadonlyRef<(e: Event) => void> }>,
+  never
+>()
+
+// 26) A handler's `Scope` is EXCLUDED from the folded R — `runHandlerEffect`
+//     provides a Scope into the effect, so surfacing it would demand one the
+//     caller never supplies. Mirrors `list`'s `Exclude<R, Scope>` on row
+//     channels. Other services still ride. (The exclusion is sound — a Scope
+//     really is provided. Its LIFETIME is the enclosing build scope, not a
+//     per-element or per-dispatch one; see runHandlerEffect in mount.ts and
+//     the static-element pin in testing/context-capture.test.ts.)
+type ScopedHandler = {
+  onclick: (e: MouseEvent) => Effect.Effect<void, never, Scope.Scope>
+}
+assertEquals<FoldPropsR<ScopedHandler>, never>()
+type ScopedPlusService = {
+  onclick: (
+    e: MouseEvent,
+  ) => Effect.Effect<void, never, HttpService | Scope.Scope>
+}
+assertEquals<FoldPropsR<ScopedPlusService>, HttpService>()
+
+// 27) h.track's HONEST return type folds (#159). The compiler wraps a
+//     `.value`-reading attr in `h.track(() => …)`, which returns `T` (nothing
+//     read) or `ReadonlyRef<T>` (something read) — a union, not `unknown`.
+//     BOTH members must fold, or an `on*` prop launders its handler's channels
+//     into nothing while the runtime still runs it. That erasure was #159: it
+//     was invisible on LISTED keys (the `unknown` failed HandlerSlot loudly)
+//     and silent on UNLISTED ones, which pass through IntrinsicProps'
+//     `Record<string, unknown>` half.
+type TrackedHandler =
+  | ((e: Event) => Effect.Effect<void, HttpError, HttpService>)
+  | AtomRef.ReadonlyRef<
+      (e: Event) => Effect.Effect<void, HttpError, HttpService>
+    >
+assertEquals<FoldPropsLiveE<{ ontimeupdate: TrackedHandler }>, HttpError>()
+assertEquals<FoldPropsR<{ ontimeupdate: TrackedHandler }>, HttpService>()
+
+// 28) …and the same union in CHILD position folds too — a tracked child that
+//     resolves to a failing / service-needing Effect is the children-side
+//     sibling of the same hole.
+type TrackedChild = Eff1 | AtomRef.ReadonlyRef<Eff1>
+assertEquals<FoldE<readonly [TrackedChild]>, HttpError>()
+assertEquals<FoldR<readonly [TrackedChild]>, HttpService>()

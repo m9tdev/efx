@@ -4,13 +4,16 @@
  * Each assertion either holds or produces a type error naming the
  * mismatched channel — this *is* the demonstration.
  */
-import type { Cause, Chunk, Effect, Option, Result, Scope } from "effect"
-import type { AtomRegistry } from "effect/unstable/reactivity"
+import type { Cause, Chunk, Option, Result, Scope } from "effect"
+import { Effect } from "effect"
+import type { AtomRef } from "effect/unstable/reactivity"
 import {
   Async,
   type AsyncHandle,
   Catch,
+  type EventHandler,
   h,
+  list,
   mount,
   type View,
 } from "@verrex/core"
@@ -18,7 +21,8 @@ import { AsyncEscalate } from "./AsyncEscalate.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { Counter } from "./Counter.vx"
 import { LiveUser } from "./LiveUser.vx"
-import { HttpError, Http, Theme, type User } from "./services.ts"
+import { HttpError, Http, HttpLive, Theme, type User } from "./services.ts"
+import { TypedHandlers } from "./TypedHandlers.vx"
 import { UserPage } from "./UserPage.vx"
 
 type Equals<A, B> =
@@ -55,6 +59,16 @@ assertEquals<
 type AsyncEscalateType = ReturnType<typeof AsyncEscalate>
 assertEquals<
   AsyncEscalateType,
+  Effect.Effect<View, never, Http | Scope.Scope>
+>()
+
+// ─── TypedHandlers: both channels enter through `onclick` alone (#72). The
+//     inner Loader stamps Effect<View<HttpError>, never, Http>; the tag-map
+//     Catch discharges the live HttpError, the handler's Http rides R out.
+
+type TypedHandlersType = ReturnType<typeof TypedHandlers>
+assertEquals<
+  TypedHandlersType,
   Effect.Effect<View, never, Http | Scope.Scope>
 >()
 
@@ -177,6 +191,130 @@ h("button", { onclick: () => {} })
 
 // Arbitrary attributes still pass through (intersection with index signature)
 h("div", { "data-id": "x", "aria-hidden": "true", customX: 42 })
+
+// ─── Typed event handlers: the live channel is born at the leaf (#72) ────
+//     Handlers are where most live errors are born — the element is already
+//     rendered when one runs, so its failure can only ride the LIVE channel.
+//     An Effect-returning handler stamps its `E` on the element's `View<E>`
+//     (dischargeable by `Catch`, gated by `mount`) and folds its `R` into
+//     the element's requirements (a forgotten Layer is a compile error at
+//     the root). The runtime always routed these (sink + captured context);
+//     now the types track them.
+
+declare const failingSave: Effect.Effect<void, HttpError, never>
+declare const auditedLog: Effect.Effect<void, never, Http>
+
+// The handler's E lands on the LIVE channel — construction stays `never`
+// (the element builds fine; only a click can fail).
+const SaveButton = h("button", { onclick: () => failingSave }, "save")
+assertEquals<typeof SaveButton, Effect.Effect<View<HttpError>, never, never>>()
+
+// @ts-expect-error — the unhandled failing onclick is undischarged: mount's
+// View<never> gate rejects the app, naming HttpError. Forgot a boundary.
+mount(SaveButton, root)
+
+// A Catch discharges it — catch-all, or tag-selective with the unwrapped error.
+mount(
+  Catch(SaveButton, (_cause) => h("p", {}, "save failed")),
+  root,
+)
+mount(Catch(SaveButton, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
+
+// The handler's R folds into the element's requirements, exactly like a
+// construction R — the root must provide Http or the app doesn't compile.
+const AuditButton = h("button", { onclick: () => auditedLog }, "audit")
+assertEquals<typeof AuditButton, Effect.Effect<View, never, Http>>()
+
+// Handler channels fold through composition like any other channel: the live
+// E and the R both survive an enclosing element.
+const Toolbar = h("div", {}, SaveButton, AuditButton, Counter())
+assertEquals<typeof Toolbar, Effect.Effect<View<HttpError>, never, Http>>()
+
+// A void/imperative handler beside an Effect-returning one contributes nothing.
+const MixedHandlers = h("button", {
+  onclick: () => failingSave,
+  onblur: () => {},
+})
+assertEquals<
+  typeof MixedHandlers,
+  Effect.Effect<View<HttpError>, never, never>
+>()
+
+// A non-`on*` function-valued attr is inert (the runtime stringifies it,
+// never runs it) — it must not contribute channels the runtime can't fire.
+const InertFn = h("div", { format: () => failingSave })
+assertEquals<typeof InertFn, Effect.Effect<View, never, never>>()
+
+// The bare key `on` is inert too — the runtime's handler branch requires
+// key.length > 2, so folding it would force a Catch that can never fire.
+const InertOn = h("div", { on: () => failingSave })
+assertEquals<typeof InertOn, Effect.Effect<View, never, never>>()
+
+// An `any`-returning handler (an untyped lib call) is inert — and must NOT
+// swallow a sibling handler's channels (the unguarded fold inferred
+// `unknown`, which coalesced the whole element's live E to never one level
+// up and made R undischargeable).
+declare const someAny: any
+const AnyBeside = h("button", {
+  onclick: () => someAny,
+  onkeydown: () => failingSave,
+})
+assertEquals<typeof AnyBeside, Effect.Effect<View<HttpError>, never, never>>()
+const Nested = h("div", {}, AnyBeside)
+assertEquals<typeof Nested, Effect.Effect<View<HttpError>, never, never>>()
+
+// Mid-tree Effect.provide discharges a handler's R — and the runtime agrees:
+// handlers run on the context captured when h() built the element (pinned at
+// runtime by testing/event-handlers.test.ts), so this is not a type-level lie.
+const ProvidedButton = Effect.provide(AuditButton, HttpLive)
+assertEquals<typeof ProvidedButton, Effect.Effect<View, never, never>>()
+
+// An extracted handler annotated with the exported EventHandler keeps its
+// channels — the annotation type carries E/R slots. (A WIDER hand annotation
+// — `(): unknown =>` — erases them: inherent to reading the inferred props
+// type; documented in types/Html.ts.)
+declare const annotated: EventHandler<MouseEvent, HttpError, Http>
+const AnnotatedBtn = h("button", { onclick: annotated })
+assertEquals<typeof AnnotatedBtn, Effect.Effect<View<HttpError>, never, Http>>()
+
+// list() folds row channels: a row with a failing/service-using handler
+// surfaces View<E> and R on the list itself (per-row Scope stays excluded).
+declare const todos: AtomRef.Collection<string>
+const RowChannels = list(todos, (item) =>
+  h("li", {}, h("button", { onclick: () => failingSave }, item)),
+)
+assertEquals<typeof RowChannels, Effect.Effect<View<HttpError>, never, never>>()
+const RowR = list(todos, (item) =>
+  h("li", {}, h("button", { onclick: () => auditedLog }, item)),
+)
+assertEquals<typeof RowR, Effect.Effect<View, never, Http>>()
+
+// KNOWN EXCEPTION — Async arms and Catch fallbacks are deliberately
+// permissive (`Effect<View, any, any>`, channels not folded — "keep arms
+// pure markup"): a handler's R inside an arm is SWALLOWED, not folded. The
+// #72 guarantee does not reach inside arms; this pin makes the boundary of
+// the guarantee explicit rather than accidental.
+declare const fetchUser: () => Effect.Effect<User, HttpError, Http>
+const ArmSwallowsR = Async(fetchUser, {
+  success: (u) => h("button", { onclick: () => auditedLog }, u.name),
+})
+assertEquals<
+  typeof ArmSwallowsR,
+  Effect.Effect<View<HttpError>, never, Http | Scope.Scope>
+>()
+
+// A typed FAILING handler inside a Catch fallback is rejected (the fallback
+// must produce View<never>) — discharge it inside the fallback instead: a
+// nested Catch compiles.
+declare const failing: Effect.Effect<View, HttpError, never>
+mount(
+  Catch(failing, (_cause, reset) =>
+    Catch(h("button", { onclick: () => failingSave, onblur: reset }, "retry"), {
+      HttpError: (e) => h("p", {}, `retry failed: ${e.status}`),
+    }),
+  ),
+  root,
+)
 
 // ─── Props are type-checked against the component's declared shape ───────
 
@@ -510,3 +648,29 @@ mount(
 // If they compile, channels are surviving the tree.
 // The `@ts-expect-error` assertions above prove props are type-checked at
 // JSX call sites, and that a forgotten error boundary fails to compile.
+
+// ─── #159: a tracked handler on an UNLISTED `on*` key keeps its channels ──
+//     The compiler wraps `ontimeupdate={flag.value ? saveA : saveB}` in
+//     `h.track(() => …)`. That used to return `unknown`, which the
+//     `Record<string, unknown>` half of IntrinsicProps swallowed silently —
+//     so the handler ran at runtime with its `E`/`R` erased, past mount's
+//     gate, with no Catch and no Layer. h.track now returns the honest
+//     `T | ReadonlyRef<T>`, both members of which fold.
+
+declare const flagRef: AtomRef.AtomRef<boolean>
+declare const saveA: (e: Event) => Effect.Effect<void, HttpError, Http>
+declare const saveB: (e: Event) => Effect.Effect<void, HttpError, Http>
+
+const TrackedUnlisted = h("video", {
+  ontimeupdate: h.track(() => (h.read(flagRef) ? saveA : saveB)),
+})
+assertEquals<
+  typeof TrackedUnlisted,
+  Effect.Effect<View<HttpError>, never, Http>
+>()
+
+// A tracked attr that is NOT a handler stays inert — no channels invented.
+const TrackedAttr = h("div", {
+  class: h.track(() => (h.read(flagRef) ? "a" : "b")),
+})
+assertEquals<typeof TrackedAttr, Effect.Effect<View<never>, never, never>>()
