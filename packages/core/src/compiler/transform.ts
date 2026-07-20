@@ -153,8 +153,10 @@ const peelTypeWrappers = (expr: t.Expression): t.Expression => {
  * each manages its own reactivity — `Async` tracks its `from` thunk, `Catch`
  * drives its state from a forked loop, `list` self-subscribes inside mount
  * (and since #72 carries the folded row channels). Wrapping any of them is
- * redundant *and* harmful: `h.track` is typed `(thunk) => unknown`, which
- * erases the channels from the fold. The inner `.value` reads are still
+ * redundant: each already re-runs itself on the deps it read, so the wrap
+ * buys no reactivity while re-invoking the helper on every dep change.
+ * (Before #159 it was also harmful — `h.track` returned `unknown` and erased
+ * the channels; it now returns `T | ReadonlyRef<T>`, which folds.) The inner `.value` reads are still
  * rewritten to `h.read` (a read in a `Catch` fallback or an `Async` thunk).
  *
  * WHICH calls skip is decided SCOPE-CORRECTLY, up front, by
@@ -226,8 +228,8 @@ const resolveHelperCalls = (ast: t.Node): Set<t.Node> => {
  * return is `unknown`, which would otherwise destroy the typing of component
  * props (`<Row item={item} />`, the prop's `item` type).
  *
- * Three rewrites are deliberately NOT wrapped, because wrapping would erase
- * their channels (h.track's `unknown`) without buying any reactivity:
+ * Three rewrites are deliberately NOT wrapped, because the wrap buys no
+ * reactivity they don't already have (and re-invokes them per dep change):
  *   - `.value.map(arrow → JSX)` → `list(...)` (flips `state.wroteList` for the
  *     `list` auto-import) AND manual `list(coll, row)` calls — list
  *     self-subscribes inside `mount`, and its return carries the folded row

@@ -157,8 +157,10 @@ type OptionalClick = {
 assertEquals<FoldPropsLiveE<OptionalClick>, HttpError>()
 assertEquals<FoldPropsR<OptionalClick>, HttpService>()
 
-// 19) A tracked attr (`h.track` returns `unknown`) contributes nothing —
-//     the channels were already erased upstream, the fold must not invent any.
+// 19) An `unknown`-typed attr contributes nothing — the channels were already
+//     erased upstream, so the fold must not invent any. (Since #159 `h.track`
+//     no longer PRODUCES `unknown`; this pins the general rule, and case 27
+//     pins the tracked shape it produces instead.)
 type TrackedClick = { onclick: unknown }
 assertEquals<FoldPropsLiveE<TrackedClick>, never>()
 assertEquals<FoldPropsR<TrackedClick>, never>()
@@ -251,3 +253,26 @@ type ScopedPlusService = {
   ) => Effect.Effect<void, never, HttpService | Scope.Scope>
 }
 assertEquals<FoldPropsR<ScopedPlusService>, HttpService>()
+
+// 27) h.track's HONEST return type folds (#159). The compiler wraps a
+//     `.value`-reading attr in `h.track(() => …)`, which returns `T` (nothing
+//     read) or `ReadonlyRef<T>` (something read) — a union, not `unknown`.
+//     BOTH members must fold, or an `on*` prop launders its handler's channels
+//     into nothing while the runtime still runs it. That erasure was #159: it
+//     was invisible on LISTED keys (the `unknown` failed HandlerSlot loudly)
+//     and silent on UNLISTED ones, which pass through IntrinsicProps'
+//     `Record<string, unknown>` half.
+type TrackedHandler =
+  | ((e: Event) => Effect.Effect<void, HttpError, HttpService>)
+  | AtomRef.ReadonlyRef<
+      (e: Event) => Effect.Effect<void, HttpError, HttpService>
+    >
+assertEquals<FoldPropsLiveE<{ ontimeupdate: TrackedHandler }>, HttpError>()
+assertEquals<FoldPropsR<{ ontimeupdate: TrackedHandler }>, HttpService>()
+
+// 28) …and the same union in CHILD position folds too — a tracked child that
+//     resolves to a failing / service-needing Effect is the children-side
+//     sibling of the same hole.
+type TrackedChild = Eff1 | AtomRef.ReadonlyRef<Eff1>
+assertEquals<FoldE<readonly [TrackedChild]>, HttpError>()
+assertEquals<FoldR<readonly [TrackedChild]>, HttpService>()

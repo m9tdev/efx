@@ -648,3 +648,29 @@ mount(
 // If they compile, channels are surviving the tree.
 // The `@ts-expect-error` assertions above prove props are type-checked at
 // JSX call sites, and that a forgotten error boundary fails to compile.
+
+// ─── #159: a tracked handler on an UNLISTED `on*` key keeps its channels ──
+//     The compiler wraps `ontimeupdate={flag.value ? saveA : saveB}` in
+//     `h.track(() => …)`. That used to return `unknown`, which the
+//     `Record<string, unknown>` half of IntrinsicProps swallowed silently —
+//     so the handler ran at runtime with its `E`/`R` erased, past mount's
+//     gate, with no Catch and no Layer. h.track now returns the honest
+//     `T | ReadonlyRef<T>`, both members of which fold.
+
+declare const flagRef: AtomRef.AtomRef<boolean>
+declare const saveA: (e: Event) => Effect.Effect<void, HttpError, Http>
+declare const saveB: (e: Event) => Effect.Effect<void, HttpError, Http>
+
+const TrackedUnlisted = h("video", {
+  ontimeupdate: h.track(() => (h.read(flagRef) ? saveA : saveB)),
+})
+assertEquals<
+  typeof TrackedUnlisted,
+  Effect.Effect<View<HttpError>, never, Http>
+>()
+
+// A tracked attr that is NOT a handler stays inert — no channels invented.
+const TrackedAttr = h("div", {
+  class: h.track(() => (h.read(flagRef) ? "a" : "b")),
+})
+assertEquals<typeof TrackedAttr, Effect.Effect<View<never>, never, never>>()

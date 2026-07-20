@@ -431,9 +431,8 @@ captures a snapshot and won't refetch — ordinary eager-read semantics.
 
 **The compiler skips the `h.track` wrap for `Async(...)` calls** (`isSelfTrackingCall`
 in the compiler — the same guard covers `Catch` and manual `list()`, whose
-return carries the folded row channels) — `Async` self-tracks, and
-`h.track`'s `unknown` return would erase its `Effect<View, never, R | Scope>`
-channels from the `h()` fold. The inner `.value`→`h.read` rewrite is kept (the
+return carries the folded row channels) — `Async` self-tracks, so the wrap
+would only re-invoke it on every dep change. The inner `.value`→`h.read` rewrite is kept (the
 tracker needs it). Which calls skip is decided **scope-correctly**
 (`resolveHelperCalls`): a call whose callee binds to the `@verrex/core` import
 is skipped _regardless of alias_ (`import { Async as A }` → `A(...)` skips),
@@ -788,9 +787,14 @@ the call site. `list()` is the keyed reconciliation primitive only —
 not a generics workaround (the compiler still rewrites
 `{coll.value.map(item => <Row/>)}` into `list(coll, …)`).
 
-The caveat: a **tracked attr** still erases. An attr value containing a
+The caveat: a **tracked attr** still widens. An attr value containing a
 `.value` read gets wrapped in `h.track(() => …)`, whose return type is
-`unknown` — so `<Row item={ref.value}/>` passes `item: unknown`. Static
+`T | ReadonlyRef<T>` — the honest union of its two runtime paths (the
+value when nothing was read, a derived ref when something was) — so
+`<Row item={ref.value}/>` passes `item: string | ReadonlyRef<string>`
+rather than the `string` the prop wants. It was `unknown` until #159,
+which is why an unlisted `on*` handler could launder its channels away;
+both members of the union now fold. Static
 attrs pass through untouched (the empty-deps early return in `h.track`
 is what preserves them), and since #72 so do **function-valued attrs**
 (handlers, callbacks): a whole-expression function can't read deps while
@@ -799,11 +803,11 @@ _body_ reads `.value` — which is what lets a handler's `E`/`R` reach the
 props fold. The erasure is now scoped to non-function reactive attrs
 (`item={ref.value}`). Note the distinct case of a reactive attr on a
 DECLARED handler key — `onclick={cond.value ? a : b}` — which doesn't
-erase but is _rejected_: `h.track`'s `unknown` fails the
-`IntrinsicProps` constraint (pre-#72 too). That rejection holds only for
-keys LISTED in `HtmlEventHandlers`; an unlisted `on*` key slips through
-the `Record<string, unknown>` half of the intersection and DOES erase,
-while the runtime still runs the handler — #159. The typed form selects inside
+erase but is _rejected_: `h.track`'s `ReadonlyRef` member fails the
+declared `HandlerSlot<Ev>`. Since #159 that rejection is uniform: the
+old `unknown` return was invisible on unlisted `on*` keys, which pass
+through the `Record<string, unknown>` half of the intersection — so the
+handler ran with both channels erased. The typed form selects inside
 the handler: `onclick={(e) => (cond.value ? incr : decr)(e)}`.
 
 Don't "fix" anything here by widening `h()`'s signature — `h` is

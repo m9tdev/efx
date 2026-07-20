@@ -46,8 +46,8 @@ Every JSX expression `{...}` triggers up to three local rewrites:
 
 1. **Wrap in `h.track(() => ...)`** — _only if a `.value` read got
    rewritten_. See `wrapTracked` + `rewroteRead` flag in `transform.ts`.
-   This is load-bearing: `h.track`'s return is `unknown`, which would
-   destroy the typing of static expressions like
+   This is load-bearing: `h.track` returns `T | ReadonlyRef<T>`, and the
+   ref member would destroy the typing of static expressions like
    `<Row item={item} />` (where `item` is a generic `T`). Static
    passes through with no wrap. The `.value.map → list(...)` rewrite
    (#3) also does **not** trigger a wrap — `list()` subscribes inside
@@ -74,13 +74,14 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    at call time with no tracker active, i.e. as plain `.value` reads. A
    `.value` read _outside_ the function (`onclick={cond.value ? a : b}`)
    still wraps — and for a handler key DECLARED in `HtmlEventHandlers`
-   that pattern does NOT pass the type gate: the wrap's `unknown` fails
-   `h()`'s `IntrinsicProps` constraint (it always did, pre-#72 too), so
-   reactive handler _selection_ is unsupported in checked `.vx`. For an
-   UNLISTED `on*` key (`ontimeupdate`, a custom-element event) the
-   `Record<string, unknown>` half of the intersection accepts the
-   `unknown` silently and both channels erase while the runtime still
-   attaches the listener — the hole tracked by #159. The typed form is selecting _inside_ the handler —
+   that pattern does NOT pass the type gate: `h.track` returns
+   `T | ReadonlyRef<T>`, whose ref member fails the declared
+   `HandlerSlot<Ev>`, so reactive handler _selection_ is unsupported in
+   checked `.vx`. It is a LOUD rejection on every key now: before #159
+   `h.track` returned `unknown`, which an UNLISTED `on*` key
+   (`ontimeupdate`, a custom-element event) swallowed via the
+   `Record<string, unknown>` half of the intersection — erasing both
+   channels while the runtime still attached the listener. The typed form is selecting _inside_ the handler —
    `onclick={(e) => (cond.value ? incr : decr)(e)}` — a function
    expression (wrap-skipped, channels intact) that reads the ref at
    click time. The wrap is still emitted for the untyped-JS path, where

@@ -27,8 +27,16 @@ import { type Props, View } from "./View.ts"
 // that re-runs the thunk on dep changes; otherwise it returns the value
 // directly (no reactivity overhead for static expressions). The collector
 // itself lives in coerce.ts (`trackDeps`/`recordDep`) so `Async` can share it.
-
-const trackImpl = (thunk: () => unknown): unknown => {
+//
+// The return type is the HONEST union of those two paths — `T` when nothing
+// was read, `ReadonlyRef<T>` when something was. It used to be `unknown`,
+// which erased every channel the thunk's value carried: for an `on*` prop
+// that silently dropped a handler's `E`/`R` while the runtime still ran it
+// (#159). Both members of the union fold: `HandlerChannels` reads a function
+// directly and recurses through `ReadonlyRef`, and `ChildE`/`ChildLiveE`/
+// `ChildR` peel `AtomRef` the same way — so a tracked expression now carries
+// its channels wherever it lands, instead of laundering them into `unknown`.
+const trackImpl = <T>(thunk: () => T): T | AtomRef.ReadonlyRef<T> => {
   const { result, deps } = trackDeps(thunk)
   if (deps.size === 0) return result
 
@@ -54,7 +62,7 @@ const trackImpl = (thunk: () => unknown): unknown => {
   setTrackDispose(derived, sub.dispose)
 
   sub.resubscribe(deps)
-  return derived
+  return derived as AtomRef.ReadonlyRef<T>
 }
 
 type HasValue = { readonly value: unknown }
