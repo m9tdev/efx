@@ -655,7 +655,7 @@ mount(
 //     `Record<string, unknown>` half of IntrinsicProps swallowed silently —
 //     so the handler ran at runtime with its `E`/`R` erased, past mount's
 //     gate, with no Catch and no Layer. h.track now returns the honest
-//     `T | ReadonlyRef<T>`, both members of which fold.
+//     `T | Atom<T>`, both members of which fold.
 
 declare const flagRef: AtomRef.AtomRef<boolean>
 declare const saveA: (e: Event) => Effect.Effect<void, HttpError, Http>

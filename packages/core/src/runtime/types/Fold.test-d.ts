@@ -256,23 +256,49 @@ assertEquals<FoldPropsR<ScopedPlusService>, HttpService>()
 
 // 27) h.track's HONEST return type folds (#159). The compiler wraps a
 //     `.value`-reading attr in `h.track(() => …)`, which returns `T` (nothing
-//     read) or `ReadonlyRef<T>` (something read) — a union, not `unknown`.
-//     BOTH members must fold, or an `on*` prop launders its handler's channels
-//     into nothing while the runtime still runs it. That erasure was #159: it
-//     was invisible on LISTED keys (the `unknown` failed HandlerSlot loudly)
-//     and silent on UNLISTED ones, which pass through IntrinsicProps'
-//     `Record<string, unknown>` half.
+//     read) or `Atom<T>` (something read — the demand-driven derived) — a
+//     union, not `unknown`. The `unknown` erasure was #159: invisible on
+//     LISTED keys (it failed HandlerSlot loudly) and silent on UNLISTED ones,
+//     which pass through IntrinsicProps' `Record<string, unknown>` half.
+//     NOTE what this pin does and does NOT prove: `HandlerChannels`
+//     DISTRIBUTES over the union, and the plain-`T` member alone yields
+//     `[E, R]` — so this stays green even with the `Atom` peel deleted. The
+//     peel's own coverage is 27b.
 type TrackedHandler =
   | ((e: Event) => Effect.Effect<void, HttpError, HttpService>)
-  | AtomRef.ReadonlyRef<
-      (e: Event) => Effect.Effect<void, HttpError, HttpService>
-    >
+  | Atom.Atom<(e: Event) => Effect.Effect<void, HttpError, HttpService>>
 assertEquals<FoldPropsLiveE<{ ontimeupdate: TrackedHandler }>, HttpError>()
 assertEquals<FoldPropsR<{ ontimeupdate: TrackedHandler }>, HttpService>()
+type RefWrappedHandler = AtomRef.ReadonlyRef<
+  (e: Event) => Effect.Effect<void, HttpError, HttpService>
+>
+assertEquals<FoldPropsLiveE<{ ontimeupdate: RefWrappedHandler }>, HttpError>()
+assertEquals<FoldPropsR<{ ontimeupdate: RefWrappedHandler }>, HttpService>()
+
+// 27b) THE pin for `HandlerChannels`' `Atom` peel: a BARE Atom-valued
+//      handler, with no plain-function member to carry the channels for it.
+//      That shape is reachable — `applyProp` unwraps an Atom-valued prop and
+//      attaches its value as a live listener, so a user holding an
+//      `Atom<handler>` gets it RUN; without the peel its `E`/`R` vanish while
+//      it runs, which is #159 in a different wrapper. Delete the peel and
+//      exactly these assertions fail.
+type BareAtomHandler = Atom.Atom<
+  (e: Event) => Effect.Effect<void, HttpError, HttpService>
+>
+assertEquals<FoldPropsLiveE<{ ontimeupdate: BareAtomHandler }>, HttpError>()
+assertEquals<FoldPropsR<{ ontimeupdate: BareAtomHandler }>, HttpService>()
+// `Writable` is the shape a user-held Atom actually has; it extends
+// `Atom<R>`, so the peel must infer through it to the READ type.
+type WritableAtomHandler = Atom.Writable<
+  (e: Event) => Effect.Effect<void, HttpError, HttpService>,
+  string
+>
+assertEquals<FoldPropsLiveE<{ ontimeupdate: WritableAtomHandler }>, HttpError>()
+assertEquals<FoldPropsR<{ ontimeupdate: WritableAtomHandler }>, HttpService>()
 
 // 28) …and the same union in CHILD position folds too — a tracked child that
 //     resolves to a failing / service-needing Effect is the children-side
 //     sibling of the same hole.
-type TrackedChild = Eff1 | AtomRef.ReadonlyRef<Eff1>
+type TrackedChild = Eff1 | Atom.Atom<Eff1>
 assertEquals<FoldE<readonly [TrackedChild]>, HttpError>()
 assertEquals<FoldR<readonly [TrackedChild]>, HttpService>()

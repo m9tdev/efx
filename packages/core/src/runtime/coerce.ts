@@ -57,11 +57,52 @@ export const recordDep = (ref: AtomRef.ReadonlyRef<unknown>): void => {
 }
 
 /**
- * Owns the subscribe/resubscribe/teardown bookkeeping that `h.track` and
- * `asyncRef` both need: a fresh set of dependency subscriptions on every run,
- * each firing `onChange`. Both callers re-run a thunk under `trackDeps` and
- * must re-subscribe to whatever refs that run read (a ternary's other branch,
- * an effect's new deps), so the prior subscriptions are dropped first.
+ * `trackDeps` that reifies a throw instead of propagating it — and, crucially,
+ * still returns **the deps read before the throw**.
+ *
+ * Only `h.track`'s registry read uses this, and the dep set is why. A tracked
+ * thunk that throws mid-run (`h.read(user)!.name` while `user` is briefly
+ * `null`) must not take its node — or the propagation pass it is running
+ * inside — down with it: an exception escaping an `Atom` read aborts the
+ * registry's notify cascade, so SIBLING nodes on the same ref never see that
+ * update and the graph is left mid-computation. Recovery then needs two
+ * things: the node must survive, and it must still be SUBSCRIBED to whatever
+ * it managed to read, or nothing will ever wake it again. Hence deps in both
+ * outcomes.
+ */
+export const trackDepsSettled = <A>(
+  thunk: () => A,
+):
+  | {
+      readonly ok: true
+      readonly value: A
+      readonly deps: Set<AtomRef.ReadonlyRef<unknown>>
+    }
+  | {
+      readonly ok: false
+      readonly error: unknown
+      readonly deps: Set<AtomRef.ReadonlyRef<unknown>>
+    } => {
+  const deps = new Set<AtomRef.ReadonlyRef<unknown>>()
+  const prev = currentTracker
+  currentTracker = deps
+  try {
+    return { ok: true, value: thunk(), deps }
+  } catch (error) {
+    return { ok: false, error, deps }
+  } finally {
+    currentTracker = prev
+  }
+}
+
+/**
+ * Owns the subscribe/resubscribe/teardown bookkeeping `asyncRef` needs: a
+ * fresh set of dependency subscriptions on every run, each firing `onChange`.
+ * The caller re-runs a thunk under `trackDeps` and must re-subscribe to
+ * whatever refs that run read (an effect's new deps), so the prior
+ * subscriptions are dropped first. (`h.track` used to share this; it is now
+ * a demand-driven `Atom` — see `bridgeAtom` — whose registry owns the same
+ * lifecycle by refcount.)
  *
  * The `unsubs` array is nulled after each teardown because `AtomRef`'s
  * unsubscribe is **not idempotent** — replaying a stale unsubscriber would
@@ -100,30 +141,41 @@ export const makeDepSubscription = (
 }
 
 /**
- * A `h.track` derived `AtomRef` stashes its `makeDepSubscription.dispose` here
- * so the subtree that mounts it can tear down the derived→underlying-ref
- * subscriptions on scope close. `h.track` has no scope of its own to register a
- * finalizer on (it's a plain sync call in a compiled component body), so the
- * one place that *does* scope the subscription — `subscribeRefScoped` in
- * `mount.ts` — disposes it via `getTrackDispose`. User refs and `asyncRef`'s
- * `state` (which owns its own teardown) carry no such tag, so the dispose is
- * `h.track`-only by construction.
+ * The AtomRef→Atom bridge. An `Atom`'s read context tracks only `Atom`
+ * dependencies, so a tracked thunk's `AtomRef` deps enter the reactive graph
+ * through this: an Atom that subscribes to the ref (pushing changes via
+ * `setSelf`) and unsubscribes in its node finalizer — the same
+ * external-source pattern effect uses internally. The registry refcounts the
+ * node, so the ref subscription exists exactly while something downstream
+ * (a mounted `h.track` derived) is subscribed — no manual teardown anywhere.
+ *
+ * Memoized per ref: the graph keys dependencies by atom object identity, so
+ * every `h.track` derived reading the same ref must `get` the same bridge.
+ *
+ * The cache is module-global, ACROSS registries, and that's safe: an Atom is
+ * a description, not a node — each registry keys its own node state per
+ * atom, so one bridge object mounted in two registries is two independent
+ * nodes with independent subscriptions and finalizers. Scoping the cache
+ * per registry would only allocate duplicate bridges for the same ref.
  */
-const TrackDisposeId = Symbol.for("verrex/trackDispose")
+const bridgeCache = new WeakMap<
+  AtomRef.ReadonlyRef<unknown>,
+  Atom.Atom<unknown>
+>()
 
-/** Tag `ref` with the `dispose` that tears down its tracked subscriptions. */
-export const setTrackDispose = (
+export const bridgeAtom = (
   ref: AtomRef.ReadonlyRef<unknown>,
-  dispose: () => void,
-): void => {
-  ;(ref as { [TrackDisposeId]?: () => void })[TrackDisposeId] = dispose
+): Atom.Atom<unknown> => {
+  let atom = bridgeCache.get(ref)
+  if (atom === undefined) {
+    atom = Atom.readable((get) => {
+      get.addFinalizer(ref.subscribe((v) => get.setSelf(v)))
+      return ref.value
+    })
+    bridgeCache.set(ref, atom)
+  }
+  return atom
 }
-
-/** The tracked-subscription dispose for `ref`, if it is a `h.track` derived. */
-export const getTrackDispose = (
-  ref: AtomRef.ReadonlyRef<unknown>,
-): (() => void) | undefined =>
-  (ref as { [TrackDisposeId]?: () => void })[TrackDisposeId]
 
 const Empty = View.Empty()
 

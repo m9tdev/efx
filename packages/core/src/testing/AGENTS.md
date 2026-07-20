@@ -30,7 +30,11 @@ await ui.unmount()
   what a component tag compiles to since #71), i.e. an `Effect<View, E, R>`. Creates a
   container on `document.body`, makes a Closeable `Scope`, and runs
   `mount(app, container)` with `VerrexLive` (AtomRegistry) + that scope
-  provided. Returns once the DOM is attached.
+  provided. Returns once the DOM is attached. The layers are built INTO
+  the harness scope via `Layer.build` — not `Effect.provide`, which would
+  dispose the `AtomRegistry` the moment the mount effect completes,
+  severing every `h.track`/Atom subscription (see the
+  registry-must-outlive-mount invariant in the runtime AGENTS.md).
 - `RenderResult` — `get`/`query`/`all`/`text` (DOM queries),
   `click`/`fire` (dispatch bubbling events that hit the component's
   handlers — an `onClick` returning an `Effect` is forked on the mount

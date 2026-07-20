@@ -3,7 +3,6 @@ import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import {
   coerceSync,
   type ErrorSink,
-  getTrackDispose,
   isAtomRef,
   isHandlerKey,
   type SyncRunner,
@@ -49,15 +48,19 @@ const withContext = (
         runSyncExit: Effect.runSyncExitWith(context),
       }
 
-// The two deps a prop application consumes: the element's construction-captured
+// The deps a prop application consumes: the element's construction-captured
 // `context` (the runtime side of FoldPropsR — a mid-tree provide is honored at
-// dispatch) and the `sink` a handler failure routes to. They travel together
-// through applyProps → applyProp → the recursive AtomRef re-dispatch, so they
-// ride as one value. Deliberately NOT the full `BuildCtx`: the static-element
-// path must not derive a node ctx + `runSyncExit` runner it would never read.
+// dispatch), the `sink` a handler failure routes to, and the `registry` an
+// Atom-valued prop (a `h.track` derived) is read/subscribed through. They
+// travel together through applyProps → applyProp → the recursive reactive
+// re-dispatch, so they ride as one value. Deliberately NOT the full
+// `BuildCtx`: the static-element path must not derive a node ctx +
+// `runSyncExit` runner it would never read (registry is the mount-stable
+// singleton — no derivation, unlike the runner).
 interface HandlerDeps {
   readonly context: Context.Context<never>
   readonly sink: ErrorSink
+  readonly registry: AtomRegistry.AtomRegistry
 }
 
 // Fire-and-forget an event-handler Effect. Runs on the element's captured
@@ -104,19 +107,7 @@ const subscribeRefScoped = <A>(
   scope: Scope.Scope,
 ): void => {
   const dispose = ref.subscribe(fn)
-  // If `ref` is a `h.track` derived, also tear down its own
-  // derived→underlying-ref subscriptions on scope close — `h.track` has no
-  // scope to do it itself. No-op for user refs / asyncRef state (untagged).
-  const trackDispose = getTrackDispose(ref as AtomRef.ReadonlyRef<unknown>)
-  Effect.runSync(
-    Scope.addFinalizer(
-      scope,
-      Effect.sync(() => {
-        dispose()
-        trackDispose?.()
-      }),
-    ),
-  )
+  Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
 }
 
 // AtomRegistry uses a different subscribe shape (registry.subscribe(atom, fn))
@@ -130,6 +121,66 @@ const subscribeAtomScoped = <A>(
 ): void => {
   const dispose = registry.subscribe(atom, fn)
   Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
+}
+
+// A rebuild that constructs a new derived AFTER the registry was disposed
+// throws `Cannot access Atom <atom>: registry is disposed` — out of whatever
+// innocent `ref.set(...)` triggered the rebuild, naming no component and no
+// service, past `Catch` and the `ErrorSink` both. Since disposal-too-early has
+// exactly one cause, say so. Matching on effect's message is deliberately
+// best-effort: if it changes we rethrow the original untouched, losing only
+// the hint.
+const readAtomOrExplain = (
+  registry: AtomRegistry.AtomRegistry,
+  atom: Atom.Atom<unknown>,
+): unknown => {
+  try {
+    return registry.get(atom)
+  } catch (e) {
+    if (e instanceof Error && /registry is disposed/i.test(e.message)) {
+      throw new Error(
+        "[verrex] the AtomRegistry was disposed while the UI was still mounted. " +
+          "`Effect.provide(VerrexLive)` around a mount scopes the layer TO the mount " +
+          "effect, which completes as soon as the DOM attaches. Build the layer into a " +
+          "longer-lived scope instead (`Layer.build` under `Scope.provide`) — see the " +
+          "registry-outlives-mount invariant in runtime/AGENTS.md.",
+        { cause: e },
+      )
+    }
+    throw e
+  }
+}
+
+// The one seam where the two reactive source shapes converge: apply the
+// current value (immediately, or deferred to `deferInitial` drain time — the
+// deferred thunk re-reads the source THEN, so a write landing during the
+// children build isn't clobbered by a stale capture), and subscribe `apply`
+// for the rest of `scope`'s life. Dispatch on Atom (read/subscribe through
+// the registry — an `h.track` derived) vs AtomRef (direct). Both reactive
+// consumers — `applyProp` and the Reactive child case — go through here; a
+// third source shape means extending this, not a new dispatch site. A value
+// that is neither is a no-op, matching what each call site did before the
+// consolidation (both guarded with `isAtom`/`isAtomRef` and fell through).
+const applyAndSubscribeSource = (
+  source: unknown,
+  registry: AtomRegistry.AtomRegistry,
+  apply: (v: unknown) => void,
+  scope: Scope.Scope,
+  deferInitial?: Array<() => void>,
+): void => {
+  const read = Atom.isAtom(source)
+    ? () => readAtomOrExplain(registry, source as Atom.Atom<unknown>)
+    : isAtomRef(source)
+      ? () => source.value
+      : null
+  if (read === null) return
+  if (deferInitial) deferInitial.push(() => apply(read()))
+  else apply(read())
+  if (Atom.isAtom(source)) {
+    subscribeAtomScoped(registry, source as Atom.Atom<unknown>, apply, scope)
+  } else {
+    subscribeRefScoped(source as AtomRef.ReadonlyRef<unknown>, apply, scope)
+  }
 }
 
 // Props that must be written as DOM *properties*, not attributes. After user
@@ -146,9 +197,10 @@ const isFormProp = (el: Element, key: string): boolean =>
     ? VALUE_TAGS.has(el.tagName)
     : FORM_BOOL_PROPS.has(key) && key in el
 
-// Handlers consume only `HandlerDeps` (the captured context + the sink); they
-// never touch the full `BuildCtx`, so the static-Element path passes that pair
-// instead of deriving a node-scoped ctx + runner it would never use.
+// Prop application consumes only `HandlerDeps` (captured context + sink +
+// registry); it never touches the full `BuildCtx`, so the static-Element path
+// passes that trio instead of deriving a node-scoped ctx + runner it would
+// never use.
 const applyProp = (
   el: Element,
   key: string,
@@ -157,9 +209,10 @@ const applyProp = (
   scope: Scope.Scope,
   deferred?: Array<() => void>,
 ): void => {
-  // Reactive prop: AtomRef → subscribe and re-apply on changes.
-  if (isAtomRef(value)) {
-    const ref = value as AtomRef.ReadonlyRef<unknown>
+  // Reactive prop: Atom (a `h.track` derived) or AtomRef → subscribe and
+  // re-apply on changes. Same rolling child scope either way; only the
+  // read/subscribe seam differs.
+  if (Atom.isAtom(value) || isAtomRef(value)) {
     let lastChildScope: Scope.Closeable | null = null
     const apply = (v: unknown, defer?: Array<() => void>) => {
       if (lastChildScope) {
@@ -169,13 +222,13 @@ const applyProp = (
       lastChildScope = Scope.forkUnsafe(scope, "sequential")
       applyProp(el, key, v, deps, lastChildScope, defer)
     }
-    // Deferred initial apply reads `ref.value` at drain time, not now — a
-    // capture of the current value could go stale (user code running during
-    // the children build may set the ref; the subscription's immediate write
-    // must not be clobbered by a stale deferred one).
-    if (deferred && isFormProp(el, key)) deferred.push(() => apply(ref.value))
-    else apply(ref.value)
-    subscribeRefScoped(ref, (v) => apply(v), scope)
+    applyAndSubscribeSource(
+      value,
+      deps.registry,
+      (v) => apply(v),
+      scope,
+      deferred && isFormProp(el, key) ? deferred : undefined,
+    )
     return
   }
 
@@ -311,7 +364,11 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       applyProps(
         el,
         view.props,
-        { context: view.context ?? ctx.context, sink: ctx.sink },
+        {
+          context: view.context ?? ctx.context,
+          sink: ctx.sink,
+          registry: ctx.registry,
+        },
         scope,
         deferred,
       )
@@ -360,13 +417,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       }
 
       // Initial synchronous render
-      if (Atom.isAtom(view.source)) {
-        render(ctx.registry.get(view.source))
-        subscribeAtomScoped(ctx.registry, view.source, render, scope)
-      } else if (isAtomRef(view.source)) {
-        render(view.source.value)
-        subscribeRefScoped(view.source, render, scope)
-      }
+      applyAndSubscribeSource(view.source, ctx.registry, render, scope)
 
       return currentNode
     }
