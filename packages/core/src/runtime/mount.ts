@@ -49,10 +49,16 @@ const withContext = (
         runSyncExit: Effect.runSyncExitWith(context),
       }
 
-// The per-dispatch runner a listener uses for handler Effects: built on the
-// FIRST Effect-returning dispatch and reused for the listener's lifetime
-// (see applyProp) over the element's captured context.
-type ForkRunner = (effect: Effect.Effect<unknown, never, never>) => unknown
+// The two deps a prop application consumes: the element's construction-captured
+// `context` (the runtime side of FoldPropsR — a mid-tree provide is honored at
+// dispatch) and the `sink` a handler failure routes to. They travel together
+// through applyProps → applyProp → the recursive AtomRef re-dispatch, so they
+// ride as one value. Deliberately NOT the full `BuildCtx`: the static-element
+// path must not derive a node ctx + `runSyncExit` runner it would never read.
+interface HandlerDeps {
+  readonly context: Context.Context<never>
+  readonly sink: ErrorSink
+}
 
 // Fire-and-forget an event-handler Effect. Runs on the element's captured
 // context (so it sees the services ambient at construction — incl. a mid-tree
@@ -65,15 +71,14 @@ type ForkRunner = (effect: Effect.Effect<unknown, never, never>) => unknown
 // can't report a stale failure back to a reset boundary.
 const runHandlerEffect = (
   effect: Effect.Effect<unknown, unknown, never>,
-  runFork: ForkRunner,
-  sink: ErrorSink,
+  deps: HandlerDeps,
   scope: Scope.Scope,
 ): void => {
-  runFork(
+  Effect.runForkWith(deps.context)(
     Effect.forkIn(
       Effect.matchCause(Effect.provideService(effect, Scope.Scope, scope), {
         onFailure: (cause) => {
-          if (!Cause.hasInterruptsOnly(cause)) sink(cause)
+          if (!Cause.hasInterruptsOnly(cause)) deps.sink(cause)
         },
         onSuccess: () => {},
       }),
@@ -133,16 +138,14 @@ const isFormProp = (el: Element, key: string): boolean =>
     ? VALUE_TAGS.has(el.tagName)
     : FORM_BOOL_PROPS.has(key) && key in el
 
-// Handlers consume only the captured `context` (the runtime side of
-// FoldPropsR — a mid-tree provide is honored at dispatch) and the `sink`; they
-// never touch the full `BuildCtx`, so the static-Element path passes these two
-// directly instead of deriving a node-scoped ctx + runner it would never use.
+// Handlers consume only `HandlerDeps` (the captured context + the sink); they
+// never touch the full `BuildCtx`, so the static-Element path passes that pair
+// instead of deriving a node-scoped ctx + runner it would never use.
 const applyProp = (
   el: Element,
   key: string,
   value: unknown,
-  context: Context.Context<never>,
-  sink: ErrorSink,
+  deps: HandlerDeps,
   scope: Scope.Scope,
   deferred?: Array<() => void>,
 ): void => {
@@ -156,7 +159,7 @@ const applyProp = (
         if (e) Effect.runFork(e)
       }
       lastChildScope = Scope.forkUnsafe(scope, "sequential")
-      applyProp(el, key, v, context, sink, lastChildScope, defer)
+      applyProp(el, key, v, deps, lastChildScope, defer)
     }
     // Deferred initial apply reads `ref.value` at drain time, not now — a
     // capture of the current value could go stale (user code running during
@@ -204,20 +207,12 @@ const applyProp = (
   if (isHandlerKey(key) && typeof value === "function") {
     const event = key.slice(2).toLowerCase()
     const userHandler = value as (event: Event) => unknown
-    // Built on the FIRST Effect-returning dispatch, then reused — the context
-    // is fixed for the listener's lifetime, but most handlers are imperative
-    // (never return an Effect), so paying the curried-runner allocation at
-    // attach time would waste every void-handler listener; paying it per
-    // dispatch would waste every event (mousemove, input…).
-    let runFork: ForkRunner | undefined
     const listener: EventListener = (e) => {
       const result = userHandler(e)
       if (Effect.isEffect(result)) {
-        runFork ??= Effect.runForkWith(context)
         runHandlerEffect(
           result as Effect.Effect<unknown, unknown, never>,
-          runFork,
-          sink,
+          deps,
           scope,
         )
       }
@@ -251,14 +246,13 @@ const applyProp = (
 const applyProps = (
   el: Element,
   props: Props,
-  context: Context.Context<never>,
-  sink: ErrorSink,
+  deps: HandlerDeps,
   scope: Scope.Scope,
   deferred?: Array<() => void>,
 ): void => {
   for (const [k, v] of Object.entries(props)) {
     if (k === "children") continue
-    applyProp(el, k, v, context, sink, scope, deferred)
+    applyProp(el, k, v, deps, scope, deferred)
   }
 }
 
@@ -299,18 +293,17 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       // Handlers run on the context captured when h() built this element
       // (h captures only when a handler prop exists), so a mid-tree
       // Effect.provide is honored at click time (the runtime side of
-      // FoldPropsR). Pass context+sink straight through — handlers need only
-      // those, so the static-element path never derives a node ctx/runner.
-      // Children keep the ambient ctx. Hand-built nodes (no capture) fall
-      // back to mount's context.
+      // FoldPropsR). Pass the `HandlerDeps` pair — handlers need only those,
+      // so the static-element path never derives a node ctx/runner. Children
+      // keep the ambient ctx. Hand-built nodes (no capture) fall back to
+      // mount's context.
       // Form-control property writes are deferred past the children loop:
       // `select.value` assigned before its <option>s exist silently no-ops.
       const deferred: Array<() => void> = []
       applyProps(
         el,
         view.props,
-        view.context ?? ctx.context,
-        ctx.sink,
+        { context: view.context ?? ctx.context, sink: ctx.sink },
         scope,
         deferred,
       )

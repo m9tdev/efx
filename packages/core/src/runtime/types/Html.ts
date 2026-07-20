@@ -31,7 +31,7 @@
 
 import type { Effect } from "effect"
 
-type Handler<E extends Event> = (event: E) => unknown
+type HandlerSlot<E extends Event> = (event: E) => unknown
 
 /**
  * The annotation type for an extracted handler. Unlike the permissive
@@ -50,73 +50,73 @@ export type EventHandler<Ev extends Event, E = never, R = never> = (
 
 export interface HtmlEventHandlers {
   // Pointer / mouse
-  readonly onclick?: Handler<MouseEvent>
-  readonly ondblclick?: Handler<MouseEvent>
-  readonly onmousedown?: Handler<MouseEvent>
-  readonly onmouseup?: Handler<MouseEvent>
-  readonly onmouseover?: Handler<MouseEvent>
-  readonly onmouseout?: Handler<MouseEvent>
-  readonly onmouseenter?: Handler<MouseEvent>
-  readonly onmouseleave?: Handler<MouseEvent>
-  readonly onmousemove?: Handler<MouseEvent>
-  readonly oncontextmenu?: Handler<MouseEvent>
-  readonly onwheel?: Handler<WheelEvent>
+  readonly onclick?: HandlerSlot<MouseEvent>
+  readonly ondblclick?: HandlerSlot<MouseEvent>
+  readonly onmousedown?: HandlerSlot<MouseEvent>
+  readonly onmouseup?: HandlerSlot<MouseEvent>
+  readonly onmouseover?: HandlerSlot<MouseEvent>
+  readonly onmouseout?: HandlerSlot<MouseEvent>
+  readonly onmouseenter?: HandlerSlot<MouseEvent>
+  readonly onmouseleave?: HandlerSlot<MouseEvent>
+  readonly onmousemove?: HandlerSlot<MouseEvent>
+  readonly oncontextmenu?: HandlerSlot<MouseEvent>
+  readonly onwheel?: HandlerSlot<WheelEvent>
 
   // Pointer events (broader than mouse — covers touch + pen)
-  readonly onpointerdown?: Handler<PointerEvent>
-  readonly onpointerup?: Handler<PointerEvent>
-  readonly onpointermove?: Handler<PointerEvent>
-  readonly onpointerover?: Handler<PointerEvent>
-  readonly onpointerout?: Handler<PointerEvent>
-  readonly onpointerenter?: Handler<PointerEvent>
-  readonly onpointerleave?: Handler<PointerEvent>
-  readonly onpointercancel?: Handler<PointerEvent>
+  readonly onpointerdown?: HandlerSlot<PointerEvent>
+  readonly onpointerup?: HandlerSlot<PointerEvent>
+  readonly onpointermove?: HandlerSlot<PointerEvent>
+  readonly onpointerover?: HandlerSlot<PointerEvent>
+  readonly onpointerout?: HandlerSlot<PointerEvent>
+  readonly onpointerenter?: HandlerSlot<PointerEvent>
+  readonly onpointerleave?: HandlerSlot<PointerEvent>
+  readonly onpointercancel?: HandlerSlot<PointerEvent>
 
   // Keyboard
-  readonly onkeydown?: Handler<KeyboardEvent>
-  readonly onkeyup?: Handler<KeyboardEvent>
-  readonly onkeypress?: Handler<KeyboardEvent>
+  readonly onkeydown?: HandlerSlot<KeyboardEvent>
+  readonly onkeyup?: HandlerSlot<KeyboardEvent>
+  readonly onkeypress?: HandlerSlot<KeyboardEvent>
 
   // Focus
-  readonly onfocus?: Handler<FocusEvent>
-  readonly onblur?: Handler<FocusEvent>
-  readonly onfocusin?: Handler<FocusEvent>
-  readonly onfocusout?: Handler<FocusEvent>
+  readonly onfocus?: HandlerSlot<FocusEvent>
+  readonly onblur?: HandlerSlot<FocusEvent>
+  readonly onfocusin?: HandlerSlot<FocusEvent>
+  readonly onfocusout?: HandlerSlot<FocusEvent>
 
   // Form
-  readonly onsubmit?: Handler<SubmitEvent>
-  readonly onreset?: Handler<Event>
-  readonly oninvalid?: Handler<Event>
-  readonly onchange?: Handler<Event>
-  readonly oninput?: Handler<Event>
-  readonly onselect?: Handler<Event>
+  readonly onsubmit?: HandlerSlot<SubmitEvent>
+  readonly onreset?: HandlerSlot<Event>
+  readonly oninvalid?: HandlerSlot<Event>
+  readonly onchange?: HandlerSlot<Event>
+  readonly oninput?: HandlerSlot<Event>
+  readonly onselect?: HandlerSlot<Event>
 
   // Lifecycle / media / loading
-  readonly onload?: Handler<Event>
-  readonly onerror?: Handler<Event>
-  readonly onscroll?: Handler<Event>
-  readonly onresize?: Handler<UIEvent>
-  readonly onabort?: Handler<Event>
+  readonly onload?: HandlerSlot<Event>
+  readonly onerror?: HandlerSlot<Event>
+  readonly onscroll?: HandlerSlot<Event>
+  readonly onresize?: HandlerSlot<UIEvent>
+  readonly onabort?: HandlerSlot<Event>
 
   // Clipboard
-  readonly oncopy?: Handler<ClipboardEvent>
-  readonly oncut?: Handler<ClipboardEvent>
-  readonly onpaste?: Handler<ClipboardEvent>
+  readonly oncopy?: HandlerSlot<ClipboardEvent>
+  readonly oncut?: HandlerSlot<ClipboardEvent>
+  readonly onpaste?: HandlerSlot<ClipboardEvent>
 
   // Drag & drop
-  readonly ondragstart?: Handler<DragEvent>
-  readonly ondrag?: Handler<DragEvent>
-  readonly ondragend?: Handler<DragEvent>
-  readonly ondragenter?: Handler<DragEvent>
-  readonly ondragleave?: Handler<DragEvent>
-  readonly ondragover?: Handler<DragEvent>
-  readonly ondrop?: Handler<DragEvent>
+  readonly ondragstart?: HandlerSlot<DragEvent>
+  readonly ondrag?: HandlerSlot<DragEvent>
+  readonly ondragend?: HandlerSlot<DragEvent>
+  readonly ondragenter?: HandlerSlot<DragEvent>
+  readonly ondragleave?: HandlerSlot<DragEvent>
+  readonly ondragover?: HandlerSlot<DragEvent>
+  readonly ondrop?: HandlerSlot<DragEvent>
 
   // Touch
-  readonly ontouchstart?: Handler<TouchEvent>
-  readonly ontouchmove?: Handler<TouchEvent>
-  readonly ontouchend?: Handler<TouchEvent>
-  readonly ontouchcancel?: Handler<TouchEvent>
+  readonly ontouchstart?: HandlerSlot<TouchEvent>
+  readonly ontouchmove?: HandlerSlot<TouchEvent>
+  readonly ontouchend?: HandlerSlot<TouchEvent>
+  readonly ontouchcancel?: HandlerSlot<TouchEvent>
 }
 
 /**

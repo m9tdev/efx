@@ -564,11 +564,15 @@ Anything forked must be tied to a scope that closes when its DOM does.
 
 **`BuildCtx` carries the scope-independent deps; `Scope` is threaded
 separately.** Signature: `buildDom(view, ctx: BuildCtx, scope: Scope.Scope)
-→ Node`, where `BuildCtx = { registry, context, sink }`. `registry` is the
-`AtomRegistry`; `context` is the ambient Effect context captured at `mount`
-(used to run event-handler Effects with the app's services); `sink` is the
-error sink (see "Runtime error routing" below). These three are stable for the
-whole tree, so they ride in `ctx`; `scope` is passed alongside because it
+→ Node`, where `BuildCtx = { registry, context, sink, runSyncExit }`.
+`registry` is the `AtomRegistry`; `context` is the ambient Effect context —
+captured at `mount` for the root ctx, then re-derived PER NODE by
+`withContext` for any IR node that captured its own (see "Per-NODE context
+capture"); `sink` is the error sink (see "Runtime error routing" below);
+`runSyncExit` is a context-paired `Effect.runSyncExitWith` cache for
+`coerceSync`, and MUST be recomputed whenever `context` changes — go through
+`withContext`, never a hand-built `{ ...ctx, context }` spread. `registry` and
+`sink` are stable for the whole tree; `scope` is passed alongside because it
 changes per dynamic subtree. Every subscription, event listener, and per-row
 `Effect.acquireRelease` release registers a finalizer on the scope (directly
 via `Scope.addFinalizer`, or via a forked child for sub-trees that need their

@@ -1,4 +1,4 @@
-import type { Chunk, Effect, Option, Result } from "effect"
+import type { Chunk, Effect, Option, Result, Scope } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { View } from "../View.ts"
 
@@ -219,5 +219,14 @@ type PairR<T> = T extends [any, infer R] ? R : never
 /** Fold a props object to the union of its `on*` handlers' live `E` channels. */
 export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
 
-/** Fold a props object to the union of its `on*` handlers' `R` channels. */
-export type FoldPropsR<P> = PairR<FoldPropsChannels<P>>
+/**
+ * Fold a props object to the union of its `on*` handlers' `R` channels.
+ *
+ * `Scope` is EXCLUDED, mirroring `list`'s row fold: `runHandlerEffect` provides
+ * the element's own DOM scope into the handler effect (that is what makes a
+ * handler's `acquireRelease` release when the element is removed), so a
+ * handler's `Scope` is already satisfied by the runtime. Surfacing it would
+ * demand a `Scope` the caller never has to supply — the same lie, in the
+ * opposite direction, that the rest of this fold exists to remove.
+ */
+export type FoldPropsR<P> = Exclude<PairR<FoldPropsChannels<P>>, Scope.Scope>

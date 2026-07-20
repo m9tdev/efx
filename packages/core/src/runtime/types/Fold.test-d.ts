@@ -5,7 +5,7 @@
  * Each `expectType` line is a compile-time assertion. If a fold returns the
  * wrong type, the assignment errors at type-check time.
  */
-import type { Effect } from "effect"
+import type { Effect, Scope } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
 import type {
   ChildE,
@@ -233,3 +233,19 @@ assertEquals<
   FoldPropsLiveE<{ onsave: AtomRef.ReadonlyRef<(e: Event) => void> }>,
   never
 >()
+
+// 26) A handler's `Scope` is EXCLUDED from the folded R — `runHandlerEffect`
+//     provides the element's own DOM scope into the effect (what makes a
+//     handler's `acquireRelease` release on element removal), so surfacing it
+//     would demand a Scope the caller never supplies. Mirrors `list`'s
+//     `Exclude<R, Scope>` on row channels. Other services still ride.
+type ScopedHandler = {
+  onclick: (e: MouseEvent) => Effect.Effect<void, never, Scope.Scope>
+}
+assertEquals<FoldPropsR<ScopedHandler>, never>()
+type ScopedPlusService = {
+  onclick: (
+    e: MouseEvent,
+  ) => Effect.Effect<void, never, HttpService | Scope.Scope>
+}
+assertEquals<FoldPropsR<ScopedPlusService>, HttpService>()
