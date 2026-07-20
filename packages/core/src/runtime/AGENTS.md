@@ -180,7 +180,24 @@ The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
 
 **Invariant: the empty-deps early return is load-bearing.** Without
 it, every `<Row item={item} />` would erase `item`'s generic type to
-`unknown`.
+`unknown`. Pinned in `testing/track-sharing.test.ts` (it renders
+identically either way, so no rendering test catches its removal).
+
+**Invariant: a throwing tracked thunk stays node-local.** The Atom read
+runs the thunk through `trackDepsSettled`, never `trackDeps` — an
+exception escaping the read aborts the registry's whole notify cascade,
+so every OTHER node on that ref misses the update, and the thrower loses
+its dep subscriptions so nothing wakes it again. One transient bad frame
+(`h.read(user)!.name` while `user` is briefly null) froze the surrounding
+UI permanently and silently. On a failed run the node instead reports
+(`console.error` — there is no reachable `ErrorSink` from a bare sync
+`h.track` call), holds its previous value via `get.self()`, keeps the
+deps it managed to read, and recovers on the next change. Do NOT
+"simplify" this back to letting the throw propagate, and do NOT rethrow
+asynchronously — the propagating throw IS the bug. Pinned by
+`testing/track-throw.test.ts`. Routing these into the nearest `Catch`
+is the real fix and belongs with the typed-live-error work (#72's
+successor), not a global sink.
 
 **Invariant: tracked thunks must be pure — they run once at creation
 and once per registry read.** The creation-time run exists only to
@@ -199,6 +216,16 @@ than 3 because `registry.subscribe` reuses the value `registry.get` just
 computed (`applyAndSubscribeSource` reads, then subscribes); a registry
 that recomputed on subscribe would make it 3. If an effect bump trips the
 assertion, check that before assuming a verrex regression.
+
+**"Twice" is per tracked expression, NOT per tree.** Nesting compounds:
+an outer tracked expression that re-runs rebuilds its children, which
+CONSTRUCTS a fresh inner derived (new creation run, new first read) — so
+under churn an inner thunk's total runs grow with how often its ancestors
+recompute. Measured at depth 3 where only the innermost reads a ref:
+`[1,1,2]` (the outer two take the empty-deps early return and stay
+static). That compounding is not new — an outer rebuild always
+reconstructed inner deriveds — but the flat "twice" figure describes one
+expression in isolation, so don't read it as a whole-tree budget.
 
 **Property (by construction, not by test): the registry never executes
 user Effects.** The derived's read is the sync thunk; a value it produces
@@ -220,6 +247,20 @@ attaches, and the layer's finalizer disposes the registry out from
 under the live UI. Build the layer into the long-lived scope instead
 (`Layer.build` under `Scope.provide`; see `testing/index.ts` and the
 demo's `setupDemo`).
+
+**This is the sharpest edge in the whole design, and the types do not
+catch it.** `mount`'s `R` says the registry is REQUIRED; it cannot say it
+must OUTLIVE the scope — so the broken shape type-checks and fails at
+runtime, which is precisely the trade this framework exists to avoid.
+Before #153 it was harmless (`h.track` held its own subscriptions, so
+registry lifetime wasn't load-bearing) and it silently became fatal.
+Two symptoms, one cause: the UI renders once then **silently** stops
+updating; or a rebuild that constructs a new derived post-dispose throws
+out of an innocent `.set(...)` — `readAtomOrExplain` in `mount.ts`
+rewrites that one into an actionable message, since it is the only
+symptom we can intercept. The silent-freeze case has no runtime guard
+today. `README.md` documents the correct shape; expressing the lifetime
+requirement in the type is open work.
 
 **Timing:** dep-change propagation (bridge `setSelf` → derived recompute
 → mount listener) is **synchronous** — DOM update timing is unchanged.

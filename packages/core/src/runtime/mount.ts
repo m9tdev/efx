@@ -123,6 +123,34 @@ const subscribeAtomScoped = <A>(
   Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
 }
 
+// A rebuild that constructs a new derived AFTER the registry was disposed
+// throws `Cannot access Atom <atom>: registry is disposed` — out of whatever
+// innocent `ref.set(...)` triggered the rebuild, naming no component and no
+// service, past `Catch` and the `ErrorSink` both. Since disposal-too-early has
+// exactly one cause, say so. Matching on effect's message is deliberately
+// best-effort: if it changes we rethrow the original untouched, losing only
+// the hint.
+const readAtomOrExplain = (
+  registry: AtomRegistry.AtomRegistry,
+  atom: Atom.Atom<unknown>,
+): unknown => {
+  try {
+    return registry.get(atom)
+  } catch (e) {
+    if (e instanceof Error && /registry is disposed/i.test(e.message)) {
+      throw new Error(
+        "[verrex] the AtomRegistry was disposed while the UI was still mounted. " +
+          "`Effect.provide(VerrexLive)` around a mount scopes the layer TO the mount " +
+          "effect, which completes as soon as the DOM attaches. Build the layer into a " +
+          "longer-lived scope instead (`Layer.build` under `Scope.provide`) — see the " +
+          "registry-outlives-mount invariant in runtime/AGENTS.md.",
+        { cause: e },
+      )
+    }
+    throw e
+  }
+}
+
 // The one seam where the two reactive source shapes converge: apply the
 // current value (immediately, or deferred to `deferInitial` drain time — the
 // deferred thunk re-reads the source THEN, so a write landing during the
@@ -141,7 +169,7 @@ const applyAndSubscribeSource = (
   deferInitial?: Array<() => void>,
 ): void => {
   const read = Atom.isAtom(source)
-    ? () => registry.get(source as Atom.Atom<unknown>)
+    ? () => readAtomOrExplain(registry, source as Atom.Atom<unknown>)
     : isAtomRef(source)
       ? () => source.value
       : null
