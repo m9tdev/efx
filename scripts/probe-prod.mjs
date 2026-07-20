@@ -17,7 +17,7 @@ await runProbe({
 
     // LiveUser
     await page.locator(".live-user button", { hasText: "Grace (7)" }).click()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(900)
     const liveUser = await page
       .locator(".live-user .user-card strong")
       .innerText()

@@ -13,14 +13,14 @@ await runProbe({
 
     // Click Grace (7)
     await page.locator(".live-user button", { hasText: "Grace (7)" }).click()
-    await page.waitForTimeout(400)
+    await page.waitForTimeout(900)
     live = await page.locator(".live-user .user-card strong").innerText()
     console.log("after Grace click:", live)
     await page.screenshot({ path: "/tmp/verrex-verify/05-live-grace.png" })
 
     // Click Bad id — should produce a failure state, no .user-card
     await page.locator(".live-user button", { hasText: "Bad id" }).click()
-    await page.waitForTimeout(400)
+    await page.waitForTimeout(900)
     const errEl = await page.locator(".live-user .error").count()
     console.log("error state visible:", errEl > 0)
     const errText =
@@ -32,7 +32,7 @@ await runProbe({
 
     // Click Ada (42) again — should recover to success
     await page.locator(".live-user button", { hasText: "Ada (42)" }).click()
-    await page.waitForTimeout(400)
+    await page.waitForTimeout(900)
     live = await page
       .locator(".live-user .user-card strong")
       .innerText()
