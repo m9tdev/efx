@@ -800,7 +800,10 @@ props fold. The erasure is now scoped to non-function reactive attrs
 (`item={ref.value}`). Note the distinct case of a reactive attr on a
 DECLARED handler key — `onclick={cond.value ? a : b}` — which doesn't
 erase but is _rejected_: `h.track`'s `unknown` fails the
-`IntrinsicProps` constraint (pre-#72 too). The typed form selects inside
+`IntrinsicProps` constraint (pre-#72 too). That rejection holds only for
+keys LISTED in `HtmlEventHandlers`; an unlisted `on*` key slips through
+the `Record<string, unknown>` half of the intersection and DOES erase,
+while the runtime still runs the handler — #159. The typed form selects inside
 the handler: `onclick={(e) => (cond.value ? incr : decr)(e)}`.
 
 Don't "fix" anything here by widening `h()`'s signature — `h` is

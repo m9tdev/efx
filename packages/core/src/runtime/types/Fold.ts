@@ -223,10 +223,15 @@ export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
  * Fold a props object to the union of its `on*` handlers' `R` channels.
  *
  * `Scope` is EXCLUDED, mirroring `list`'s row fold: `runHandlerEffect` provides
- * the element's own DOM scope into the handler effect (that is what makes a
- * handler's `acquireRelease` release when the element is removed), so a
- * handler's `Scope` is already satisfied by the runtime. Surfacing it would
- * demand a `Scope` the caller never has to supply — the same lie, in the
- * opposite direction, that the rest of this fold exists to remove.
+ * a `Scope` into the handler effect, so a handler's `Scope` is already
+ * satisfied by the runtime. Surfacing it would demand a `Scope` the caller
+ * never has to supply — the same lie, in the opposite direction, that the rest
+ * of this fold exists to remove. The EXCLUSION is sound (a Scope really is
+ * provided); what varies is that scope's LIFETIME — see `runHandlerEffect` in
+ * mount.ts. Only a dynamic node (Reactive/List row) forks a scope of its own,
+ * so on a STATIC element the handler's finalizers ride the enclosing subtree
+ * scope and release with it — at app teardown for an element under no dynamic
+ * parent, NOT per click. A handler that acquires per dispatch therefore
+ * accumulates finalizers; #160 tracks giving dispatches their own scope.
  */
 export type FoldPropsR<P> = Exclude<PairR<FoldPropsChannels<P>>, Scope.Scope>

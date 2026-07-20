@@ -235,10 +235,12 @@ assertEquals<
 >()
 
 // 26) A handler's `Scope` is EXCLUDED from the folded R — `runHandlerEffect`
-//     provides the element's own DOM scope into the effect (what makes a
-//     handler's `acquireRelease` release on element removal), so surfacing it
-//     would demand a Scope the caller never supplies. Mirrors `list`'s
-//     `Exclude<R, Scope>` on row channels. Other services still ride.
+//     provides a Scope into the effect, so surfacing it would demand one the
+//     caller never supplies. Mirrors `list`'s `Exclude<R, Scope>` on row
+//     channels. Other services still ride. (The exclusion is sound — a Scope
+//     really is provided. Its LIFETIME is the enclosing build scope, not a
+//     per-element or per-dispatch one; see runHandlerEffect in mount.ts and
+//     the static-element pin in testing/context-capture.test.ts.)
 type ScopedHandler = {
   onclick: (e: MouseEvent) => Effect.Effect<void, never, Scope.Scope>
 }

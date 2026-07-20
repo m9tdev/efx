@@ -73,10 +73,14 @@ Every JSX expression `{...}` triggers up to three local rewrites:
    the props fold (#72). The inner `h.read` rewrites are kept; they run
    at call time with no tracker active, i.e. as plain `.value` reads. A
    `.value` read _outside_ the function (`onclick={cond.value ? a : b}`)
-   still wraps — but note that pattern does NOT pass the type gate: the
-   wrap's `unknown` fails `h()`'s `IntrinsicProps` constraint (it always
-   did, pre-#72 too), so reactive handler _selection_ is unsupported in
-   checked `.vx`. The typed form is selecting _inside_ the handler —
+   still wraps — and for a handler key DECLARED in `HtmlEventHandlers`
+   that pattern does NOT pass the type gate: the wrap's `unknown` fails
+   `h()`'s `IntrinsicProps` constraint (it always did, pre-#72 too), so
+   reactive handler _selection_ is unsupported in checked `.vx`. For an
+   UNLISTED `on*` key (`ontimeupdate`, a custom-element event) the
+   `Record<string, unknown>` half of the intersection accepts the
+   `unknown` silently and both channels erase while the runtime still
+   attaches the listener — the hole tracked by #159. The typed form is selecting _inside_ the handler —
    `onclick={(e) => (cond.value ? incr : decr)(e)}` — a function
    expression (wrap-skipped, channels intact) that reads the ref at
    click time. The wrap is still emitted for the untyped-JS path, where

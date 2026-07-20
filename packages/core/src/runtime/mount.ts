@@ -62,9 +62,17 @@ interface HandlerDeps {
 
 // Fire-and-forget an event-handler Effect. Runs on the element's captured
 // context (so it sees the services ambient at construction — incl. a mid-tree
-// Effect.provide), with the element's DOM `scope` provided INSIDE the effect:
-// a handler's `Effect.addFinalizer`/`acquireRelease` releases when the element
-// is removed, not at app teardown (mirrors coerceSync's scope provision).
+// Effect.provide), with the enclosing build `scope` provided INSIDE the effect
+// so a handler's `Effect.addFinalizer`/`acquireRelease` has a Scope to register
+// against at all (mirrors coerceSync's scope provision).
+//
+// MIND THE LIFETIME. `scope` is the scope this element was BUILT in, not a
+// per-element or per-dispatch one — only dynamic nodes (Reactive emits, List
+// rows) fork a scope of their own. So a handler's finalizers release when the
+// enclosing dynamic subtree is torn down: element-lifetime inside a Reactive
+// node or a list row, but APP-lifetime for a static element under no dynamic
+// parent. A handler that acquires on every dispatch accumulates finalizers on
+// that scope until it closes. #160 tracks giving each dispatch its own scope.
 // Failures route to the sink; pure-interrupt causes (teardown) are dropped.
 // Forked INTO the element's `scope` (via `Effect.forkIn`) so a long-lived
 // handler is interrupted when the element is removed — and a torn-down handler

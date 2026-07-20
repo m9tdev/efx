@@ -189,10 +189,12 @@ describe("per-node context capture", () => {
     await ui.unmount()
   })
 
-  it("a handler's acquireRelease releases when the element is removed", async () => {
-    // runHandlerEffect provides the element's DOM scope INTO the handler
-    // effect (mirroring coerceSync), so Effect.addFinalizer/acquireRelease
-    // bind to the element's lifetime — not the app's.
+  it("a handler's acquireRelease releases when a DYNAMIC node is removed", async () => {
+    // runHandlerEffect provides the enclosing build scope INTO the handler
+    // effect (mirroring coerceSync). Here the button lives in an AtomRef slot
+    // — a Reactive node, which forks a scope of its OWN — so the release binds
+    // to that node's lifetime. Note this is the dynamic case; the static case
+    // below has no per-element scope and behaves differently.
     const log: string[] = []
     const makeView = (on: boolean) =>
       on
@@ -229,5 +231,45 @@ describe("per-node context capture", () => {
     await ui.tick()
     expect(log).toEqual(["acquire", "release"])
     await ui.unmount()
+  })
+
+  it("a STATIC element's handler finalizers ride the enclosing scope (#160)", async () => {
+    // The counterpart to the test above, and the case it structurally cannot
+    // reach: a static element forks NO scope of its own, so the handler's
+    // finalizers register on the scope the element was BUILT in — here the
+    // mount root. They therefore accumulate per dispatch and release only at
+    // app teardown, NOT per click.
+    //
+    // This pins CURRENT behavior, not desired behavior: it is why FoldPropsR's
+    // Scope exclusion is sound-but-lifetime-surprising. #160 tracks giving each
+    // dispatch its own scope; when that lands, this test flips to expecting a
+    // release per click and the comments in mount.ts/Fold.ts move with it.
+    const log: string[] = []
+    const App = Effect.fn("StaticScopedHandler")(function* (_props: {} = {}) {
+      return yield* h(
+        "button",
+        {
+          class: "btn",
+          onClick: () =>
+            Effect.acquireRelease(
+              Effect.sync(() => log.push("acquire")),
+              () => Effect.sync(() => log.push("release")),
+            ),
+        },
+        "go",
+      )
+    })
+
+    const ui = await render(App())
+    ui.click(".btn")
+    await ui.tick()
+    ui.click(".btn")
+    await ui.tick()
+    // Two acquisitions, ZERO releases — nothing has torn down yet.
+    expect(log).toEqual(["acquire", "acquire"])
+
+    // Only app teardown closes the scope they registered against.
+    await ui.unmount()
+    expect(log).toEqual(["acquire", "acquire", "release", "release"])
   })
 })
