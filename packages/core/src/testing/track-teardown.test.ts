@@ -88,4 +88,52 @@ describe("h.track subscription teardown", () => {
 
     await ui.unmount()
   })
+
+  it("drops the unused ref's bridge when one derived switches dep branches", async () => {
+    // Branch SWITCH within a single derived (no subtree churn): the same
+    // tracked ternary reads refA on one branch and refB on the other. After
+    // flipping to the refB branch, refA's bridge must fall out of the
+    // derived's dep set — the PR's "dep switching drops the unused bridge"
+    // claim, which otherwise rests only on effect's registry semantics.
+    // Observable purely by run counts: a write to the dropped ref must not
+    // re-run the thunk; a write to the live one must. Orphaned-bridge
+    // disposal is scheduled, hence the tick after the switch.
+    const cond = AtomRef.make(true)
+    const refA = AtomRef.make("a0")
+    const refB = AtomRef.make("b0")
+    let runs = 0
+
+    const app = h(
+      "div",
+      {},
+      h.track(() => {
+        runs++
+        return h.read(cond) ? h.read(refA) : h.read(refB)
+      }),
+    )
+
+    const ui = await render(app)
+    expect(ui.text("div")).toBe("a0")
+
+    // While on the refA branch: refA re-runs, refB is not a dep.
+    const before = runs
+    refA.set("a1")
+    expect(runs).toBe(before + 1)
+    refB.set("b1")
+    expect(runs).toBe(before + 1)
+    expect(ui.text("div")).toBe("a1")
+
+    cond.set(false) // switch branches: the recompute reads refB, not refA
+    await ui.tick() // scheduled orphan removal drops refA's bridge
+    expect(ui.text("div")).toBe("b1")
+
+    const afterSwitch = runs
+    refA.set("a2") // dropped dep: must NOT re-run the thunk
+    expect(runs).toBe(afterSwitch)
+    refB.set("b2") // live dep: must re-run and re-render
+    expect(runs).toBe(afterSwitch + 1)
+    expect(ui.text("div")).toBe("b2")
+
+    await ui.unmount()
+  })
 })

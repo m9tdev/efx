@@ -676,6 +676,11 @@ ways to subscribe to a reactive source from inside `mount.ts`.
 They register the `dispose` callback as a `Scope.addFinalizer`
 finalizer. Don't subscribe outside these helpers — the dispose
 function would have no scope to bind to and would leak on teardown.
+Consumers don't call them directly either:
+**`applyAndSubscribeSource`** is the single Atom-vs-AtomRef dispatch
+(initial read — immediate or deferred — plus scoped subscribe) that
+both reactive consumers (`applyProp`, the Reactive child case) share;
+a third source shape extends it, not a new dispatch site.
 
 **Fragments wrap in `<span style="display: contents">`.** Not a
 `DocumentFragment`, because `DocumentFragment` is consumed on insert

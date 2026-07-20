@@ -123,6 +123,33 @@ const subscribeAtomScoped = <A>(
   Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
 }
 
+// The one seam where the two reactive source shapes converge: apply the
+// current value (immediately, or deferred to `deferInitial` drain time — the
+// deferred thunk re-reads the source THEN, so a write landing during the
+// children build isn't clobbered by a stale capture), and subscribe `apply`
+// for the rest of `scope`'s life. Dispatch on Atom (read/subscribe through
+// the registry — an `h.track` derived) vs AtomRef (direct). Both reactive
+// consumers — `applyProp` and the Reactive child case — go through here; a
+// third source shape means extending this, not a new dispatch site.
+const applyAndSubscribeSource = (
+  source: unknown,
+  registry: AtomRegistry.AtomRegistry,
+  apply: (v: unknown) => void,
+  scope: Scope.Scope,
+  deferInitial?: Array<() => void>,
+): void => {
+  const read = Atom.isAtom(source)
+    ? () => registry.get(source as Atom.Atom<unknown>)
+    : () => (source as AtomRef.ReadonlyRef<unknown>).value
+  if (deferInitial) deferInitial.push(() => apply(read()))
+  else apply(read())
+  if (Atom.isAtom(source)) {
+    subscribeAtomScoped(registry, source as Atom.Atom<unknown>, apply, scope)
+  } else {
+    subscribeRefScoped(source as AtomRef.ReadonlyRef<unknown>, apply, scope)
+  }
+}
+
 // Props that must be written as DOM *properties*, not attributes. After user
 // interaction the dirty value flag makes the `value` attribute and property
 // diverge permanently — setAttribute then changes nothing visible. Same story
@@ -162,22 +189,13 @@ const applyProp = (
       lastChildScope = Scope.forkUnsafe(scope, "sequential")
       applyProp(el, key, v, deps, lastChildScope, defer)
     }
-    // Deferred initial apply reads the source at drain time, not now — a
-    // capture of the current value could go stale (user code running during
-    // the children build may set the ref; the subscription's immediate write
-    // must not be clobbered by a stale deferred one).
-    if (Atom.isAtom(value)) {
-      const atom = value as Atom.Atom<unknown>
-      const read = () => deps.registry.get(atom)
-      if (deferred && isFormProp(el, key)) deferred.push(() => apply(read()))
-      else apply(read())
-      subscribeAtomScoped(deps.registry, atom, (v) => apply(v), scope)
-    } else {
-      const ref = value as AtomRef.ReadonlyRef<unknown>
-      if (deferred && isFormProp(el, key)) deferred.push(() => apply(ref.value))
-      else apply(ref.value)
-      subscribeRefScoped(ref, (v) => apply(v), scope)
-    }
+    applyAndSubscribeSource(
+      value,
+      deps.registry,
+      (v) => apply(v),
+      scope,
+      deferred && isFormProp(el, key) ? deferred : undefined,
+    )
     return
   }
 
@@ -366,13 +384,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       }
 
       // Initial synchronous render
-      if (Atom.isAtom(view.source)) {
-        render(ctx.registry.get(view.source))
-        subscribeAtomScoped(ctx.registry, view.source, render, scope)
-      } else if (isAtomRef(view.source)) {
-        render(view.source.value)
-        subscribeRefScoped(view.source, render, scope)
-      }
+      applyAndSubscribeSource(view.source, ctx.registry, render, scope)
 
       return currentNode
     }

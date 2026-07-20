@@ -112,6 +112,12 @@ export const makeDepSubscription = (
  *
  * Memoized per ref: the graph keys dependencies by atom object identity, so
  * every `h.track` derived reading the same ref must `get` the same bridge.
+ *
+ * The cache is module-global, ACROSS registries, and that's safe: an Atom is
+ * a description, not a node — each registry keys its own node state per
+ * atom, so one bridge object mounted in two registries is two independent
+ * nodes with independent subscriptions and finalizers. Scoping the cache
+ * per registry would only allocate duplicate bridges for the same ref.
  */
 const bridgeCache = new WeakMap<
   AtomRef.ReadonlyRef<unknown>,
