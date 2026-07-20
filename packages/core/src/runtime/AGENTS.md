@@ -194,13 +194,23 @@ assertion in `testing/track-teardown.test.ts` — a refactor that
 changes the count (e.g. lazy classification at mount) should trip it
 deliberately.
 
-**Invariant: the registry never executes user Effects.** The derived's
-read is the sync thunk; a value it produces that happens to be an
-Effect is executed by mount (`coerceSync`), same as any reactive
-emission. All user-Effect execution stays in mount/construction where
-`R` is provided and type-tracked — `Atom.make`'s effectful overload is
-pinned to `R = Scope | AtomRegistry` by effect itself, so this can't
-regress silently.
+**This count is co-owned with effect, not solely ours.** It is 2 rather
+than 3 because `registry.subscribe` reuses the value `registry.get` just
+computed (`applyAndSubscribeSource` reads, then subscribes); a registry
+that recomputed on subscribe would make it 3. If an effect bump trips the
+assertion, check that before assuming a verrex regression.
+
+**Property (by construction, not by test): the registry never executes
+user Effects.** The derived's read is the sync thunk; a value it produces
+that happens to be an Effect is executed by mount (`coerceSync`), same as
+any reactive emission. All user-Effect execution stays in
+mount/construction where `R` is provided and type-tracked. What actually
+enforces this is narrow, so check it directly if you touch the seam: we
+only ever construct deriveds with **`Atom.readable` over a sync thunk**.
+`Atom.make`'s effectful overload — which effect pins to
+`R = Scope | AtomRegistry`, so a service-needing Effect wouldn't compile
+there anyway — is never called. Nothing tests this; the guard is that
+one call site.
 
 **Invariant: the `AtomRegistry` must outlive the mount's `Scope`.**
 `h.track` deriveds and Atom sources live in the registry; disposing it

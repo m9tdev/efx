@@ -10,6 +10,13 @@ import { render } from "@verrex/core/testing"
 // and its ref bridges — otherwise the thunk keeps re-running (and the
 // derived stays retained) for the life of the underlying ref, every time
 // it changes.
+//
+// MIND WHAT EACH CASE PROVES. At FULL unmount the harness scope closes and
+// disposes the whole registry, so the first case stays green even without
+// `subscribeAtomScoped`'s per-subscription finalizer (verified by deleting
+// it: only the churn case failed). The churn and branch-switch cases are
+// what pin that finalizer and the bridge drop; the first case pins the
+// end-to-end "no re-runs after unmount" property and the run count.
 
 describe("h.track subscription teardown", () => {
   it("stops re-running the tracked thunk after the subtree unmounts", async () => {
@@ -135,5 +142,26 @@ describe("h.track subscription teardown", () => {
     expect(ui.text("div")).toBe("b2")
 
     await ui.unmount()
+  })
+
+  it("never subscribes to anything when the derived is never mounted", () => {
+    // The laziness that DELETED the old "created but never mounted" leak
+    // boundary: an `Atom.readable`'s read — which is where `ref.subscribe`
+    // lives, via the bridge — doesn't run until a registry reads it. A
+    // derived built during a subtree that then throws (so its node never
+    // attaches) must therefore hold nothing. No registry here on purpose:
+    // if this ever needed one, the laziness claim would already be false.
+    const ref = AtomRef.make(0)
+    let runs = 0
+
+    h.track(() => {
+      runs++
+      return h.read(ref)
+    })
+
+    expect(runs).toBe(1) // the creation-time classification run, and only it
+    ref.set(1)
+    ref.set(2)
+    expect(runs).toBe(1) // never mounted → never subscribed → never re-run
   })
 })
