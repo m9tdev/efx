@@ -57,6 +57,45 @@ export const recordDep = (ref: AtomRef.ReadonlyRef<unknown>): void => {
 }
 
 /**
+ * `trackDeps` that reifies a throw instead of propagating it — and, crucially,
+ * still returns **the deps read before the throw**.
+ *
+ * Only `h.track`'s registry read uses this, and the dep set is why. A tracked
+ * thunk that throws mid-run (`h.read(user)!.name` while `user` is briefly
+ * `null`) must not take its node — or the propagation pass it is running
+ * inside — down with it: an exception escaping an `Atom` read aborts the
+ * registry's notify cascade, so SIBLING nodes on the same ref never see that
+ * update and the graph is left mid-computation. Recovery then needs two
+ * things: the node must survive, and it must still be SUBSCRIBED to whatever
+ * it managed to read, or nothing will ever wake it again. Hence deps in both
+ * outcomes.
+ */
+export const trackDepsSettled = <A>(
+  thunk: () => A,
+):
+  | {
+      readonly ok: true
+      readonly value: A
+      readonly deps: Set<AtomRef.ReadonlyRef<unknown>>
+    }
+  | {
+      readonly ok: false
+      readonly error: unknown
+      readonly deps: Set<AtomRef.ReadonlyRef<unknown>>
+    } => {
+  const deps = new Set<AtomRef.ReadonlyRef<unknown>>()
+  const prev = currentTracker
+  currentTracker = deps
+  try {
+    return { ok: true, value: thunk(), deps }
+  } catch (error) {
+    return { ok: false, error, deps }
+  } finally {
+    currentTracker = prev
+  }
+}
+
+/**
  * Owns the subscribe/resubscribe/teardown bookkeeping `asyncRef` needs: a
  * fresh set of dependency subscriptions on every run, each firing `onChange`.
  * The caller re-runs a thunk under `trackDeps` and must re-subscribe to

@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { Atom, type AtomRef } from "effect/unstable/reactivity"
 import {
   bridgeAtom,
@@ -7,6 +7,7 @@ import {
   isHandlerKey,
   recordDep,
   trackDeps,
+  trackDepsSettled,
 } from "./coerce.ts"
 import type {
   FoldE,
@@ -51,10 +52,44 @@ const trackImpl = <T>(thunk: () => T): T | Atom.Atom<T> => {
   // subtree drops everything, and a derived that is never mounted never
   // subscribes to anything.
   return Atom.readable((get) => {
-    const { result: next, deps: nextDeps } = trackDeps(thunk)
-    for (const dep of nextDeps) get(bridgeAtom(dep))
-    return next
+    // `trackDepsSettled`, not `trackDeps`: a throw here must NOT escape the
+    // registry read. It would abort the whole notify cascade — every sibling
+    // node on the same ref would miss that update and stay dead — and leave
+    // this node without deps, so nothing could ever wake it again. Instead
+    // hold the last good value, stay subscribed to whatever the failed run
+    // did read, and report. The next dep change re-runs and recovers, which
+    // is the node-local, self-healing behaviour a transient
+    // (`h.read(user)!.name` while `user` is briefly null) had before deriveds
+    // moved into the shared registry graph.
+    const settled = trackDepsSettled(thunk)
+    for (const dep of settled.deps) get(bridgeAtom(dep))
+    if (settled.ok) return settled.value as T
+    reportTrackThrow(settled.error)
+    // `get.self()` is this node's previous value IN THIS REGISTRY — not a
+    // closure cache, so a derived mounted in two registries holds each one's
+    // own last value. `None` only on a first read that throws (construction
+    // already ran the thunk once, so that means state changed under us);
+    // `undefined` coerces to an empty node, which beats a torn subtree.
+    return Option.getOrUndefined(get.self<T>()) as T
   })
+}
+
+/**
+ * A tracked thunk threw on a RE-RUN (dep change), where there is no
+ * construction `E` channel left to ride and no boundary reachable from here —
+ * `h.track` is a bare sync call in a compiled component body, with no `ctx`,
+ * no `Scope`, and so no `ErrorSink`. Log it, matching what `mount`'s root sink
+ * does with an unattributable runtime failure. Deliberately NOT rethrown, even
+ * asynchronously: the whole point is that this node's failure stays this
+ * node's. Wiring these into the nearest `Catch` is the real fix and wants the
+ * typed-live-error work, not a global.
+ */
+const reportTrackThrow = (error: unknown): void => {
+  console.error(
+    "[verrex] a tracked expression threw while re-rendering; " +
+      "the node kept its last value and will retry on the next dep change.",
+    error,
+  )
 }
 
 type HasValue = { readonly value: unknown }
