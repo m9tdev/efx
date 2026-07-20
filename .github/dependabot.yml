@@ -23,7 +23,25 @@ updates:
         patterns:
           - "@babel/*"
           - "@types/babel__*"
+      # Same unit rule, different reason: @volar/* embed the TypeScript
+      # compiler API, so a Volar bump that outpaces its supported tsc (or the
+      # reverse) breaks the language plugin and verrex-check together. Also
+      # ANY level, so the pair can never split across two PRs.
+      typescript:
+        patterns:
+          - "typescript"
+          - "@volar/*"
       minor-and-patch:
         update-types:
           - minor
           - patch
+    ignore:
+      # TypeScript 7 is the Go port and ships NO compiler API — no
+      # createLanguageService, no IScriptSnapshot, and no extraFileExtensions,
+      # which is the hook that makes tsc accept .vx at all. Unblocking needs
+      # TS 7.1's API + Volar on top of it + CLI support for embedded
+      # languages; see #162 for the trigger conditions. Drop this entry when
+      # they land — the group above then moves typescript and Volar together.
+      - dependency-name: "typescript"
+        update-types:
+          - version-update:semver-major
