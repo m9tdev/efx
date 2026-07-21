@@ -1,14 +1,15 @@
 import { Cause, Effect, Exit, Layer, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { VerrexLive, mount, type View } from "@verrex/core"
+import { mount, type View } from "@verrex/core"
 
 /**
- * Services the harness provides for you: the `AtomRegistry` (via `VerrexLive`)
- * and the ambient `Scope` (held open across interaction, closed on `unmount`).
- * Everything else a component requires is `R` you must satisfy with `layer` —
- * if you forget one, `render` fails to type-check. That's deliberate: the
- * harness must NOT swallow the `E`/`R` channels, or it would defeat the whole
- * point of verrex at the test site.
+ * Services a component may require without a `layer`: the ambient `Scope`
+ * (held open across interaction, closed on `unmount`) and the `AtomRegistry`
+ * (owned by `mount` itself — created per mount, disposed with the mount's
+ * scope, provided to the app effect). Everything else a component requires
+ * is `R` you must satisfy with `layer` — if you forget one, `render` fails
+ * to type-check. That's deliberate: the harness must NOT swallow the `E`/`R`
+ * channels, or it would defeat the whole point of verrex at the test site.
  */
 type Injected = AtomRegistry.AtomRegistry | Scope.Scope
 
@@ -56,7 +57,7 @@ const el = (container: HTMLElement, selector: string): HTMLElement => {
  *
  * `app` is a component result — `Component(props)`, what a component tag
  * compiles to since #71 — i.e. an `Effect<View, E, R>`. Provide a `layer` covering every service the
- * component needs (the harness adds `AtomRegistry` + `Scope`); omit it only
+ * component needs (the harness adds the ambient `Scope`); omit it only
  * when the component requires nothing else. A missing service is a compile
  * error, exactly as it would be at a real `mount`.
  *
@@ -106,14 +107,14 @@ const renderImpl = async (
   const discharged = Effect.catchCause(app, (cause) =>
     Effect.die(Cause.squash(cause)),
   )
-  // Build the layers INTO the harness scope (not `Effect.provide`, which would
-  // scope them to the mount effect — an effect that completes as soon as the
-  // DOM attaches). The AtomRegistry must outlive the mounted UI: `h.track`
-  // deriveds and Atom sources live in it, and disposing it severs every
-  // subscription. Closing the harness scope in `unmount()` disposes it.
+  // Build the caller's layer INTO the harness scope (not `Effect.provide`,
+  // which would scope it to the mount effect — an effect that completes as
+  // soon as the DOM attaches), so service finalizers fire on `unmount()`.
+  // The AtomRegistry needs no layer at all: `mount` owns one per mount and
+  // disposes it with the same scope.
   await Effect.runPromise(
     Scope.provide(
-      Effect.flatMap(Layer.build(Layer.merge(layer, VerrexLive)), (ctx) =>
+      Effect.flatMap(Layer.build(layer), (ctx) =>
         Effect.provideContext(mount(discharged, container), ctx),
       ),
       scope,

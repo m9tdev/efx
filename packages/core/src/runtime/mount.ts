@@ -123,34 +123,6 @@ const subscribeAtomScoped = <A>(
   Effect.runSync(Scope.addFinalizer(scope, Effect.sync(dispose)))
 }
 
-// A rebuild that constructs a new derived AFTER the registry was disposed
-// throws `Cannot access Atom <atom>: registry is disposed` — out of whatever
-// innocent `ref.set(...)` triggered the rebuild, naming no component and no
-// service, past `Catch` and the `ErrorSink` both. Since disposal-too-early has
-// exactly one cause, say so. Matching on effect's message is deliberately
-// best-effort: if it changes we rethrow the original untouched, losing only
-// the hint.
-const readAtomOrExplain = (
-  registry: AtomRegistry.AtomRegistry,
-  atom: Atom.Atom<unknown>,
-): unknown => {
-  try {
-    return registry.get(atom)
-  } catch (e) {
-    if (e instanceof Error && /registry is disposed/i.test(e.message)) {
-      throw new Error(
-        "[verrex] the AtomRegistry was disposed while the UI was still mounted. " +
-          "`Effect.provide(VerrexLive)` around a mount scopes the layer TO the mount " +
-          "effect, which completes as soon as the DOM attaches. Build the layer into a " +
-          "longer-lived scope instead (`Layer.build` under `Scope.provide`) — see the " +
-          "registry-outlives-mount invariant in runtime/AGENTS.md.",
-        { cause: e },
-      )
-    }
-    throw e
-  }
-}
-
 // The one seam where the two reactive source shapes converge: apply the
 // current value (immediately, or deferred to `deferInitial` drain time — the
 // deferred thunk re-reads the source THEN, so a write landing during the
@@ -169,7 +141,7 @@ const applyAndSubscribeSource = (
   deferInitial?: Array<() => void>,
 ): void => {
   const read = Atom.isAtom(source)
-    ? () => readAtomOrExplain(registry, source as Atom.Atom<unknown>)
+    ? () => registry.get(source as Atom.Atom<unknown>)
     : isAtomRef(source)
       ? () => source.value
       : null
@@ -577,6 +549,13 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
  * fails) that aren't caught by a `Catch` boundary are routed to a root
  * error sink that logs via `Effect.logError` on the captured context.
  *
+ * **The `AtomRegistry` is owned by the mount, not required from context.**
+ * `mount` creates a registry and disposes it in the same scope close that
+ * detaches the DOM — the registry and the UI it drives always die together,
+ * so a mis-scoped provision can't freeze a live UI. A component's
+ * `yield* AtomRegistry.AtomRegistry` resolves to the mount's own registry
+ * (it is provided to the app effect, and discharged from `R` here).
+ *
  * **Requires `Effect<View<never>, never, R>`** — the app must have every error
  * discharged: construction failures off the Effect `E` channel (via
  * `Effect.catchCause` or a `Catch` boundary) and live failures off the
@@ -586,9 +565,13 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 export const mount = <R>(
   app: Effect.Effect<View<never>, never, R>,
   el: HTMLElement,
-): Effect.Effect<void, never, R | AtomRegistry.AtomRegistry | Scope.Scope> =>
+): Effect.Effect<
+  void,
+  never,
+  Exclude<R, AtomRegistry.AtomRegistry> | Scope.Scope
+> =>
   Effect.gen(function* () {
-    const registry = yield* AtomRegistry.AtomRegistry
+    const registry = AtomRegistry.make()
     // The real ambient context (carries the app's provided services). Typed
     // `never` so it threads without a generic — handler Effects are cast to
     // `R = never` at the run site; the services are present at runtime.
@@ -602,8 +585,15 @@ export const mount = <R>(
       sink,
       runSyncExit: Effect.runSyncExitWith(context),
     }
-    const view = yield* app
+    const view = yield* Effect.provideService(
+      app,
+      AtomRegistry.AtomRegistry,
+      registry,
+    )
     const scope = yield* Effect.scope
+    // Registered BEFORE buildDom so LIFO close runs it LAST: the DOM detach
+    // and every child-scope unsubscribe run against a still-live registry.
+    yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
     const node = buildDom(view, ctx, scope)
     el.replaceChildren()
     el.appendChild(node)

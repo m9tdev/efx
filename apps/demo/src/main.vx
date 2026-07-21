@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Fiber, Layer, Scope } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
-import { VerrexLive, Catch, mount, type View } from "@verrex/core"
+import { Catch, mount, type View } from "@verrex/core"
 import { Counter } from "./Counter.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
 import { AsyncEscalate } from "./AsyncEscalate.vx"
@@ -417,10 +417,10 @@ if (!rootEl) throw new Error("missing #root")
 // provides — `setupDemo`'s signature enforces it, so forgetting (say) HttpLive
 // is a compile error at the UserPage/AsyncUserPage/LiveUser call sites, not a
 // runtime crash. That's the thesis, now enforced per-mount.
-const APP_LAYER = Layer.mergeAll(VerrexLive, HttpLive, ThemeLive)
+const APP_LAYER = Layer.mergeAll(HttpLive, ThemeLive)
 
-// Everything the demos may require, after VerrexLive/HttpLive/ThemeLive: the
-// reactivity registry, the two services, and a Scope.
+// Everything the demos may require, after HttpLive/ThemeLive: the reactivity
+// registry (discharged by `mount`, which owns it), the two services, and a Scope.
 type DemoR = AtomRegistry.AtomRegistry | Http | Theme | Scope.Scope
 
 /**
@@ -450,9 +450,8 @@ const setupDemo = <E,>(
     // through unchanged; this is also where the boundary itself gets exercised.
     // Build APP_LAYER INTO the demo's scope (not `Effect.provide`, which scopes
     // it to the mount effect — an effect that completes once the DOM attaches).
-    // The AtomRegistry must outlive the mounted UI: reactive expressions
-    // (`h.track` deriveds) and Atom sources live in it, and disposing it severs
-    // every subscription. Closing the demo scope on ↻ reset disposes it.
+    // The AtomRegistry needs no layer: `mount` owns one per mount and disposes
+    // it with the same scope close that detaches the DOM.
     Effect.runFork(
       Scope.provide(
         Effect.flatMap(Layer.build(APP_LAYER), (ctx) =>

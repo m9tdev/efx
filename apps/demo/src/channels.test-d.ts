@@ -6,7 +6,7 @@
  */
 import type { Cause, Chunk, Option, Result, Scope } from "effect"
 import { Effect, Stream } from "effect"
-import { Atom, type AtomRef } from "effect/unstable/reactivity"
+import { Atom, AtomRegistry, type AtomRef } from "effect/unstable/reactivity"
 import {
   Async,
   type AsyncHandle,
@@ -391,6 +391,26 @@ mount(Caught, root)
 
 // A pure component needs no boundary — it's already `View<never>`, `never`.
 mount(Counter(), root)
+
+// ─── mount owns the AtomRegistry (#167) ─────────────────────────────────
+//     A component that resolves `yield* AtomRegistry` carries it on R, and
+//     mount DISCHARGES it — the result needs no registry layer. This is the
+//     type-level half of the fix: the registry no longer rides `mount`'s R,
+//     so it can no longer be provided with the wrong lifetime.
+
+const RegistryUser = Effect.gen(function* () {
+  const registry = yield* AtomRegistry.AtomRegistry
+  return yield* h("p", {}, `${typeof registry}`)
+})
+assertEquals<
+  typeof RegistryUser,
+  Effect.Effect<View, never, AtomRegistry.AtomRegistry>
+>()
+assertEquals<
+  ReturnType<typeof mount<AtomRegistry.AtomRegistry>>,
+  Effect.Effect<void, never, Scope.Scope>
+>()
+mount(RegistryUser, root)
 
 // ─── Atom carriers: the COMPONENT owns the requirements ──────────────────
 //     The service instance is extracted in the component body (`yield* Http`

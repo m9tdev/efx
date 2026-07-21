@@ -103,34 +103,22 @@ export const Counter = Component.make(function* () {
 
 ```ts
 // main.vx
-import { Effect, Layer, Scope } from "effect"
-import { VerrexLive, mount } from "@verrex/core"
+import { Effect } from "effect"
+import { mount } from "@verrex/core"
 import { Counter } from "./Counter.vx"
 
-// Build the layers INTO a scope that outlives the UI, and mount with the
-// resulting context. The `AtomRegistry` VerrexLive provides owns every live
-// subscription, so it has to outlive the mounted tree — see below.
+// `mount` owns its AtomRegistry (created per mount, disposed with the
+// mount's scope) — there is no framework layer to provide.
 const program = Effect.gen(function* () {
-  const context = yield* Layer.build(VerrexLive)
-  yield* Effect.provideContext(
-    mount(<Counter />, document.getElementById("root")!),
-    context,
-  )
+  yield* mount(<Counter />, document.getElementById("root")!)
   yield* Effect.never
 }).pipe(Effect.scoped)
 
 Effect.runFork(program)
 ```
 
-> **The registry must outlive the mount.** Don't write
-> `mount(...).pipe(Effect.provide(VerrexLive))`. That scopes the layer to the
-> mount effect, which completes the moment the DOM is attached — disposing the
-> `AtomRegistry` out from under the live UI. Everything renders once and then
-> silently stops updating. (The shape above survives only because
-> `Effect.never` holds the scope open; drop it, or mount from a function that
-> returns, and the freeze is immediate.) This is a runtime requirement the
-> types cannot express today: `mount`'s `R` says the registry is _required_,
-> not that it must _outlive_ the scope — so the broken shape type-checks.
+Closing the scope around a mount detaches the DOM and disposes the registry
+together, so the UI and its reactivity always die at the same moment.
 
 ## Layout
 

@@ -21,7 +21,7 @@ Public surface (from `index.ts`):
 - `Fragment` — `<>...</>` compile target (a direct-call component since
   #71: `Fragment({ children: [...] })`, generic over the children tuple —
   also the canonical pattern for effectful-children components)
-- `VerrexLive` — base Layer providing `AtomRegistry`
+- `VerrexLive` — deprecated no-op compat Layer (`mount` owns the registry)
 - Types: `View<E>`, `Props`, `FoldE`/`FoldLiveE`/`FoldR` (the `Tag*`
   families died with #71 — component channels are ordinary child folds),
   `FoldPropsLiveE`/`FoldPropsR` (the props fold, #72),
@@ -138,7 +138,10 @@ ship our own atom/signal primitive.
 - `AtomRef.Collection<T>` — reactive array; rows are
   `AtomRef.AtomRef<T>` so each row is its own subscribable cell.
 
-`mount` requires `AtomRegistry` in `R`. `VerrexLive` provides it.
+`mount` owns its `AtomRegistry` — it creates one per mount, provides it
+to the app effect (discharging `AtomRegistry` from the app's `R`), and
+disposes it on scope close. `VerrexLive` is deprecated (a no-op compat
+layer); nothing needs to provide a registry.
 
 ## The track/read dance
 
@@ -239,28 +242,17 @@ only ever construct deriveds with **`Atom.readable` over a sync thunk**.
 there anyway — is never called. Nothing tests this; the guard is that
 one call site.
 
-**Invariant: the `AtomRegistry` must outlive the mount's `Scope`.**
-`h.track` deriveds and Atom sources live in the registry; disposing it
-severs every subscription silently. `Effect.provide(VerrexLive)` around
-a mount effect is WRONG — the mount effect completes once the DOM
-attaches, and the layer's finalizer disposes the registry out from
-under the live UI. Build the layer into the long-lived scope instead
-(`Layer.build` under `Scope.provide`; see `testing/index.ts` and the
-demo's `setupDemo`).
-
-**This is the sharpest edge in the whole design, and the types do not
-catch it.** `mount`'s `R` says the registry is REQUIRED; it cannot say it
-must OUTLIVE the scope — so the broken shape type-checks and fails at
-runtime, which is precisely the trade this framework exists to avoid.
-Before #153 it was harmless (`h.track` held its own subscriptions, so
-registry lifetime wasn't load-bearing) and it silently became fatal.
-Two symptoms, one cause: the UI renders once then **silently** stops
-updating; or a rebuild that constructs a new derived post-dispose throws
-out of an innocent `.set(...)` — `readAtomOrExplain` in `mount.ts`
-rewrites that one into an actionable message, since it is the only
-symptom we can intercept. The silent-freeze case has no runtime guard
-today. `README.md` documents the correct shape; expressing the lifetime
-requirement in the type is open work.
+**Invariant: the mount owns the registry's lifetime.** `mount` creates
+its `AtomRegistry`, provides it to the app effect, and registers its
+disposal as a finalizer BEFORE `buildDom` — so LIFO scope close runs the
+DOM detach and every child-scope unsubscribe against a still-live
+registry, and disposes it last. The registry and the UI it drives die
+together; a mis-scoped provision freezing a live UI is no longer
+expressible, because callers never provide the registry at all. (Before
+this, `AtomRegistry` rode `mount`'s `R` and `Effect.provide(VerrexLive)`
+around the mount silently disposed it once the DOM attached — the type
+system could say "required" but not "must outlive"; making the mount the
+owner deleted the requirement rather than encoding it.)
 
 **Timing:** dep-change propagation (bridge `setSelf` → derived recompute
 → mount listener) is **synchronous** — DOM update timing is unchanged.

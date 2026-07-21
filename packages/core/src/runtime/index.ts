@@ -753,8 +753,11 @@ export const Fragment = <Cs extends ReadonlyArray<unknown>>(props: {
  * The base Layer every verrex app needs. Provides the `AtomRegistry` so any
  * reactive children in the view tree have somewhere to live.
  *
- * Merge this with your app-specific Layers (Http, Db, Theme, etc.) before
- * passing to `Effect.provide`.
+ * @deprecated No longer needed: `mount` creates and owns its registry (its
+ * lifetime is the mount's scope), and provides it to the app effect — a
+ * component's `yield* AtomRegistry.AtomRegistry` resolves to it. Providing
+ * this layer is now a harmless no-op; it will be removed in a future
+ * release.
  */
 export const VerrexLive: Layer.Layer<AtomRegistry.AtomRegistry> =
   AtomRegistry.layer
