@@ -408,9 +408,9 @@ export function Async<
   E,
   // `never` when E has no tagged members: without it, Types.Tags<E> = never makes
   // the constraint the empty mapped type and ANY map compiles, silently dead.
-  Handlers extends [Types.Tags<E>] extends [never]
+  Handlers extends ([Types.Tags<E>] extends [never]
     ? never
-    : TagHandlers<E, [retry: () => void]>,
+    : TagHandlers<E, [retry: () => void]>),
   R = never,
 >(
   from: AsyncSource<A, E, R>,

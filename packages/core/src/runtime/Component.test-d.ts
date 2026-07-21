@@ -28,7 +28,7 @@ type Equals<A, B> =
     : false
 declare function assertEquals<
   A,
-  B extends Equals<A, B> extends true ? unknown : never,
+  B extends (Equals<A, B> extends true ? unknown : never),
 >(): void
 
 // 1) Generator body: construction E and R re-derive from the yielded effects,
