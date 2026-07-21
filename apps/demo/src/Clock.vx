@@ -26,7 +26,9 @@ import { Stream } from "effect"
  *   — `Scope` is `streamRef`'s contribution; the tick stream can't fail.
  */
 export const Clock = Component.make(function* () {
-  const now = yield* streamRef(Stream.tick("1 second").pipe(Stream.map(() => new Date())))
+  const now = yield* streamRef(
+    Stream.tick("1 second").pipe(Stream.map(() => new Date())),
+  )
 
   const second = now.map((d) => d.getSeconds() * 6) // notifies every tick
   const minute = now.map((d) => d.getMinutes() * 6) // …only when the minute turns
@@ -38,8 +40,14 @@ export const Clock = Component.make(function* () {
         <span class="mark" style={`transform: rotate(${i * 30}deg)`} />
       ))}
       <div class="hand hour" style={`transform: rotate(${hour.value}deg)`} />
-      <div class="hand minute" style={`transform: rotate(${minute.value}deg)`} />
-      <div class="hand second" style={`transform: rotate(${second.value}deg)`} />
+      <div
+        class="hand minute"
+        style={`transform: rotate(${minute.value}deg)`}
+      />
+      <div
+        class="hand second"
+        style={`transform: rotate(${second.value}deg)`}
+      />
       <div class="pin" />
     </div>
   )
