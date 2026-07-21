@@ -83,8 +83,8 @@ importers:
         version: 3.1.0
     devDependencies:
       '@effect/vitest':
-        specifier: 4.0.0-beta.98
-        version: 4.0.0-beta.98(effect@4.0.0-beta.99)(vitest@4.1.10(@types/node@26.1.1)(happy-dom@20.11.0)(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(yaml@2.9.0)))
+        specifier: 4.0.0-beta.99
+        version: 4.0.0-beta.99(effect@4.0.0-beta.99)(vitest@4.1.10(@types/node@26.1.1)(happy-dom@20.11.0)(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(yaml@2.9.0)))
       effect:
         specifier: 4.0.0-beta.99
         version: 4.0.0-beta.99
@@ -165,6 +165,12 @@ packages:
     resolution: {integrity: sha512-uXRPuN8Y6v43/OVmQwKOd/VFDh+dipaxGKdWPr1bdnM+4bl8NZlYYRJi5omgXLFZ6ZbleduXKcmLM3NeePe69w==}
     peerDependencies:
       effect: ^4.0.0-beta.98
+      vitest: ^3.0.0 || ^4.0.0
+
+  '@effect/vitest@4.0.0-beta.99':
+    resolution: {integrity: sha512-SiZo3UGTsG2itbqLU1SJVmFraK+0AkrEU7ZLRpQALx3lFRBaohzB/7UQKVsRjCHHjDg0kNkGitZusGRN3mVAhg==}
+    peerDependencies:
+      effect: ^4.0.0-beta.99
       vitest: ^3.0.0 || ^4.0.0
 
   '@emnapi/core@1.11.1':
@@ -1291,6 +1297,11 @@ snapshots:
       '@babel/helper-validator-identifier': 8.0.4
 
   '@effect/vitest@4.0.0-beta.98(effect@4.0.0-beta.99)(vitest@4.1.10(@types/node@26.1.1)(happy-dom@20.11.0)(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(yaml@2.9.0)))':
+    dependencies:
+      effect: 4.0.0-beta.99
+      vitest: 4.1.10(@types/node@26.1.1)(happy-dom@20.11.0)(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(yaml@2.9.0))
+
+  '@effect/vitest@4.0.0-beta.99(effect@4.0.0-beta.99)(vitest@4.1.10(@types/node@26.1.1)(happy-dom@20.11.0)(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(yaml@2.9.0)))':
     dependencies:
       effect: 4.0.0-beta.99
       vitest: 4.1.10(@types/node@26.1.1)(happy-dom@20.11.0)(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(yaml@2.9.0))
