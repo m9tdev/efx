@@ -19,6 +19,7 @@ import {
 } from "@verrex/core"
 import { AsyncEscalate } from "./AsyncEscalate.vx"
 import { AsyncUserPage } from "./AsyncUserPage.vx"
+import { Clock } from "./Clock.vx"
 import { Counter } from "./Counter.vx"
 import { LiveUser } from "./LiveUser.vx"
 import { HttpError, Http, HttpLive, Theme, type User } from "./services.ts"
@@ -88,6 +89,13 @@ assertEquals<CounterType, Effect.Effect<View, never, never>>()
 
 type LiveUserType = ReturnType<typeof LiveUser>
 assertEquals<LiveUserType, Effect.Effect<View, never, Http | Scope.Scope>>()
+
+// ─── Clock bridges a Stream to a ref via `streamRef`, whose fork makes
+//     `Scope` the component's only requirement — the tick stream needs no
+//     services and can't fail, so R and E contribute nothing else ─────────
+
+type ClockType = ReturnType<typeof Clock>
+assertEquals<ClockType, Effect.Effect<View, never, Scope.Scope>>()
 
 // ─── Composition: a tree containing UserPage AND Counter unions channels ─
 
