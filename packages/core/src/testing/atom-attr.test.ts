@@ -7,8 +7,8 @@ import { render } from "./index.ts"
 
 // Atom-valued props: `applyProp` reads + subscribes through the registry
 // (mirroring the Reactive child case), so a derived Atom can drive a single
-// attribute. Components own the registry via `yield* AtomRegistry` — the
-// harness injects it through VerrexLive.
+// attribute. Components resolve the registry via `yield* AtomRegistry` —
+// `mount` owns and provides it.
 
 describe("Atom-valued attrs", () => {
   it("applies the registry value initially and re-applies on registry.set", async () => {

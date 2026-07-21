@@ -29,12 +29,13 @@ await ui.unmount()
 - `render(app, layer?)` — `app` is a component result (`Component(props)`,
   what a component tag compiles to since #71), i.e. an `Effect<View, E, R>`. Creates a
   container on `document.body`, makes a Closeable `Scope`, and runs
-  `mount(app, container)` with `VerrexLive` (AtomRegistry) + that scope
-  provided. Returns once the DOM is attached. The layers are built INTO
+  `mount(app, container)` with the caller's layer + that scope
+  provided. Returns once the DOM is attached. The layer is built INTO
   the harness scope via `Layer.build` — not `Effect.provide`, which would
-  dispose the `AtomRegistry` the moment the mount effect completes,
-  severing every `h.track`/Atom subscription (see the
-  registry-must-outlive-mount invariant in the runtime AGENTS.md).
+  run the services' finalizers the moment the mount effect completes.
+  The `AtomRegistry` needs no layer: `mount` owns one per mount and
+  disposes it with the same scope close (see the mount-owns-registry
+  invariant in the runtime AGENTS.md).
 - `RenderResult` — `get`/`query`/`all`/`text` (DOM queries),
   `click`/`fire` (dispatch bubbling events that hit the component's
   handlers — an `onClick` returning an `Effect` is forked on the mount
@@ -132,13 +133,13 @@ map handle one tag and let the residual ride to a boundary.
   at least two suites share.
 - Don't provide the component's real production layers here by default —
   tests pass their own (often test doubles). The harness only injects the
-  framework infra (`VerrexLive` + scope).
+  ambient scope (and `mount` brings its own registry).
 - Don't reach into `RenderResult.container` to mutate the DOM directly;
   drive the component through `click`/`fire` so the reactive path runs.
 
 ## Related context
 
-- [`verrex`](../runtime/AGENTS.md) — `mount`, `VerrexLive`, the View IR
+- [`verrex`](../runtime/AGENTS.md) — `mount`, the View IR
   this harness drives.
 - [`apps/demo/channels.test-d.ts`](../../../../apps/demo/src/channels.test-d.ts)
   — the type-level channel proof (compile-time peer to this runtime proof).
