@@ -1,12 +1,16 @@
 import {
+  Array as Arr,
   Cause,
+  Channel,
   Effect,
   Exit,
   Fiber,
   Layer,
   Option,
+  Pull,
   Queue,
   Scope,
+  Stream,
   type Types,
 } from "effect"
 import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
@@ -227,6 +231,101 @@ export const asyncRef = <A, E, R>(
       state: state as AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>,
       refetch: schedule,
     }
+  })
+
+/**
+ * The reactive *push* data primitive — `asyncRef`'s sibling for `Stream`.
+ *
+ * `streamRef(stream, initial?)` runs the stream on the **mount fiber** (so its
+ * `R` folds into the component — a forgotten `Layer` is a compile error at the
+ * root `mount`) and returns a `ReadonlyRef<A>` tracking the latest element.
+ * The fiber is `forkScoped`-d: the stream is interrupted when the enclosing
+ * scope closes — the Scope IS the unsubscribe. Derive with the ref's own
+ * `.map` (equality-deduped) and interpolate like any ref:
+ *
+ * ```tsx
+ * const now = yield* streamRef(tick)
+ * //    now: AtomRef.ReadonlyRef<Date>
+ * const seconds = now.map((d) => d.getSeconds())
+ * <span>{seconds}</span>
+ * ```
+ *
+ * `initial` picks the construction behavior, mirroring the blocking-vs-
+ * placeholder split of the pull side (in-component fetch vs `Async`):
+ * - **omitted** — construction *waits for the first element* by the same
+ *   mechanism as `yield* http.getUser`: the first pull runs ON the
+ *   constructing fiber (no forked producer, no hand-off), so the wait owns
+ *   its work and teardown behaves exactly like a blocking fetch. A stream
+ *   that never emits blocks construction (like a fetch that never resolves)
+ *   — give sparse streams an `initial`; a stream that ENDS before its first
+ *   element is a defect (fails loud, never hangs).
+ * - **provided** — construction returns immediately; the ref holds `initial`
+ *   until the first emission.
+ *
+ * The error channel must be `never`: a stream's failure happens *after*
+ * construction succeeded, so there is no honest Effect channel to ride —
+ * handle failures as values at the stream level (`Stream.catch*`,
+ * `Stream.retry`, encode them in `A`) before handing it over. This mirrors
+ * Effect's own boundary: `Atom.make(stream)` wraps state in `AsyncResult`
+ * for the same reason; `streamRef` keeps the sync-read `A` contract instead
+ * and pushes the failure story onto the stream where the combinators live.
+ * Why not `Atom.make(stream)`: its source must already be context-free
+ * (`R = AtomRegistry`), so a service-needing stream forces `Atom.runtime` —
+ * which bakes the Layer and discharges `R`, losing the thesis. Running on
+ * the mount fiber is what keeps `R` folded (same design as `asyncRef`).
+ */
+export const streamRef: {
+  <A, R>(
+    stream: Stream.Stream<A, never, R>,
+  ): Effect.Effect<AtomRef.ReadonlyRef<A>, never, R | Scope.Scope>
+  <A, R>(
+    stream: Stream.Stream<A, never, R>,
+    initial: A,
+  ): Effect.Effect<AtomRef.ReadonlyRef<A>, never, R | Scope.Scope>
+} = <A, R>(
+  stream: Stream.Stream<A, never, R>,
+  // A tuple rest (not `initial?: A`) so an EXPLICIT `undefined` still counts
+  // as a provided initial when `A` includes `undefined`.
+  ...initial: [A] | []
+): Effect.Effect<AtomRef.ReadonlyRef<A>, never, R | Scope.Scope> =>
+  Effect.gen(function* () {
+    // One pull shared by the (optional) blocking first read and the forked
+    // consumer — the stream is subscribed exactly once, bound to the
+    // enclosing scope.
+    const scope = yield* Effect.scope
+    const pull = yield* Channel.toPullScoped(stream.channel, scope)
+    const ref =
+      initial.length > 0
+        ? AtomRef.make(initial[0])
+        : // No initial: block construction on the first chunk, ON THIS fiber —
+          // the same mechanism as a blocking in-component fetch. No forked
+          // producer means no hand-off a closing scope could orphan. A stream
+          // that ends before its first element dies loud instead of hanging.
+          AtomRef.make(
+            Arr.lastNonEmpty(
+              yield* Pull.catchDone(pull, () =>
+                Effect.die(
+                  new Error(
+                    "streamRef: the stream ended before its first element — provide an `initial` value",
+                  ),
+                ),
+              ),
+            ),
+          )
+    yield* Effect.forkScoped(
+      Effect.whileLoop({
+        while: () => true,
+        body: () => pull,
+        step: (chunk) => {
+          for (const a of chunk) ref.set(a)
+        },
+      }).pipe(
+        // E is `never`, so the only typed failure left is the pull's
+        // end-of-stream halt — the consumer just stops.
+        Effect.catch(() => Effect.void),
+      ),
+    )
+    return ref as AtomRef.ReadonlyRef<A>
   })
 
 // ─── Tagged-error dispatch (shared by Async's tag-map `failure` arm and Catch) ─

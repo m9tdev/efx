@@ -517,6 +517,28 @@ describe("Catch calls are not h.track-wrapped", () => {
   })
 })
 
+describe("asyncRef / streamRef calls are not h.track-wrapped", () => {
+  // Both return an Effect whose channels must reach the h() fold; h.track would
+  // erase them — and re-running the expression on a dep change would mint a
+  // fresh handle / spawn a fresh stream per change (each also self-tracks its
+  // thunk internally). The `.value`→h.read rewrite inside is kept.
+  it("leaves a `.value`-reading streamRef(...) bare, keeping h.read", () => {
+    const out = compile(`
+      const x = <div>{streamRef(makeStream(id.value), 0)}</div>
+    `)
+    expect(out).toContain(`h.read(id)`)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*streamRef\(/)
+  })
+
+  it("leaves a `.value`-reading asyncRef(...) bare, keeping h.read", () => {
+    const out = compile(`
+      const x = <div>{asyncRef(() => client.get(id.value))}</div>
+    `)
+    expect(out).toContain(`h.read(id)`)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*asyncRef\(/)
+  })
+})
+
 describe("whole-body `.value` reads (tracking outside JSX)", () => {
   // The JSX pass only rewrites `.value` inside JSX expressions. A third pass
   // rewrites `.value` reads that survive in *statements* — extracted Async
