@@ -275,8 +275,13 @@ export const asyncRef = <A, E, R>(
  * the mount fiber is what keeps `R` folded (same design as `asyncRef`).
  */
 export const streamRef: {
-  <A, R>(stream: Stream.Stream<A, never, R>): Effect.Effect<AtomRef.ReadonlyRef<A>, never, R | Scope.Scope>
-  <A, R>(stream: Stream.Stream<A, never, R>, initial: A): Effect.Effect<AtomRef.ReadonlyRef<A>, never, R | Scope.Scope>
+  <A, R>(
+    stream: Stream.Stream<A, never, R>,
+  ): Effect.Effect<AtomRef.ReadonlyRef<A>, never, R | Scope.Scope>
+  <A, R>(
+    stream: Stream.Stream<A, never, R>,
+    initial: A,
+  ): Effect.Effect<AtomRef.ReadonlyRef<A>, never, R | Scope.Scope>
 } = <A, R>(
   stream: Stream.Stream<A, never, R>,
   // A tuple rest (not `initial?: A`) so an EXPLICIT `undefined` still counts
@@ -289,23 +294,24 @@ export const streamRef: {
     // enclosing scope.
     const scope = yield* Effect.scope
     const pull = yield* Channel.toPullScoped(stream.channel, scope)
-    const ref = initial.length > 0
-      ? AtomRef.make(initial[0])
-      : // No initial: block construction on the first chunk, ON THIS fiber —
-        // the same mechanism as a blocking in-component fetch. No forked
-        // producer means no hand-off a closing scope could orphan. A stream
-        // that ends before its first element dies loud instead of hanging.
-        AtomRef.make(
-          Arr.lastNonEmpty(
-            yield* Pull.catchDone(pull, () =>
-              Effect.die(
-                new Error(
-                  "streamRef: the stream ended before its first element — provide an `initial` value",
+    const ref =
+      initial.length > 0
+        ? AtomRef.make(initial[0])
+        : // No initial: block construction on the first chunk, ON THIS fiber —
+          // the same mechanism as a blocking in-component fetch. No forked
+          // producer means no hand-off a closing scope could orphan. A stream
+          // that ends before its first element dies loud instead of hanging.
+          AtomRef.make(
+            Arr.lastNonEmpty(
+              yield* Pull.catchDone(pull, () =>
+                Effect.die(
+                  new Error(
+                    "streamRef: the stream ended before its first element — provide an `initial` value",
+                  ),
                 ),
               ),
             ),
-          ),
-        )
+          )
     yield* Effect.forkScoped(
       Effect.whileLoop({
         while: () => true,

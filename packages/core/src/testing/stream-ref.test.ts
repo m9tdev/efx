@@ -99,13 +99,18 @@ describe("streamRef", () => {
       const n = yield* streamRef(Stream.empty as Stream.Stream<number>)
       return yield* h("span", { class: "n" }, n)
     })
-    await expect(render(Probe())).rejects.toThrow(/ended before its first element/)
+    await expect(render(Probe())).rejects.toThrow(
+      /ended before its first element/,
+    )
   })
 
   it("folds the stream's R into the component (types)", () => {
-    class Feed extends Context.Service<Feed, {
-      readonly ticks: Stream.Stream<number>
-    }>()("test/Feed") {}
+    class Feed extends Context.Service<
+      Feed,
+      {
+        readonly ticks: Stream.Stream<number>
+      }
+    >()("test/Feed") {}
 
     const withService = Effect.gen(function* () {
       const feed = yield* Feed
