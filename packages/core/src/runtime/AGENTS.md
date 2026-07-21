@@ -733,6 +733,18 @@ Consumers don't call them directly either:
 both reactive consumers (`applyProp`, the Reactive child case) share;
 a third source shape extends it, not a new dispatch site.
 
+**Reactive props accept `Atom` or `AtomRef`.** An Atom passed directly
+as an attr value never goes through `h.track`/`h.read` (it has no
+`.value`) — pass the atom itself, deriving the final attr string with
+`Atom.map`. When an Atom's source needs services, the **component owns
+the requirements**: extract instances up front (`const http = yield* Http`)
+or capture context (`yield* Effect.context<R>()`), then build the Atom
+from those, so the source is context-free and a forgotten Layer is
+still a compile error at `mount`. `Atom.runtime` stays the anti-pattern
+(bakes the Layer, discharges `R`). Pinned by
+`testing/atom-attr.test.ts` and the Atom-carrier pin in
+`apps/demo/src/channels.test-d.ts`.
+
 **Fragments wrap in `<span style="display: contents">`.** Not a
 `DocumentFragment`, because `DocumentFragment` is consumed on insert
 — a later `replaceChild(fragment, ...)` would fail. The wrapper
