@@ -18,7 +18,7 @@
     "@types/node": "^26.1.1",
     "oxfmt": "0.59.0",
     "oxlint": "1.74.0",
-    "playwright-core": "^1.61.1",
+    "playwright-core": "^1.62.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },
