@@ -33,7 +33,7 @@
     "test": "vitest run && pnpm run build && node test/integration.mjs"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.0-beta.98",
+    "@effect/vitest": "4.0.0-beta.102",
     "@verrex/core": "workspace:*",
     "@volar/language-core": "^2.4.28",
     "@volar/typescript": "^2.4.28",
