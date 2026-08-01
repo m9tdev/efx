@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@verrex/core": "workspace:*",
-    "effect": "4.0.0-beta.99"
+    "effect": "4.0.0-beta.102"
   },
   "devDependencies": {
     "@verrex/ts-plugin": "workspace:*",
