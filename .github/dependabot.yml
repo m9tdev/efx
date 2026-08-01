@@ -31,6 +31,15 @@ updates:
         patterns:
           - "typescript"
           - "@volar/*"
+      # effect + @effect/* must move as a unit: two copies of the effect
+      # types in the workspace (e.g. @effect/vitest resolved against an older
+      # effect than apps/demo) break verrex-check on type-identity mismatch
+      # — seen for real when the demo bumped ahead of core's peer pin.
+      # Listed before minor-and-patch so these never land in separate PRs.
+      effect:
+        patterns:
+          - "effect"
+          - "@effect/*"
       minor-and-patch:
         update-types:
           - minor
