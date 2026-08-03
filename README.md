@@ -208,6 +208,24 @@ First time opening the workspace you may want to ensure
 `packages/ts-plugin/dist/index.cjs` exists — run `pnpm install` from the
 repo root or `pnpm --filter @verrex/ts-plugin build` directly.
 
+**vtsls users need one more setting.** vtsls's *bundled* tsserver does not
+resolve tsconfig `plugins` from the project's `node_modules`, so the plugin
+silently never loads and tsc reports raw-JSX errors (`react/jsx-runtime`,
+`JSX.IntrinsicElements`). Point it at the workspace TypeScript (or its
+plugin search path) — e.g. with nvim-lspconfig:
+
+```lua
+require("lspconfig").vtsls.setup({
+  settings = {
+    vtsls = { autoUseWorkspaceTsdk = true },
+    typescript = { tsserver = { pluginPaths = { "./node_modules" } } },
+  },
+})
+```
+
+(Same rule in VS Code: the plugin only loads under the *workspace* TS
+version — hence the instruction below.)
+
 ### VS Code
 
 `@verrex/ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
