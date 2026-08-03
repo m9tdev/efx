@@ -226,6 +226,13 @@ require("lspconfig").vtsls.setup({
 (Same rule in VS Code: the plugin only loads under the *workspace* TS
 version — hence the instruction below.)
 
+**The plugin must be probe-able from your TypeScript install.** tsserver
+resolves tsconfig `plugins` by walking up from its own `typescript.js`, so
+in a pnpm workspace the package has to sit at the *root* `node_modules` —
+declaring `@verrex/ts-plugin` only in a sub-package leaves it invisible and
+you get the raw-JSX errors above, with no hint why. Declare it as a root
+devDependency too (or hoist it).
+
 ### VS Code
 
 `@verrex/ts-plugin` is referenced in `apps/demo/tsconfig.json`. Use
