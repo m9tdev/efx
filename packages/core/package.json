@@ -115,13 +115,13 @@
     "effect": "4.0.0-beta.102",
     "happy-dom": "^20.11.1",
     "typescript": "^6.0.3",
-    "vite": "^8.1.5",
+    "vite": "^8.2.0",
     "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "effect": "4.0.0-beta.102",
     "typescript": "^6.0.3",
-    "vite": "^8.1.5"
+    "vite": "^8.2.0"
   },
   "peerDependenciesMeta": {
     "typescript": {
