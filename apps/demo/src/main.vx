@@ -403,7 +403,7 @@ const tagUser = yield* asyncRef(() => fetchUser(userId.value))
         step: "10",
         title: "Pending → run → settle (a handler outlives its button)",
         concept:
-          "The standard mutation pattern: the handler's FIRST action flips a saving flag that swaps its own button for a spinner — so the element the click came from is gone before the first yield* — then it awaits the Http call and settles. A dispatch is owned by the dynamic node that RAN the button's construction (here the saving-branch node), which survives its own re-emits: the fiber completes and the button returns. Tear the OWNING subtree down instead (↻ reset while saving) and the in-flight handler is interrupted — no leak, no stale write. save (fails) shows the corollary: the typed HttpError still reaches the Catch after the re-render.",
+          "The standard mutation pattern. The handler's first action sets a saving flag. That flag swaps the button for a spinner — so the clicked element is gone before the first yield*. The handler then awaits the Http call and settles. Why it works: a dispatch is owned by the node that built the button (here the saving branch), and that node survives its own re-renders. The fiber completes and the button returns. Tear the owning subtree down instead (↻ reset while saving) and the handler is interrupted — no leak, no stale write. save (fails) shows the corollary: the typed HttpError still reaches the Catch after the re-render.",
         type: "Effect<View<HttpError>, never, Http>",
         code: `const Saver = Component.make(function* () {
   const saving = AtomRef.make(false)

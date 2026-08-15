@@ -8,13 +8,9 @@ import { Http } from "./services.ts"
 // element the click came from is gone before the first `yield*`. Then it
 // awaits the (600ms) Http call and settles.
 //
-// Pre-#161 that swap closed the scope the handler fiber was forked into and
-// interrupted it at its first suspension — silently: the spinner stayed
-// forever, `saved` never updated, nothing was logged. Now a dispatch is owned
-// by the dynamic node that RAN the button's construction (the `saving`
-// branch's Reactive node), which survives its own emits; the fiber runs to
-// completion and the button comes back. (Per-dispatch finalizer balance is
-// pinned in testing/handler-scope.test.ts, not shown here.)
+// It works because a dispatch is owned by the node that RAN the button's
+// construction (the `saving` branch's Reactive node), which survives its own
+// re-emits — the contract is in runtime/AGENTS.md "Handler-scope semantics".
 //
 //   Saver : Effect<View<HttpError>, never, Http>   (same live shape as step 09)
 const Saver = Component.make(function* () {
