@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest"
-import { Effect } from "effect"
+import { Deferred, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { Catch, h, list } from "@verrex/core"
 import { Step, stepClick, stepLayer } from "./fixtures.ts"
@@ -189,61 +189,11 @@ describe("per-node context capture", () => {
     await ui.unmount()
   })
 
-  it("a handler's acquireRelease releases when a DYNAMIC node is removed", async () => {
-    // runHandlerEffect provides the enclosing build scope INTO the handler
-    // effect (mirroring coerceSync). Here the button lives in an AtomRef slot
-    // — a Reactive node, which forks a scope of its OWN — so the release binds
-    // to that node's lifetime. Note this is the dynamic case; the static case
-    // below has no per-element scope and behaves differently.
-    const log: string[] = []
-    const makeView = (on: boolean) =>
-      on
-        ? h(
-            "button",
-            {
-              class: "btn",
-              onClick: () =>
-                Effect.acquireRelease(
-                  Effect.sync(() => log.push("acquire")),
-                  () => Effect.sync(() => log.push("release")),
-                ),
-            },
-            "go",
-          )
-        : h("p", {}, "gone")
-    const slot = AtomRef.make<unknown>(makeView(true))
-
-    const App = Effect.fn("ScopedHandler")(function* (_props: {} = {}) {
-      return yield* h(
-        "div",
-        {},
-        slot as AtomRef.AtomRef<Effect.Effect<unknown, never, never>>,
-      )
-    })
-
-    const ui = await render(App())
-    ui.click(".btn")
-    await ui.tick()
-    expect(log).toEqual(["acquire"])
-
-    // Swap the button away — its render scope closes, the release must fire.
-    slot.set(makeView(false))
-    await ui.tick()
-    expect(log).toEqual(["acquire", "release"])
-    await ui.unmount()
-  })
-
-  it("a STATIC element's handler finalizers ride the enclosing scope (#160)", async () => {
-    // The counterpart to the test above, and the case it structurally cannot
-    // reach: a static element forks NO scope of its own, so the handler's
-    // finalizers register on the scope the element was BUILT in — here the
-    // mount root. They therefore accumulate per dispatch and release only at
-    // app teardown, NOT per click.
-    //
-    // This pins CURRENT behavior, not desired behavior: it is why FoldPropsR's
-    // Scope exclusion is sound-but-lifetime-surprising. #160 tracks giving each
-    // dispatch its own scope; when that lands, this test flips to expecting a
-    // release per click and the comments in mount.ts/Fold.ts move with it.
+  it("a settled handler's acquireRelease releases per dispatch (#160)", async () => {
+    // runHandlerEffect forks a per-DISPATCH scope from the owner and closes it
+    // when the handler settles — so a handler that acquires and completes
+    // releases at settle time, per click, NOT at subtree/app teardown. This is
+    // the flipped #160 pin (it used to assert accumulate-until-teardown).
     const log: string[] = []
     const App = Effect.fn("StaticScopedHandler")(function* (_props: {} = {}) {
       return yield* h(
@@ -265,11 +215,76 @@ describe("per-node context capture", () => {
     await ui.tick()
     ui.click(".btn")
     await ui.tick()
-    // Two acquisitions, ZERO releases — nothing has torn down yet.
-    expect(log).toEqual(["acquire", "acquire"])
-
-    // Only app teardown closes the scope they registered against.
+    // Release fires per dispatch — balanced pairs, nothing accumulates.
+    expect(log).toEqual(["acquire", "release", "acquire", "release"])
     await ui.unmount()
-    expect(log).toEqual(["acquire", "acquire", "release", "release"])
+    // Unmount adds nothing: every dispatch scope already closed.
+    expect(log).toEqual(["acquire", "release", "acquire", "release"])
+  })
+
+  it("an IN-FLIGHT handler is interrupted (and releases) when its OWNING node is torn down — but not by its node's own re-emit (#160/#161)", async () => {
+    // The owner of a handler dispatched from a Reactive emission is the
+    // NODE's scope, not the per-emit child. So: swapping the node's CONTENT
+    // (a re-emit) must NOT interrupt an in-flight handler — that is the #161
+    // fix — while tearing down the node ITSELF (here: the outer slot swaps
+    // the whole inner node away) must interrupt it and fire its release.
+    // The discriminating shape: inner slot nested in an outer slot. This also
+    // rules out the degenerate implementation ownerScope=mount-root, which
+    // would keep the handler alive past the node teardown.
+    const log: string[] = []
+    const gate = Deferred.makeUnsafe<void>()
+    const makeButton = () =>
+      h(
+        "button",
+        {
+          class: "btn",
+          onClick: () =>
+            Effect.gen(function* () {
+              yield* Effect.acquireRelease(
+                Effect.sync(() => log.push("acquire")),
+                () => Effect.sync(() => log.push("release")),
+              )
+              yield* Deferred.await(gate) // park in flight
+              log.push("done")
+            }),
+        },
+        "go",
+      )
+    const inner = AtomRef.make<unknown>(makeButton())
+    const innerNode = h(
+      "div",
+      {},
+      inner as AtomRef.AtomRef<Effect.Effect<unknown, never, never>>,
+    )
+    const outer = AtomRef.make<unknown>(innerNode)
+
+    const App = Effect.fn("NestedScopedHandler")(function* (_props: {} = {}) {
+      return yield* h(
+        "div",
+        {},
+        outer as AtomRef.AtomRef<Effect.Effect<unknown, never, never>>,
+      )
+    })
+
+    const ui = await render(App())
+    ui.click(".btn")
+    await ui.tick()
+    expect(log).toEqual(["acquire"])
+
+    // Re-emit the INNER node (the handler's owner): content swap closes only
+    // the per-emit scope — the in-flight handler must survive.
+    inner.set(h("p", {}, "swapped"))
+    await ui.tick()
+    expect(log).toEqual(["acquire"])
+
+    // Tear down the inner node itself via the OUTER slot: the owner scope
+    // closes — the handler is interrupted, its release fires, `done` never
+    // runs, and the app lives on.
+    outer.set(h("p", { class: "gone" }, "gone"))
+    await ui.tick()
+    expect(log).toEqual(["acquire", "release"])
+    expect(ui.text(".gone")).toBe("gone")
+    await ui.unmount()
+    expect(log).toEqual(["acquire", "release"])
   })
 })

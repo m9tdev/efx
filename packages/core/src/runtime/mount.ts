@@ -19,6 +19,20 @@ interface BuildCtx {
   readonly registry: AtomRegistry.AtomRegistry
   readonly context: Context.Context<never>
   readonly sink: ErrorSink
+  // The owner scope for handler dispatches (#160/#161): the scope of the
+  // dynamic node that RAN this element's construction. NOT the element build
+  // `scope` (which a reactive re-render closes and reforks). Each dispatch
+  // forks a per-dispatch child of THIS scope (see `runHandlerEffect`), so a
+  // handler that sets a ref its own subtree depends on survives the re-render
+  // it triggers, yet the owning subtree's teardown still interrupts it.
+  // Assignment is PER CALL SITE — one rule cannot serve all three dynamic
+  // nodes: Reactive emissions → the node's own scope (survives its emits);
+  // Boundary content → the per-flip content scope (a flip must interrupt
+  // prior-generation handlers, or a stale failure could re-flip a reset
+  // boundary — and boundary state never flips from an ordinary handler write,
+  // so #161 can't recur there); List rows → the rowScope (survives moves,
+  // closes on removal); mount root → the mount scope.
+  readonly ownerScope: Scope.Scope
   // `Effect.runSyncExitWith(context)`, partially applied ONCE per context (the
   // curried runner allocates per application). It is a cache of `context`, so
   // it MUST stay paired with it — only the two BuildCtx constructors set it:
@@ -46,6 +60,7 @@ const withContext = (
         sink: ctx.sink,
         context,
         runSyncExit: Effect.runSyncExitWith(context),
+        ownerScope: ctx.ownerScope,
       }
 
 // The deps a prop application consumes: the element's construction-captured
@@ -61,39 +76,68 @@ interface HandlerDeps {
   readonly context: Context.Context<never>
   readonly sink: ErrorSink
   readonly registry: AtomRegistry.AtomRegistry
+  // The stable owner scope a handler dispatch forks its per-dispatch child from
+  // (#160). Threaded from the element's `BuildCtx.ownerScope` at construction,
+  // so it points at the enclosing dynamic node's own scope — the one that
+  // outlives this element's re-renders but dies on the subtree's unmount.
+  readonly ownerScope: Scope.Scope
 }
 
-// Fire-and-forget an event-handler Effect. Runs on the element's captured
-// context (so it sees the services ambient at construction — incl. a mid-tree
-// Effect.provide), with the enclosing build `scope` provided INSIDE the effect
-// so a handler's `Effect.addFinalizer`/`acquireRelease` has a Scope to register
-// against at all (mirrors coerceSync's scope provision).
+// Fire-and-forget an event-handler Effect (#160/#161). Runs on the element's
+// captured context (so it sees the services ambient at construction — incl. a
+// mid-tree Effect.provide).
 //
-// MIND THE LIFETIME. `scope` is the scope this element was BUILT in, not a
-// per-element or per-dispatch one — only dynamic nodes (Reactive emits, List
-// rows) fork a scope of their own. So a handler's finalizers release when the
-// enclosing dynamic subtree is torn down: element-lifetime inside a Reactive
-// node or a list row, but APP-lifetime for a static element under no dynamic
-// parent. A handler that acquires on every dispatch accumulates finalizers on
-// that scope until it closes. #160 tracks giving each dispatch its own scope.
-// Failures route to the sink; pure-interrupt causes (teardown) are dropped.
-// Forked INTO the element's `scope` (via `Effect.forkIn`) so a long-lived
-// handler is interrupted when the element is removed — and a torn-down handler
-// can't report a stale failure back to a reset boundary.
+// PER-DISPATCH SCOPE (#160). Each dispatch forks its OWN child scope from
+// `deps.ownerScope` and provides it INTO the effect, so a handler's
+// `Effect.addFinalizer`/`acquireRelease` has a Scope — and releases when THIS
+// dispatch settles, not at subtree teardown. Rapid re-dispatches don't share a
+// scope. The close rides `Effect.onExit` — NOT `matchCause` — because on an
+// external interrupt (owner teardown) the runtime skips error continuations
+// but still runs finalizers; `onExit` is the only shape that closes the
+// dispatch scope on success, failure, AND interruption. (The owner→child
+// fork-cascade would also close it on teardown, but only as a backstop with
+// LIFO-ordering assumptions; `onExit` is the mechanism of record.)
+//
+// OWNER SCOPE, not element build scope (#161). A handler that sets a ref its
+// own subtree depends on triggers a re-render that closes the element's build
+// scope — the old `forkIn(buildScope)` interrupted the handler at its first
+// suspension, silently. `ownerScope` is the scope of the dynamic node that RAN
+// this element's construction (Reactive: the node's own scope; Boundary
+// content: the per-flip content scope; List: the rowScope; else the mount
+// scope). It outlives the element's own re-renders, so the pending→run→settle
+// pattern works; it closes on the owning subtree's teardown, so a genuine
+// unmount still interrupts an in-flight handler (no leak; a boundary flip
+// interrupts prior-generation handlers, so no stale failure reaches a reset
+// boundary). Known residuals, by design — each tears down the OWNER itself, so
+// the constructor is gone and the handler goes with it: a write that
+// re-renders an ANCESTOR dynamic node; a list-row handler that removes its OWN
+// row; a fallback handler that continues after calling `reset` (the flip
+// closes the fallback's content scope). Do the async work first, flip last.
+//
+// Failures route to the sink; a pure-interrupt cause is dropped. (On an OWNER
+// teardown the runtime skips `matchCause` altogether — only finalizers run — so
+// that guard's real subject is a handler interrupted from INSIDE its own run:
+// `Effect.interrupt`, or a `Fiber.interrupt` on it. Not an error either way.)
 const runHandlerEffect = (
   effect: Effect.Effect<unknown, unknown, never>,
   deps: HandlerDeps,
-  scope: Scope.Scope,
 ): void => {
+  const dispatchScope = Scope.forkUnsafe(deps.ownerScope, "sequential")
   Effect.runForkWith(deps.context)(
     Effect.forkIn(
-      Effect.matchCause(Effect.provideService(effect, Scope.Scope, scope), {
-        onFailure: (cause) => {
-          if (!Cause.hasInterruptsOnly(cause)) deps.sink(cause)
+      Effect.matchCause(
+        Effect.onExit(
+          Effect.provideService(effect, Scope.Scope, dispatchScope),
+          (exit) => Scope.close(dispatchScope, exit),
+        ),
+        {
+          onFailure: (cause) => {
+            if (!Cause.hasInterruptsOnly(cause)) deps.sink(cause)
+          },
+          onSuccess: () => {},
         },
-        onSuccess: () => {},
-      }),
-      scope,
+      ),
+      deps.ownerScope,
     ),
   )
 }
@@ -243,11 +287,7 @@ const applyProp = (
     const listener: EventListener = (e) => {
       const result = userHandler(e)
       if (Effect.isEffect(result)) {
-        runHandlerEffect(
-          result as Effect.Effect<unknown, unknown, never>,
-          deps,
-          scope,
-        )
+        runHandlerEffect(result as Effect.Effect<unknown, unknown, never>, deps)
       }
     }
     el.addEventListener(event, listener)
@@ -290,19 +330,28 @@ const applyProps = (
 }
 
 // Materialize a dynamic value into a DOM node under a fresh child scope forked
-// from `parent`. Every dynamic subtree (a Reactive emit, a List row) goes
-// through here so the "child scope is parent-LINKED, never an orphan" invariant
-// lives in one place — closing `parent` cascades into the returned scope, so
-// finalizers can't leak on an unexpected teardown path (see AGENTS.md).
+// from `parent`. Every dynamic subtree (a Reactive emit, a List row, Boundary
+// content) goes through here so the "child scope is parent-LINKED, never an
+// orphan" invariant lives in one place — closing `parent` cascades into the
+// returned scope, so finalizers can't leak on an unexpected teardown path (see
+// AGENTS.md).
+//
+// `ownHandlers` decides the handler `ownerScope` for elements built inside
+// (see BuildCtx.ownerScope): `true` sets it to the freshly forked scope —
+// List rows and Boundary content, whose OWN close must interrupt in-flight
+// handlers. `false` keeps the caller's ctx — Reactive emissions, whose owner
+// is the NODE's scope so a handler survives the re-emit it triggers (#161).
 const buildScopedChild = (
   value: unknown,
   parent: Scope.Scope,
   ctx: BuildCtx,
+  ownHandlers: boolean,
 ): { readonly node: Node; readonly scope: Scope.Closeable } => {
   const scope = Scope.forkUnsafe(parent, "sequential")
+  const buildCtx = ownHandlers ? { ...ctx, ownerScope: scope } : ctx
   const node = buildDom(
     coerceSync(value, scope, ctx.sink, ctx.runSyncExit),
-    ctx,
+    buildCtx,
     scope,
   )
   return { node, scope }
@@ -340,6 +389,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
           context: view.context ?? ctx.context,
           sink: ctx.sink,
           registry: ctx.registry,
+          ownerScope: ctx.ownerScope,
         },
         scope,
         deferred,
@@ -371,15 +421,25 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       let renderChildScope: Scope.Closeable | null = null
       // Every emission builds on this node's construction-captured context
       // (mid-tree provides reach REBUILDS, not just first paint). Once per
-      // node, reused per emission.
-      const nodeCtx = withContext(ctx, view.context)
+      // node, reused per emission. `ownerScope` is THIS node's scope — not the
+      // per-emit child — so a handler dispatched from an emission survives the
+      // re-emit its own ref write triggers (#161) and dies when this node does.
+      const nodeCtx: BuildCtx = {
+        ...withContext(ctx, view.context),
+        ownerScope: scope,
+      }
 
       const render = (next: unknown): void => {
         // Build NEW subtree first (subscribing any refs it needs), THEN tear
         // down the OLD subtree. The reverse order would unsubscribe many
         // listeners and resubscribe many — the documented "diff, not
         // unsub-all-then-resub" hazard (see h.ts AGENTS.md) extends here.
-        const { node, scope: newScope } = buildScopedChild(next, scope, nodeCtx)
+        const { node, scope: newScope } = buildScopedChild(
+          next,
+          scope,
+          nodeCtx,
+          false,
+        )
         if (currentNode.parentNode) {
           currentNode.parentNode.replaceChild(node, currentNode)
         }
@@ -448,10 +508,16 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
             }
             case "insert": {
               const indexRef = AtomRef.make(op.index)
+              // `ownHandlers: true` — the rowScope owns the row's handlers: it
+              // survives moves/reorders (only DOM reparenting) and closes on
+              // removal, interrupting the row's in-flight dispatches. Residual
+              // (#161, documented): a handler that removes its OWN row tears
+              // down its owner and interrupts itself — confirm-then-remove.
               const { node, scope: rowScope } = buildScopedChild(
                 view.render(op.key, indexRef),
                 scope,
                 nodeCtx,
+                true,
               )
               rendered.set(op.key, { node, rowScope, indexRef })
               wrapper.insertBefore(node, nodeBefore(op.before))
@@ -514,13 +580,21 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       let contentScope: Scope.Closeable | null = null
 
       const render = (st: BoundaryState): void => {
+        // `ownHandlers: true` — the per-flip content scope owns this
+        // generation's handlers, so an error→reset→ok flip interrupts
+        // prior-generation dispatches: a stale failure can never re-flip a
+        // freshly-reset boundary. This does NOT reintroduce #161: boundary
+        // state flips only on report/reset, never on an ordinary handler ref
+        // write (a busy-ternary inside content is a nested Reactive node,
+        // whose emissions this scope owns and whose re-emits it survives).
         const built =
           st._tag === "ok"
-            ? buildScopedChild(st.view, scope, childCtx)
+            ? buildScopedChild(st.view, scope, childCtx, true)
             : buildScopedChild(
                 view.handler(st.cause, view.reset),
                 scope,
                 fallbackCtx,
+                true,
               )
         if (currentNode.parentNode) {
           currentNode.parentNode.replaceChild(built.node, currentNode)
@@ -579,18 +653,22 @@ export const mount = <R>(
     const sink: ErrorSink = (cause) => {
       Effect.runForkWith(context)(Effect.logError(cause))
     }
-    const ctx: BuildCtx = {
-      registry,
-      context,
-      sink,
-      runSyncExit: Effect.runSyncExitWith(context),
-    }
     const view = yield* Effect.provideService(
       app,
       AtomRegistry.AtomRegistry,
       registry,
     )
     const scope = yield* Effect.scope
+    // Root ownerScope = the mount scope: a static element under no dynamic
+    // parent gets per-dispatch finalizer release (#160) and interruption only
+    // at app teardown.
+    const ctx: BuildCtx = {
+      registry,
+      context,
+      sink,
+      runSyncExit: Effect.runSyncExitWith(context),
+      ownerScope: scope,
+    }
     // Registered BEFORE buildDom so LIFO close runs it LAST: the DOM detach
     // and every child-scope unsubscribe run against a still-live registry.
     yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))

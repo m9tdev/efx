@@ -104,9 +104,13 @@ The errors are module-level exports so they work as types too: `NotFound`
 class — tag maps key on `_tag` alone, and both shapes must keep working).
 The fixture also exports `Step`/`stepLayer`/`stepClick` (#72): a one-field
 service whose resolution proves WHICH context a handler or row construction
-ran on — shared by `event-handlers.test.ts` (dispatch pins) and
+ran on — shared by `event-handlers.test.ts` (dispatch pins),
 `context-capture.test.ts` (THE per-node capture pins, one per
-capture-consuming path in the runtime AGENTS variant matrix).
+capture-consuming path in the runtime AGENTS variant matrix), and
+`handler-scope.test.ts` (the per-dispatch scope pins, #160/#161: a handler
+survives its own re-render, releases per dispatch, and is interrupted by its
+OWNER's teardown — in-flight suspension is expressed with
+`Deferred.makeUnsafe` gates, never `Effect.sleep` + tick timing).
 The service's error channel is always `NotFound | Timeout`, so a leaf tag map
 needs both tags to discharge to `View<never>`; suites exercising a _partial_
 map handle one tag and let the residual ride to a boundary.
