@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest"
-import { Data, Deferred, Effect, Logger } from "effect"
+import { Cause, Data, Deferred, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { Catch, h, list } from "@verrex/core"
 import { Step, stepLayer } from "./fixtures.ts"
@@ -26,15 +26,10 @@ describe("per-dispatch handler scope", () => {
     // awaits async work, then settles. Pre-#161 the swap closed the build
     // scope the fiber was forked into — everything after the first suspension
     // was silently dropped. Now the owner (the Reactive NODE's scope)
-    // survives the emit, so the work completes. The sink must stay SILENT
-    // throughout: a fix that "works" by routing the interrupt to the sink
-    // would pass the DOM assertions but fail this.
-    const logged: Array<unknown> = []
-    const CapturingLogger = Logger.layer([
-      Logger.make((options) => {
-        logged.push(options)
-      }),
-    ])
+    // survives the emit, so the work completes. `sinkCauses` must stay EMPTY
+    // throughout: an interrupted handler now reaches the sink (#186), so this
+    // is the direct assertion that the continuation ran — not just that the
+    // first write landed.
     const gate = Deferred.makeUnsafe<void>()
     const done = AtomRef.make("no")
     const slot = AtomRef.make<unknown>(null)
@@ -63,7 +58,7 @@ describe("per-dispatch handler scope", () => {
       )
     })
 
-    const ui = await render(App(), CapturingLogger)
+    const ui = await render(App())
     ui.click(".save")
     await ui.tick()
     // The optimistic write landed (button replaced) and the handler is parked.
@@ -76,7 +71,7 @@ describe("per-dispatch handler scope", () => {
     // settled back to idle.
     expect(done.value).toBe("yes")
     expect(ui.text(".idle")).toBe("saved")
-    expect(logged).toEqual([])
+    expect(ui.sinkCauses).toEqual([])
     await ui.unmount()
   })
 
@@ -259,15 +254,10 @@ describe("per-dispatch handler scope", () => {
     await ui.unmount()
   })
 
-  it("app unmount interrupts an in-flight handler and releases exactly once — silently", async () => {
-    // Also pins the interrupt-only-cause drop: a teardown interrupt is NOT an
-    // error and must not reach the sink (captured here via a logger layer).
-    const logged: Array<unknown> = []
-    const CapturingLogger = Logger.layer([
-      Logger.make((options) => {
-        logged.push(options)
-      }),
-    ])
+  it("app unmount interrupts an in-flight handler and releases exactly once — visibly (#186)", async () => {
+    // Also pins the interrupt routing: a teardown interrupt is NOT an error,
+    // but it DOES reach the sink as an interrupt-only cause, so a test (or a
+    // dev-mode log) can see the handler never completed.
     const log: string[] = []
     const gate = Deferred.makeUnsafe<void>()
     const App = Effect.fn("UnmountInterrupt")(function* (_props: {} = {}) {
@@ -289,7 +279,7 @@ describe("per-dispatch handler scope", () => {
       )
     })
 
-    const ui = await render(App(), CapturingLogger)
+    const ui = await render(App())
     ui.click(".btn")
     await ui.tick()
     expect(log).toEqual(["acquire"])
@@ -301,24 +291,16 @@ describe("per-dispatch handler scope", () => {
     openGate(gate)
     await new Promise((r) => setTimeout(r, 0))
     expect(log).toEqual(["acquire", "release"])
-    expect(logged).toEqual([])
+    expect(ui.sinkCauses).toHaveLength(1)
+    expect(Cause.hasInterruptsOnly(ui.sinkCauses[0]!)).toBe(true)
   })
 
-  it("a handler that interrupts ITSELF still releases, silently (#160)", async () => {
+  it("a handler that interrupts ITSELF still releases, and the interrupt is visible (#160, #186)", async () => {
     // Pins two things the owner-teardown tests can't (there the owner→child
     // cascade would close the dispatch scope anyway): (1) the dispatch-scope
     // close (`Scope.use`, onExit-based) runs on an INTERRUPT exit too — the
-    // owner stays alive here, so nothing else could fire the release; (2) an
-    // interrupt-only cause never reaches the sink. Note `Effect.interrupt` is
-    // a plain interrupt-cause failure — it does run error continuations,
-    // unlike an external `Fiber.interrupt` — so this is the one shape where
-    // the `hasInterruptsOnly` guard is actually exercised.
-    const logged: Array<unknown> = []
-    const CapturingLogger = Logger.layer([
-      Logger.make((options) => {
-        logged.push(options)
-      }),
-    ])
+    // owner stays alive here, so nothing else could fire the release; (2) the
+    // interrupt-only cause reaches the sink AS an interrupt, not an error.
     const log: string[] = []
     const App = Effect.fn("SelfInterrupt")(function* (_props: {} = {}) {
       return yield* h(
@@ -339,11 +321,12 @@ describe("per-dispatch handler scope", () => {
       )
     })
 
-    const ui = await render(App(), CapturingLogger)
+    const ui = await render(App())
     ui.click(".btn")
     await ui.tick()
     expect(log).toEqual(["acquire", "release"])
-    expect(logged).toEqual([])
+    expect(ui.sinkCauses).toHaveLength(1)
+    expect(Cause.hasInterruptsOnly(ui.sinkCauses[0]!)).toBe(true)
     await ui.unmount()
     expect(log).toEqual(["acquire", "release"])
   })

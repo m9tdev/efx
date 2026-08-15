@@ -43,6 +43,14 @@ export interface RenderResult {
   waitFor(selector: string, timeoutMs?: number): Promise<HTMLElement>
   /** Close the scope (firing every finalizer) and detach the container. */
   unmount(): Promise<void>
+  /**
+   * Every `Cause` that reached the root error sink, in order: a live failure no
+   * `Catch` caught, and any handler interrupted mid-flight by its element's
+   * teardown (an interrupt-only cause). Assert `toEqual([])` to prove a handler
+   * ran to completion — a stub's side effect only proves it *started*.
+   * `unmount()` itself interrupts in-flight handlers, so read this before it.
+   */
+  readonly sinkCauses: ReadonlyArray<Cause.Cause<unknown>>
 }
 
 const el = (container: HTMLElement, selector: string): HTMLElement => {
@@ -112,10 +120,18 @@ const renderImpl = async (
   // soon as the DOM attaches), so service finalizers fire on `unmount()`.
   // The AtomRegistry needs no layer at all: `mount` owns one per mount and
   // disposes it with the same scope.
+  const sinkCauses: Array<Cause.Cause<unknown>> = []
   await Effect.runPromise(
     Scope.provide(
       Effect.flatMap(Layer.build(layer), (ctx) =>
-        Effect.provideContext(mount(discharged, container), ctx),
+        Effect.provideContext(
+          mount(discharged, container, {
+            onError: (cause) => {
+              sinkCauses.push(cause)
+            },
+          }),
+          ctx,
+        ),
       ),
       scope,
     ),
@@ -123,6 +139,7 @@ const renderImpl = async (
 
   return {
     container,
+    sinkCauses,
     get: (s) => el(container, s),
     query: (s) => container.querySelector(s) as HTMLElement | null,
     all: (s) => Array.from(container.querySelectorAll(s)) as HTMLElement[],

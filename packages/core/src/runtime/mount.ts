@@ -103,10 +103,13 @@ interface HandlerDeps {
 //   is the owner per node, and what still interrupts, is in AGENTS.md
 //   "Handler-scope semantics".
 //
-// Failures route to the sink; an interrupt-only cause is dropped. (On owner
-// teardown the runtime skips `matchCause` entirely — only finalizers run — so
-// the guard's actual subject is a handler that raises an interrupt cause
-// itself, `yield* Effect.interrupt`. Not an error either way.)
+// Every non-success exit routes to the sink — INCLUDING an interrupt-only
+// cause (#186). Owner teardown interrupts an in-flight handler without running
+// `matchCause`, so the observation point is `onExit` (a finalizer, which does
+// run). An interrupt is not an error: `Catch.report` drops it, and mount's root
+// sink logs it at debug level with a hint — the "handler never finished and
+// nothing said so" symptom (#160) is the one this exists to make visible. The
+// testing harness collects it on `ui.sinkCauses` (#127).
 const runHandlerEffect = (
   effect: Effect.Effect<unknown, unknown, never>,
   deps: HandlerDeps,
@@ -114,12 +117,11 @@ const runHandlerEffect = (
   const dispatchScope = Scope.forkUnsafe(deps.ownerScope, "sequential")
   Effect.runForkWith(deps.context)(
     Effect.forkIn(
-      Effect.matchCause(Scope.use(effect, dispatchScope), {
-        onFailure: (cause) => {
-          if (!Cause.hasInterruptsOnly(cause)) deps.sink(cause)
-        },
-        onSuccess: () => {},
-      }),
+      Effect.onExit(Scope.use(effect, dispatchScope), (exit) =>
+        Effect.sync(() => {
+          if (Exit.isFailure(exit)) deps.sink(exit.cause)
+        }),
+      ),
       deps.ownerScope,
     ),
   )
@@ -595,7 +597,10 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
  *
  * Post-mount failures (a reactive re-render or an event-handler Effect that
  * fails) that aren't caught by a `Catch` boundary are routed to a root
- * error sink that logs via `Effect.logError` on the captured context.
+ * error sink: `options.onError` when given, else `Effect.logError` on the
+ * captured context. A handler interrupted mid-flight by its element's teardown
+ * reaches the same sink as an interrupt-only `Cause` (the default sink logs
+ * that at debug level, since teardown is not an error).
  *
  * **The `AtomRegistry` is owned by the mount, not required from context.**
  * `mount` creates a registry and disposes it in the same scope close that
@@ -610,9 +615,20 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
  * `View<E>` channel (via `Catch`). A leftover error is a compile error here
  * that names it — the runtime counterpart of a forgotten `Layer` naming a service.
  */
+/** Options for {@link mount}. */
+export interface MountOptions {
+  /**
+   * Root error sink. Receives every live `Cause` no `Catch` boundary caught —
+   * a failing handler or re-render — and interrupt-only causes from handlers
+   * torn down mid-flight. Replaces the default `Effect.logError` logging.
+   */
+  readonly onError?: (cause: Cause.Cause<unknown>) => void
+}
+
 export const mount = <R>(
   app: Effect.Effect<View<never>, never, R>,
   el: HTMLElement,
+  options?: MountOptions,
 ): Effect.Effect<
   void,
   never,
@@ -624,8 +640,18 @@ export const mount = <R>(
     // `never` so it threads without a generic — handler Effects are cast to
     // `R = never` at the run site; the services are present at runtime.
     const context = yield* Effect.context<never>()
+    const onError = options?.onError
     const sink: ErrorSink = (cause) => {
-      Effect.runForkWith(context)(Effect.logError(cause))
+      if (onError) return onError(cause)
+      Effect.runForkWith(context)(
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.logDebug(
+              "verrex: an event handler was interrupted before it completed " +
+                "(its element was torn down while the handler was in flight)",
+              cause,
+            )
+          : Effect.logError(cause),
+      )
     }
     const view = yield* Effect.provideService(
       app,

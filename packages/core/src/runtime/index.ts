@@ -26,7 +26,7 @@ import { type BoundaryState, View } from "./View.ts"
 
 export * as Component from "./Component.ts"
 export { h } from "./h.ts"
-export { mount } from "./mount.ts"
+export { mount, type MountOptions } from "./mount.ts"
 export { type Props, View } from "./View.ts"
 // `Async`, `asyncRef`, `Catch`, `list`, `Fragment`, `VerrexLive` are declared + exported below.
 export type {
