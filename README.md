@@ -158,6 +158,20 @@ JSX expression is automatically wrapped in a tracking scope.
 | `pnpm build`     | Production build via Vite (`@verrex/core/vite` owns the transform)                                                                              |
 | `pnpm test`      | All package suites — compiler, runtime, language, vite-plugin, testing, ts-plugin (incl. its tsserver integration probe) + `@verrex/core/check` |
 
+### Developing against a local checkout
+
+If your app references this repo with `"@verrex/core": "link:../verrex/packages/core"`,
+the link pulls in verrex's own `node_modules/effect` next to your app's copy. Two
+physical `effect` copies break `Context`/`Layer` identity **silently** (a service you
+provided reads as missing). Dedupe in both configs:
+
+```ts
+// vite.config.ts and vitest.config.ts
+export default { resolve: { dedupe: ["effect"] } };
+```
+
+Installs from npm do not have this problem — pnpm hoists one `effect`.
+
 ## Bundle size
 
 `pnpm build` on the demo produces:
