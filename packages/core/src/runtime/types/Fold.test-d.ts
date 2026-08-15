@@ -240,9 +240,9 @@ assertEquals<
 //     provides a Scope into the effect, so surfacing it would demand one the
 //     caller never supplies. Mirrors `list`'s `Exclude<R, Scope>` on row
 //     channels. Other services still ride. (The exclusion is sound — a Scope
-//     really is provided. Its LIFETIME is the enclosing build scope, not a
-//     per-element or per-dispatch one; see runHandlerEffect in mount.ts and
-//     the static-element pin in testing/context-capture.test.ts.)
+//     really is provided: a PER-DISPATCH scope, closed when the handler
+//     settles (#160); see runHandlerEffect in mount.ts and the release-per-
+//     dispatch pin in testing/context-capture.test.ts.)
 type ScopedHandler = {
   onclick: (e: MouseEvent) => Effect.Effect<void, never, Scope.Scope>
 }

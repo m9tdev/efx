@@ -229,12 +229,10 @@ export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
  * a `Scope` into the handler effect, so a handler's `Scope` is already
  * satisfied by the runtime. Surfacing it would demand a `Scope` the caller
  * never has to supply — the same lie, in the opposite direction, that the rest
- * of this fold exists to remove. The EXCLUSION is sound (a Scope really is
- * provided); what varies is that scope's LIFETIME — see `runHandlerEffect` in
- * mount.ts. Only a dynamic node (Reactive/List row) forks a scope of its own,
- * so on a STATIC element the handler's finalizers ride the enclosing subtree
- * scope and release with it — at app teardown for an element under no dynamic
- * parent, NOT per click. A handler that acquires per dispatch therefore
- * accumulates finalizers; #160 tracks giving dispatches their own scope.
+ * of this fold exists to remove. The provided scope is PER-DISPATCH (#160):
+ * opened when the handler fires, closed when it settles — `acquireRelease`
+ * inside a handler releases per dispatch, and anything `forkScoped` there
+ * dies with the dispatch. Lifetime/interruption contract: runtime AGENTS.md
+ * "Handler-scope semantics".
  */
 export type FoldPropsR<P> = Exclude<PairR<FoldPropsChannels<P>>, Scope.Scope>

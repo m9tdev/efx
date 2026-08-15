@@ -192,7 +192,7 @@ Service plugins only by bare package name.
 ## Tooling at a glance
 
 - pnpm workspace, 2 packages (`@verrex/core` + `@verrex/ts-plugin`) + demo + workspace root.
-- Effect v4 (currently `effect@4.0.0-beta.78`; developed in the
+- Effect v4 (currently `effect@4.0.0-beta.102`; developed in the
   `Effect-TS/effect` monorepo — formerly the `effect-smol` repo,
   archived July 2026).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
