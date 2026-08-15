@@ -208,7 +208,7 @@ First time opening the workspace you may want to ensure
 `packages/ts-plugin/dist/index.cjs` exists — run `pnpm install` from the
 repo root or `pnpm --filter @verrex/ts-plugin build` directly.
 
-**vtsls users need one more setting.** vtsls's *bundled* tsserver does not
+**vtsls users need one more setting.** vtsls's _bundled_ tsserver does not
 resolve tsconfig `plugins` from the project's `node_modules`, so the plugin
 silently never loads and tsc reports raw-JSX errors (`react/jsx-runtime`,
 `JSX.IntrinsicElements`). Point it at the workspace TypeScript (or its
@@ -223,12 +223,12 @@ require("lspconfig").vtsls.setup({
 })
 ```
 
-(Same rule in VS Code: the plugin only loads under the *workspace* TS
+(Same rule in VS Code: the plugin only loads under the _workspace_ TS
 version — hence the instruction below.)
 
 **The plugin must be probe-able from your TypeScript install.** tsserver
 resolves tsconfig `plugins` by walking up from its own `typescript.js`, so
-in a pnpm workspace the package has to sit at the *root* `node_modules` —
+in a pnpm workspace the package has to sit at the _root_ `node_modules` —
 declaring `@verrex/ts-plugin` only in a sub-package leaves it invisible and
 you get the raw-JSX errors above, with no hint why. Declare it as a root
 devDependency too (or hoist it).
