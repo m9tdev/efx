@@ -167,7 +167,7 @@ provided reads as missing). Dedupe in both configs:
 
 ```ts
 // vite.config.ts and vitest.config.ts
-export default { resolve: { dedupe: ["effect"] } };
+export default { resolve: { dedupe: ["effect"] } }
 ```
 
 Installs from npm do not have this problem — pnpm hoists one `effect`.
