@@ -44,11 +44,13 @@ export interface RenderResult {
   /** Close the scope (firing every finalizer) and detach the container. */
   unmount(): Promise<void>
   /**
-   * Every `Cause` that reached the root error sink (`RootSink`), in order: a live failure no
-   * `Catch` caught, and any handler interrupted mid-flight by its element's
-   * teardown (an interrupt-only cause). Assert `toEqual([])` to prove a handler
-   * ran to completion — a stub's side effect only proves it *started*.
-   * `unmount()` itself interrupts in-flight handlers, so read this before it.
+   * Every `Cause` that reached the root error sink (`RootSink`), in order: a
+   * live failure no `Catch` caught, and any handler that exited with an
+   * interrupt-only cause (torn down mid-flight, or `Effect.interrupt`).
+   * Assert `toEqual([])` to prove a handler ran to completion — a stub's side
+   * effect only proves it *started*. `unmount()` itself interrupts in-flight
+   * handlers, so read this before it. The harness always installs its own
+   * `RootSink`; a `RootSink` in the `layer` argument is not used.
    */
   readonly sinkCauses: ReadonlyArray<Cause.Cause<unknown>>
 }
