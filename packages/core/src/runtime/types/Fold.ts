@@ -230,10 +230,9 @@ export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
  * satisfied by the runtime. Surfacing it would demand a `Scope` the caller
  * never has to supply — the same lie, in the opposite direction, that the rest
  * of this fold exists to remove. The provided scope is PER-DISPATCH (#160):
- * forked from the owning dynamic node's scope when the handler fires, closed
- * when it settles — so `acquireRelease` inside a handler releases per
- * dispatch, and an in-flight handler is interrupted only when the owning
- * subtree is torn down, not by a re-render its own write triggers (#161). See
- * `runHandlerEffect` in mount.ts.
+ * opened when the handler fires, closed when it settles — `acquireRelease`
+ * inside a handler releases per dispatch, and anything `forkScoped` there
+ * dies with the dispatch. Lifetime/interruption contract: runtime AGENTS.md
+ * "Handler-scope semantics".
  */
 export type FoldPropsR<P> = Exclude<PairR<FoldPropsChannels<P>>, Scope.Scope>

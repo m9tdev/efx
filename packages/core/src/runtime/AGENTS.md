@@ -664,10 +664,9 @@ express. The compiler skips the `h.track` wrap for `Catch(...)` calls (in
 
 **Scope/fiber lifetime is uniform across the runtime** — internalize this when
 touching any of it: construction effects bind to a per-build scope (above),
-event-handler fibers are `Effect.forkIn(ownerScope)`-ed into the OWNER scope —
-the scope of the dynamic node that ran the element's construction, with the
-handler's finalizers on a per-dispatch child of it (`mount.ts`
-`runHandlerEffect`, #160/#161) — reactive/list subtrees go through
+event-handler fibers are `forkIn`'d into their OWNER scope with a
+per-dispatch child for resources (`runHandlerEffect`; the full contract is
+"Handler-scope semantics" below), reactive/list subtrees go through
 `buildScopedChild`, and `asyncRef`'s supervisor is `forkScoped`. Every sink
 also guards `Cause.hasInterruptsOnly` so a teardown interrupt isn't surfaced
 as a failure. Anything forked must be tied to a scope that closes when its
@@ -686,11 +685,10 @@ capture"); `sink` is the error sink (see "Runtime error routing" below);
 `runSyncExit` is a context-paired `Effect.runSyncExitWith` cache for
 `coerceSync`, and MUST be recomputed whenever `context` changes — go through
 `withContext`, never a hand-built `{ ...ctx, context }` spread; `ownerScope`
-is the handler-dispatch owner (#160/#161) — assigned PER CALL SITE (mount
-root → mount scope; Reactive emissions → the node's own scope; List rows →
-the rowScope; Boundary content → the per-flip content scope, via
-`buildScopedChild`'s `ownHandlers` flag), see `BuildCtx.ownerScope` in
-mount.ts for why one rule cannot serve all four. `registry` and
+is the handler-dispatch owner (#160/#161), changed only through `withOwner`
+(directly at the mount root/Reactive sites, or via `buildScopedChild`'s
+`handlerOwner: "child" | "inherit"`) — the per-node table is in
+"Handler-scope semantics" below. `registry` and
 `sink` are stable for the whole tree; `scope` is passed alongside because it
 changes per dynamic subtree. Every subscription, event listener, and per-row
 `Effect.acquireRelease` release registers a finalizer on the scope (directly
@@ -720,30 +718,47 @@ the node-scoped `BuildCtx` for the DYNAMIC-render variants that go through
 is a per-context cache that stays paired with `context` — only mount-root and
 `withContext` set it), `SyncRunner` (coerce.ts), the per-variant `context`
 docs in View.ts.
-Handler-scope semantics (#160/#161): `runHandlerEffect` forks a
-PER-DISPATCH scope from the element's `ownerScope` — the scope of the
-dynamic node that RAN the element's construction — provides it INTO the
-handler effect, and closes it (via `Effect.onExit`, which unlike
-`matchCause` also runs on interruption) when the dispatch settles. So a
-handler's `acquireRelease`/`addFinalizer` releases per dispatch; the fiber
-itself is `forkIn(ownerScope)`-ed, so it SURVIVES a re-render its own ref
-write triggers (the pending→run→settle mutation pattern, #161) and is
-interrupted when the owning subtree is torn down — handlers have NO
-ambient route to the app scope (app-lifetime work needs a scope captured
-during construction). For a REACTIVE handler prop (an AtomRef value) the
-rolling child scope swaps only the LISTENER: a dispatch already in flight
-when the prop re-binds runs to completion, new clicks go to the new handler
-(pinned in `handler-scope.test.ts`). Three residuals, by design — each
-tears down the OWNER itself, so the constructor is gone and the handler
-with it: a write that re-renders an ANCESTOR dynamic node; a list-row
-handler that removes its OWN row; a `Catch` fallback handler that continues
-after calling `reset` (the flip closes the fallback's content scope). Rule of
-thumb: do the async work first, flip/remove/reset last. Don't revert any of this to
+**Handler-scope semantics (#160/#161) — the canonical statement; code
+comments point here.** A dispatch has two lifetimes:
+
+- _Resources_: `runHandlerEffect` forks a PER-DISPATCH scope from the
+  element's `ownerScope`, runs the handler under it with `Scope.use` (closed
+  on exit — success, failure, or interruption). `acquireRelease` inside a
+  handler releases per dispatch. Corollary: **the handler's Scope is
+  dispatch-lifetime** — `Effect.forkScoped`, or an `asyncRef`/`streamRef`
+  created inside a handler, dies the moment the handler returns. Work that
+  must outlive the click forks INTO a scope captured at construction
+  (`const s = yield* Effect.scope`, then `Effect.forkIn(work, s)`) or
+  `forkDaemon`s; create `asyncRef`/`streamRef` at construction, not in a
+  handler. Handlers have NO ambient route to the app scope.
+- _Interruption_: the fiber is `forkIn(ownerScope)` — the scope of the node
+  that RAN the element's construction, set per call site (`withOwner`):
+
+  | Element built by    | Owner                      | So that…                                                                                     |
+  | ------------------- | -------------------------- | -------------------------------------------------------------------------------------------- |
+  | mount root          | the mount scope            | a static element is interrupted only at app teardown                                         |
+  | a Reactive emission | the NODE's scope           | a handler survives the re-emit its own write triggers (pending→run→settle, #161)             |
+  | Boundary content    | the per-FLIP content scope | a flip interrupts prior-generation handlers — a stale failure can't re-flip a reset boundary |
+  | a List row          | the rowScope               | a row handler survives moves, dies on removal                                                |
+
+  For a REACTIVE handler prop (an AtomRef value) the rolling child scope
+  swaps only the LISTENER; a dispatch in flight when the prop re-binds runs
+  to completion, new clicks go to the new handler.
+
+What still interrupts — unchanged from before this rule, which only
+_narrowed_ interruption: anything that tears down the OWNER itself. A write
+that re-renders an ANCESTOR dynamic node; a list-row handler that removes
+its OWN row (confirm-then-remove); a `Catch` fallback handler that keeps
+running after calling `reset` (the flip closes the fallback's content
+scope). Rule of thumb: do the async work first, then flip/remove/reset.
+
+Don't revert any of this to
 bare runners or to mount's root context: the types promise all of it.
 Pinned by `testing/context-capture.test.ts` (one test per capture-consuming
 path in the matrix, plus the owner-teardown discriminator) and
 `testing/handler-scope.test.ts` (the dispatch-scope pins: #161 repro,
-Catch corollary, per-dispatch release, row reorder-vs-removal, boundary
+Catch corollary, per-dispatch release, self-interrupt release, reactive-prop
+re-bind, dispatch-lifetime Scope, row reorder-vs-removal, boundary
 generation isolation); handler DISPATCH
 pins stay in `testing/event-handlers.test.ts`. Two known limits: (1) a View
 built OUTSIDE mount (`Effect.runSync(h(...))` at module level) carries its

@@ -304,13 +304,15 @@ describe("per-dispatch handler scope", () => {
     expect(logged).toEqual([])
   })
 
-  it("a handler that interrupts ITSELF still releases — onExit, not the owner cascade (#160)", async () => {
-    // The dispatch scope's close rides `Effect.onExit`, which runs on
-    // interruption. The owner→child fork-cascade would ALSO close it — but only
-    // when the owner closes. Here the owner stays alive and the fiber
-    // interrupts itself, so nothing but `onExit` can fire the release: a close
-    // wired through matchCause's success/failure arms (skipped on interrupt)
-    // leaks it. Interrupt-only cause → nothing reaches the sink.
+  it("a handler that interrupts ITSELF still releases, silently (#160)", async () => {
+    // Pins two things the owner-teardown tests can't (there the owner→child
+    // cascade would close the dispatch scope anyway): (1) the dispatch-scope
+    // close (`Scope.use`, onExit-based) runs on an INTERRUPT exit too — the
+    // owner stays alive here, so nothing else could fire the release; (2) an
+    // interrupt-only cause never reaches the sink. Note `Effect.interrupt` is
+    // a plain interrupt-cause failure — it does run error continuations,
+    // unlike an external `Fiber.interrupt` — so this is the one shape where
+    // the `hasInterruptsOnly` guard is actually exercised.
     const logged: Array<unknown> = []
     const CapturingLogger = Logger.layer([
       Logger.make((options) => {
@@ -382,6 +384,57 @@ describe("per-dispatch handler scope", () => {
     await ui.tick()
     expect(log).toEqual(["first:start", "second", "first:done"])
     await ui.unmount()
+  })
+
+  it("the handler's Scope is DISPATCH-lifetime: forkScoped work dies at settle; forkIn a captured scope survives", async () => {
+    // Corollary of per-dispatch scopes: `Effect.forkScoped` (and an
+    // `asyncRef`/`streamRef` created inside a handler — same mechanism) attach
+    // to the dispatch scope and are torn down the moment the handler returns.
+    // Work that must outlive the click forks INTO a scope captured at
+    // construction. Documented in runtime/AGENTS.md "Handler-scope semantics".
+    let scopedTicks = 0
+    let capturedTicks = 0
+    const App = Effect.fn("PollOnClick")(function* (_props: {} = {}) {
+      const s = yield* Effect.scope // construction-time capture
+      const poll = (bump: () => void) =>
+        Effect.forever(Effect.delay(Effect.sync(bump), 1))
+      return yield* h(
+        "div",
+        {},
+        h(
+          "button",
+          {
+            class: "scoped",
+            onClick: () => Effect.forkScoped(poll(() => scopedTicks++)),
+          },
+          "poll (dispatch scope)",
+        ),
+        h(
+          "button",
+          {
+            class: "captured",
+            onClick: () =>
+              Effect.forkIn(
+                poll(() => capturedTicks++),
+                s,
+              ),
+          },
+          "poll (captured scope)",
+        ),
+      )
+    })
+
+    const ui = await render(App())
+    ui.click(".scoped")
+    ui.click(".captured")
+    await new Promise((r) => setTimeout(r, 30))
+    expect(scopedTicks).toBe(0) // dispatch settled → scope closed → poll dead
+    expect(capturedTicks).toBeGreaterThan(0)
+
+    await ui.unmount()
+    const atUnmount = capturedTicks
+    await new Promise((r) => setTimeout(r, 30))
+    expect(capturedTicks).toBe(atUnmount) // captured scope died with the app
   })
 
   it("a row handler survives a REORDER but is interrupted by row REMOVAL", async () => {
