@@ -647,7 +647,9 @@ export const mount = <R>(
         Cause.hasInterruptsOnly(cause)
           ? Effect.logDebug(
               "verrex: an event handler was interrupted before it completed " +
-                "(its element was torn down while the handler was in flight)",
+                "— usually its element was torn down while it was in flight " +
+                "(a write that re-renders an ancestor, a row removal, a Catch " +
+                "flip); do the async work first, then flip/remove/reset",
               cause,
             )
           : Effect.logError(cause),
