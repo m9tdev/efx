@@ -46,7 +46,7 @@ await ui.unmount()
   pins this), `tick()` (flush a macrotask so async/atom updates settle),
   `unmount()` (close the scope → fire every finalizer → detach),
   `sinkCauses` (every `Cause` the root sink received, via `mount`'s
-  `onError` option: uncaught live failures AND handlers interrupted
+  `RootSink` reference: uncaught live failures AND handlers interrupted
   mid-flight, #127/#186).
 - **Assert the continuation, not the stub.** A test that only checks a
   stub's side effect (`sink.push` inside `http.send`) goes green even when

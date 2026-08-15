@@ -674,7 +674,8 @@ observes every non-success exit via `onExit` and hands an interrupt-only
 cause to the sink too. `Catch.report` does not flip on it; it escalates it
 to the ambient sink unchanged. Mount's default root sink logs it at debug
 level with a hint (below the default `Info` level, so raise the log level to
-see it). A `MountOptions.onError` sink gets it raw. The testing harness
+see it). A user-provided `RootSink` (a `Context.Reference`, so it never
+shows in `R`) gets it raw. The testing harness
 collects it on `ui.sinkCauses`. The reason: a handler interrupted mid-flight
 by its element's teardown was invisible (#160 cost a downstream user an hour
 of bisecting). Teardown is not an error, but "the handler never finished"

@@ -597,10 +597,10 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
  *
  * Post-mount failures (a reactive re-render or an event-handler Effect that
  * fails) that aren't caught by a `Catch` boundary are routed to a root
- * error sink: `options.onError` when given, else `Effect.logError` on the
- * captured context. A handler interrupted mid-flight by its element's teardown
- * reaches the same sink as an interrupt-only `Cause` (the default sink logs
- * that at debug level, since teardown is not an error).
+ * error sink — the {@link RootSink} reference read from the captured context
+ * (default: log). A handler interrupted mid-flight by its element's teardown
+ * reaches the same sink as an interrupt-only `Cause` (the default logs that
+ * at debug level, since teardown is not an error).
  *
  * **The `AtomRegistry` is owned by the mount, not required from context.**
  * `mount` creates a registry and disposes it in the same scope close that
@@ -615,20 +615,36 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
  * `View<E>` channel (via `Catch`). A leftover error is a compile error here
  * that names it — the runtime counterpart of a forgotten `Layer` naming a service.
  */
-/** Options for {@link mount}. */
-export interface MountOptions {
-  /**
-   * Root error sink. Receives every live `Cause` no `Catch` boundary caught —
-   * a failing handler or re-render — and interrupt-only causes from handlers
-   * torn down mid-flight. Replaces the default `Effect.logError` logging.
-   */
-  readonly onError?: (cause: Cause.Cause<unknown>) => void
-}
+/**
+ * The root error sink, as a `Context.Reference` (a service with a default, so
+ * it never shows up in `R`). It receives every live `Cause` no `Catch`
+ * boundary caught — a failing handler or re-render — and the interrupt-only
+ * cause of a handler torn down mid-flight (#186). The default logs: errors via
+ * `Effect.logError`, interrupts via `Effect.logDebug` with a hint (below the
+ * default `Info` level; raise it to see them).
+ *
+ * Override it like any Effect service:
+ * `Effect.provideService(mount(app, el), RootSink, (cause) => report(cause))`
+ * or `Layer.succeed(RootSink, …)`. The testing harness provides one that
+ * collects into `ui.sinkCauses`.
+ */
+export const RootSink = Context.Reference<
+  (cause: Cause.Cause<unknown>) => Effect.Effect<void>
+>("verrex/RootSink", {
+  defaultValue:
+    () =>
+    (cause): Effect.Effect<void> =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.logDebug(
+            "verrex: an event handler was interrupted before it completed",
+            cause,
+          )
+        : Effect.logError(cause),
+})
 
 export const mount = <R>(
   app: Effect.Effect<View<never>, never, R>,
   el: HTMLElement,
-  options?: MountOptions,
 ): Effect.Effect<
   void,
   never,
@@ -640,20 +656,9 @@ export const mount = <R>(
     // `never` so it threads without a generic — handler Effects are cast to
     // `R = never` at the run site; the services are present at runtime.
     const context = yield* Effect.context<never>()
-    const onError = options?.onError
+    const rootSink = yield* RootSink
     const sink: ErrorSink = (cause) => {
-      if (onError) return onError(cause)
-      Effect.runForkWith(context)(
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.logDebug(
-              "verrex: an event handler was interrupted before it completed " +
-                "— usually its element was torn down while it was in flight " +
-                "(a write that re-renders an ancestor, a row removal, a Catch " +
-                "flip); do the async work first, then flip/remove/reset",
-              cause,
-            )
-          : Effect.logError(cause),
-      )
+      Effect.runForkWith(context)(rootSink(cause))
     }
     const view = yield* Effect.provideService(
       app,

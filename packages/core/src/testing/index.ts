@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Layer, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { mount, type View } from "@verrex/core"
+import { mount, RootSink, type View } from "@verrex/core"
 
 /**
  * Services a component may require without a `layer`: the ambient `Scope`
@@ -44,7 +44,7 @@ export interface RenderResult {
   /** Close the scope (firing every finalizer) and detach the container. */
   unmount(): Promise<void>
   /**
-   * Every `Cause` that reached the root error sink, in order: a live failure no
+   * Every `Cause` that reached the root error sink (`RootSink`), in order: a live failure no
    * `Catch` caught, and any handler interrupted mid-flight by its element's
    * teardown (an interrupt-only cause). Assert `toEqual([])` to prove a handler
    * ran to completion — a stub's side effect only proves it *started*.
@@ -125,11 +125,14 @@ const renderImpl = async (
     Scope.provide(
       Effect.flatMap(Layer.build(layer), (ctx) =>
         Effect.provideContext(
-          mount(discharged, container, {
-            onError: (cause) => {
-              sinkCauses.push(cause)
-            },
-          }),
+          Effect.provideService(
+            mount(discharged, container),
+            RootSink,
+            (cause) =>
+              Effect.sync(() => {
+                sinkCauses.push(cause)
+              }),
+          ),
           ctx,
         ),
       ),
