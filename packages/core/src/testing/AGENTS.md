@@ -11,7 +11,9 @@ Public surface: `render(app, layer?)` returning a `RenderResult`, plus
 with an undischarged LIVE error (`View<E≠never>`), needed by sink-containment
 tests ("a failing handler is contained, the app keeps working"). Route every
 such test through it; an ad-hoc `as unknown as` cast on a handler effect or
-app is a smell — the hatch exists to be greppable.
+app is a smell — the hatch exists to be greppable. Pair it with
+`ui.sinkCauses` to assert WHAT the sink received (`Cause.squash`), never a
+logger string-match.
 
 ## What it does
 

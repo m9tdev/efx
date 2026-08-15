@@ -331,6 +331,46 @@ describe("per-dispatch handler scope", () => {
     expect(log).toEqual(["acquire", "release"])
   })
 
+  it("a handler interrupted under a Catch still reaches the root sink (#186)", async () => {
+    // Catch.report must not swallow the interrupt: it is not an error (the
+    // boundary must not flip), but "the handler never finished" has to stay
+    // observable through a boundary — else `sinkCauses` lies for any app
+    // with a root Catch.
+    const gate = Deferred.makeUnsafe<void>()
+    const log: string[] = []
+    const App = Effect.fn("CatchInterrupt")(function* (_props: {} = {}) {
+      return yield* Catch(
+        h(
+          "button",
+          {
+            class: "btn",
+            onClick: () =>
+              Effect.gen(function* () {
+                log.push("start")
+                yield* Deferred.await(gate)
+                log.push("done")
+              }),
+          },
+          "go",
+        ),
+        () => h("p", { class: "fallback" }, "failed"),
+      )
+    })
+
+    const ui = await render(App())
+    ui.click(".btn")
+    await ui.tick()
+    expect(log).toEqual(["start"])
+    expect(ui.sinkCauses).toEqual([])
+
+    await ui.unmount()
+    expect(log).toEqual(["start"])
+    expect(ui.sinkCauses).toHaveLength(1)
+    expect(Cause.hasInterruptsOnly(ui.sinkCauses[0]!)).toBe(true)
+    // The boundary did not flip on the interrupt.
+    expect(ui.query(".fallback")).toBeNull()
+  })
+
   it("re-binding a REACTIVE handler prop does not interrupt an in-flight dispatch", async () => {
     // An AtomRef-valued `onClick` re-applies under a rolling child scope: the
     // LISTENER is swapped per binding, but a dispatch is owned by the node,
