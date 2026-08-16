@@ -103,10 +103,14 @@ interface HandlerDeps {
 //   is the owner per node, and what still interrupts, is in AGENTS.md
 //   "Handler-scope semantics".
 //
-// Failures route to the sink; an interrupt-only cause is dropped. (On owner
-// teardown the runtime skips `matchCause` entirely — only finalizers run — so
-// the guard's actual subject is a handler that raises an interrupt cause
-// itself, `yield* Effect.interrupt`. Not an error either way.)
+// Every non-success exit routes to the sink — INCLUDING an interrupt-only
+// cause (#186). Owner teardown interrupts an in-flight handler without running
+// `matchCause`, so the observation point is `onExit` (a finalizer, which does
+// run). An interrupt is not an error. `Catch.report` does not flip on it; it
+// escalates it to the ambient sink. Mount's default `RootSink` logs it at
+// debug level. This exists to make one symptom visible: "the handler never
+// finished and nothing said so" (#160). The testing harness collects it on
+// `ui.sinkCauses` (#127).
 const runHandlerEffect = (
   effect: Effect.Effect<unknown, unknown, never>,
   deps: HandlerDeps,
@@ -114,12 +118,11 @@ const runHandlerEffect = (
   const dispatchScope = Scope.forkUnsafe(deps.ownerScope, "sequential")
   Effect.runForkWith(deps.context)(
     Effect.forkIn(
-      Effect.matchCause(Scope.use(effect, dispatchScope), {
-        onFailure: (cause) => {
-          if (!Cause.hasInterruptsOnly(cause)) deps.sink(cause)
-        },
-        onSuccess: () => {},
-      }),
+      Effect.onExit(Scope.use(effect, dispatchScope), (exit) =>
+        Effect.sync(() => {
+          if (Exit.isFailure(exit)) deps.sink(exit.cause)
+        }),
+      ),
       deps.ownerScope,
     ),
   )
@@ -586,6 +589,36 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 }
 
 /**
+ * The root error sink, as a `Context.Reference` (a service with a default, so
+ * it never shows up in `R`). It receives every live `Cause` no `Catch`
+ * boundary caught — a failing handler or re-render — and the interrupt-only
+ * cause of a handler torn down mid-flight (#186). The default logs: errors via
+ * `Effect.logError`, interrupts via `Effect.logDebug` with a hint (below the
+ * default `Info` level; raise it to see them).
+ *
+ * Override it like any Effect service, provided AROUND `mount` (it is read
+ * once, from mount's context — not from a subtree's):
+ * `Effect.provideService(mount(app, el), RootSink, (cause) => report(cause))`
+ * or `Layer.succeed(RootSink, …)`. The sink runs forked and unsupervised:
+ * keep it infallible (a sink that fails is dropped without a trace), and
+ * note an async sink is not awaited by teardown. The testing harness provides
+ * one that collects into `ui.sinkCauses`.
+ */
+export const RootSink = Context.Reference<
+  (cause: Cause.Cause<unknown>) => Effect.Effect<void>
+>("verrex/RootSink", {
+  defaultValue:
+    () =>
+    (cause): Effect.Effect<void> =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.logDebug(
+            "verrex: an event handler was interrupted before it completed",
+            cause,
+          )
+        : Effect.logError(cause),
+})
+
+/**
  * Run the app Effect, build the DOM, and attach to the target element.
  *
  * Cleanup is handled entirely through the ambient `Scope`. Every subscription,
@@ -595,7 +628,10 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
  *
  * Post-mount failures (a reactive re-render or an event-handler Effect that
  * fails) that aren't caught by a `Catch` boundary are routed to a root
- * error sink that logs via `Effect.logError` on the captured context.
+ * error sink — the {@link RootSink} reference read from the captured context
+ * (default: log). A handler interrupted mid-flight by its element's teardown
+ * reaches the same sink as an interrupt-only `Cause` (the default logs that
+ * at debug level, since teardown is not an error).
  *
  * **The `AtomRegistry` is owned by the mount, not required from context.**
  * `mount` creates a registry and disposes it in the same scope close that
@@ -624,8 +660,9 @@ export const mount = <R>(
     // `never` so it threads without a generic — handler Effects are cast to
     // `R = never` at the run site; the services are present at runtime.
     const context = yield* Effect.context<never>()
+    const rootSink = yield* RootSink
     const sink: ErrorSink = (cause) => {
-      Effect.runForkWith(context)(Effect.logError(cause))
+      Effect.runForkWith(context)(rootSink(cause))
     }
     const view = yield* Effect.provideService(
       app,
