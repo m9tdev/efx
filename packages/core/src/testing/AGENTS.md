@@ -11,7 +11,9 @@ Public surface: `render(app, layer?)` returning a `RenderResult`, plus
 with an undischarged LIVE error (`View<E≠never>`), needed by sink-containment
 tests ("a failing handler is contained, the app keeps working"). Route every
 such test through it; an ad-hoc `as unknown as` cast on a handler effect or
-app is a smell — the hatch exists to be greppable.
+app is a smell — the hatch exists to be greppable. Pair it with
+`ui.sinkCauses` to assert WHAT the sink received (`Cause.squash`), never a
+logger string-match.
 
 ## What it does
 
@@ -42,7 +44,18 @@ await ui.unmount()
   context with its services, and its failures route to the error sink, so
   a failing handler is contained rather than thrown; `event-handlers.test.ts`
   pins this), `tick()` (flush a macrotask so async/atom updates settle),
-  `unmount()` (close the scope → fire every finalizer → detach).
+  `unmount()` (close the scope → fire every finalizer → detach),
+  `sinkCauses` (every `Cause` the root sink received, via `mount`'s
+  `RootSink` reference: uncaught live failures AND handlers interrupted
+  mid-flight, #127/#186).
+- **Assert the continuation, not the stub.** A test that only checks a
+  stub's side effect (`sink.push` inside `http.send`) goes green even when
+  the handler is interrupted right after its first `yield*` — the stub ran
+  synchronously, the rest never did. Assert on state only the post-`yield`
+  code produces (the "saved" text, `pending` back to false) and add
+  `expect(ui.sinkCauses).toEqual([])`, which fails on any interrupt or
+  uncaught failure. `unmount()` itself interrupts in-flight handlers, so
+  read `sinkCauses` before it (`handler-scope.test.ts` pins both shapes).
 
 ## The load-bearing invariant: do NOT swallow E/R
 

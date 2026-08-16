@@ -26,7 +26,7 @@ import { type BoundaryState, View } from "./View.ts"
 
 export * as Component from "./Component.ts"
 export { h } from "./h.ts"
-export { mount } from "./mount.ts"
+export { mount, RootSink } from "./mount.ts"
 export { type Props, View } from "./View.ts"
 // `Async`, `asyncRef`, `Catch`, `list`, `Fragment`, `VerrexLive` are declared + exported below.
 export type {
@@ -696,9 +696,11 @@ const makeBoundary = <R>(
 
     // Live failures: accepted → error state (via the queue, off the render stack —
     // a synchronous mutation would close the child scope mid-render); non-accepted
-    // → escalate to the ambient sink. Interrupts (teardown) dropped.
+    // → escalate to the ambient sink. An interrupt-only cause (a handler torn
+    // down mid-flight, #186) is not an error, so it never flips the boundary;
+    // it escalates unchanged so the root sink can still observe it.
     const report = (cause: Cause.Cause<unknown>): void => {
-      if (Cause.hasInterruptsOnly(cause)) return
+      if (Cause.hasInterruptsOnly(cause)) return ambient(cause)
       if (accepts(cause)) Queue.offerUnsafe(runs, { _tag: "error", cause })
       else ambient(cause)
     }

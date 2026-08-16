@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Layer, Scope } from "effect"
 import type { AtomRegistry } from "effect/unstable/reactivity"
-import { mount, type View } from "@verrex/core"
+import { mount, RootSink, type View } from "@verrex/core"
 
 /**
  * Services a component may require without a `layer`: the ambient `Scope`
@@ -43,6 +43,16 @@ export interface RenderResult {
   waitFor(selector: string, timeoutMs?: number): Promise<HTMLElement>
   /** Close the scope (firing every finalizer) and detach the container. */
   unmount(): Promise<void>
+  /**
+   * Every `Cause` that reached the root error sink (`RootSink`), in order: a
+   * live failure no `Catch` caught, and any handler that exited with an
+   * interrupt-only cause (torn down mid-flight, or `Effect.interrupt`).
+   * Assert `toEqual([])` to prove a handler ran to completion — a stub's side
+   * effect only proves it *started*. `unmount()` itself interrupts in-flight
+   * handlers, so read this before it. The harness always installs its own
+   * `RootSink`; a `RootSink` in the `layer` argument is not used.
+   */
+  readonly sinkCauses: ReadonlyArray<Cause.Cause<unknown>>
 }
 
 const el = (container: HTMLElement, selector: string): HTMLElement => {
@@ -112,10 +122,21 @@ const renderImpl = async (
   // soon as the DOM attaches), so service finalizers fire on `unmount()`.
   // The AtomRegistry needs no layer at all: `mount` owns one per mount and
   // disposes it with the same scope.
+  const sinkCauses: Array<Cause.Cause<unknown>> = []
   await Effect.runPromise(
     Scope.provide(
       Effect.flatMap(Layer.build(layer), (ctx) =>
-        Effect.provideContext(mount(discharged, container), ctx),
+        Effect.provideContext(
+          Effect.provideService(
+            mount(discharged, container),
+            RootSink,
+            (cause) =>
+              Effect.sync(() => {
+                sinkCauses.push(cause)
+              }),
+          ),
+          ctx,
+        ),
       ),
       scope,
     ),
@@ -123,6 +144,7 @@ const renderImpl = async (
 
   return {
     container,
+    sinkCauses,
     get: (s) => el(container, s),
     query: (s) => container.querySelector(s) as HTMLElement | null,
     all: (s) => Array.from(container.querySelectorAll(s)) as HTMLElement[],

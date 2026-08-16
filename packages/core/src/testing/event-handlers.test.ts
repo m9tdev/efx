@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest"
-import { Cause, Effect, Logger } from "effect"
+import { Cause, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
 import { h } from "@verrex/core"
 import { stepClick, stepLayer } from "./fixtures.ts"
@@ -91,15 +91,6 @@ describe("event handlers — Effect-returning", () => {
   })
 
   it("contains a failing handler — routed to the sink, app keeps working", async () => {
-    // Capture the routed failure via a custom logger (the root sink logs the
-    // Cause through Effect.logError on the captured context).
-    const logged: Array<unknown> = []
-    const CapturingLogger = Logger.layer([
-      Logger.make((options) => {
-        logged.push(options)
-      }),
-    ])
-
     const Mixed = Effect.fn("Mixed")(function* (_props: {} = {}) {
       const count = AtomRef.make(0)
       // The handler is typed HONESTLY (it fails with a string, so this
@@ -127,30 +118,13 @@ describe("event handlers — Effect-returning", () => {
       )
     })
 
-    const ui = await render(untracked(Mixed()), CapturingLogger)
+    const ui = await render(untracked(Mixed()))
 
     // A failing handler must not throw out of dispatch nor break the app, and the
-    // ACTUAL cause must reach the sink (not just "something logged"). The sink logs
-    // the Cause via Effect.logError, so it surfaces in the logger options' message
-    // and/or cause field.
+    // ACTUAL cause must reach the root sink — the harness collects it (#127).
     ui.click(".bad")
     await ui.tick()
-    const mentionsMarker = (v: unknown): boolean =>
-      Cause.isCause(v)
-        ? Cause.pretty(v).includes("boom-marker")
-        : typeof v === "string"
-          ? v.includes("boom-marker")
-          : Array.isArray(v)
-            ? v.some(mentionsMarker)
-            : false
-    const found = logged.some((o) => {
-      const opts = o as {
-        readonly message?: unknown
-        readonly cause?: unknown
-      }
-      return mentionsMarker(opts.message) || mentionsMarker(opts.cause)
-    })
-    expect(found).toBe(true)
+    expect(ui.sinkCauses.map(Cause.squash)).toEqual(["boom-marker"])
 
     // The app still works after a handler failure.
     ui.click(".good")

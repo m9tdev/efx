@@ -667,10 +667,20 @@ touching any of it: construction effects bind to a per-build scope (above),
 event-handler fibers are `forkIn`'d into their OWNER scope with a
 per-dispatch child for resources (`runHandlerEffect`; the full contract is
 "Handler-scope semantics" below), reactive/list subtrees go through
-`buildScopedChild`, and `asyncRef`'s supervisor is `forkScoped`. Every sink
-also guards `Cause.hasInterruptsOnly` so a teardown interrupt isn't surfaced
-as a failure. Anything forked must be tied to a scope that closes when its
-owning subtree does.
+`buildScopedChild`, and `asyncRef`'s supervisor is `forkScoped`. Render-path
+sinks guard `Cause.hasInterruptsOnly` so a teardown interrupt isn't surfaced
+as a failure. **Handler dispatch is the exception (#186):** `runHandlerEffect`
+observes every non-success exit via `onExit` and hands an interrupt-only
+cause to the sink too. `Catch.report` does not flip on it; it escalates it
+to the ambient sink unchanged. Mount's default root sink logs it at debug
+level with a hint (below the default `Info` level, so raise the log level to
+see it). A user-provided `RootSink` (a `Context.Reference`, so it never
+shows in `R`) gets it raw. The testing harness
+collects it on `ui.sinkCauses`. The reason: a handler interrupted mid-flight
+by its element's teardown was invisible (#160 cost a downstream user an hour
+of bisecting). Teardown is not an error, but "the handler never finished"
+must be observable. Anything forked must be tied to a scope that closes when
+its owning subtree does.
 
 ## mount internals — invariants
 
@@ -751,6 +761,9 @@ that re-renders an ANCESTOR dynamic node; a list-row handler that removes
 its OWN row (confirm-then-remove); a `Catch` fallback handler that keeps
 running after calling `reset` (the flip closes the fallback's content
 scope). Rule of thumb: do the async work first, then flip/remove/reset.
+Each of those interrupts reaches the root sink as an interrupt-only cause
+(debug log by default; `ui.sinkCauses` in tests) — see "Runtime error
+routing".
 
 Don't revert any of this to
 bare runners or to mount's root context: the types promise all of it.
