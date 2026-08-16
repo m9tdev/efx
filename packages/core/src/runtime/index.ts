@@ -21,7 +21,7 @@ import {
   makeDepSubscription,
   trackDeps,
 } from "./coerce.ts"
-import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
+import type { ArmR, FoldArmsR, FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
 import { type BoundaryState, View } from "./View.ts"
 
 export * as Component from "./Component.ts"
@@ -38,6 +38,8 @@ export type {
   FoldLiveE,
   FoldPropsLiveE,
   FoldPropsR,
+  ArmR,
+  FoldArmsR,
   FoldR,
 } from "./types/Fold.ts"
 export type {
@@ -416,8 +418,11 @@ const taggedMatch = (
 
 /**
  * The arms for `Async` / `<Async>`. Each maps to an `AsyncResult` variant.
- * Channels are accepted permissively (`any`) — the arms render at the node scope
- * and their E/R are NOT folded; only `from`'s `R` is (the thesis-bearing one).
+ * An arm's `R` FOLDS onto the boundary's requirements (`FoldArmsR`, #120) —
+ * arms render on the construction-captured context, so a service an arm (or a
+ * handler inside it) needs must be provided at `mount`. An arm's own Effect
+ * `E` stays permissive and its success is `View<never>` (a typed failing
+ * handler in an arm is rejected at the arm; nest a `Catch`).
  */
 interface AsyncArmsBase<A> {
   readonly initial?: View | Effect.Effect<View, any, any>
@@ -435,6 +440,15 @@ interface AsyncArmsHandled<A, E> extends AsyncArmsBase<A> {
 /** Open form: no `failure` arm — the failure rides the live channel (`View<E>`). */
 interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
   readonly failure?: never
+}
+/**
+ * Re-arms excess-property checking for a GENERIC arms parameter: inferring
+ * `Arms` (needed to fold arm `R`, #120) turns off TS's object-literal
+ * excess check, so a typo'd optional key (`intial`) would compile and never
+ * render. Every key of `Arms` outside `Base` is forced to `never`.
+ */
+type NoExcess<Arms, Base> = Arms & {
+  readonly [K in Exclude<keyof Arms, keyof Base>]: never
 }
 
 /**
@@ -498,10 +512,15 @@ interface AsyncArmsOpen<A> extends AsyncArmsBase<A> {
  * during render (`failure: (c, retry) => { retry(); … }`) refetches in an
  * infinite loop.
  */
-export function Async<A, E, R = never>(
+export function Async<
+  A,
+  E,
+  R = never,
+  Arms extends AsyncArmsHandled<A, E> = AsyncArmsHandled<A, E>,
+>(
   from: AsyncSource<A, E, R>,
-  arms: AsyncArmsHandled<A, E>,
-): Effect.Effect<View, never, R | Scope.Scope>
+  arms: NoExcess<Arms, AsyncArmsHandled<A, E>>,
+): Effect.Effect<View, never, R | Scope.Scope | FoldArmsR<Arms>>
 export function Async<
   A,
   E,
@@ -511,18 +530,24 @@ export function Async<
     ? never
     : TagHandlers<E, [retry: () => void]>),
   R = never,
+  Arms extends AsyncArmsBase<A> = AsyncArmsBase<A>,
 >(
   from: AsyncSource<A, E, R>,
-  arms: AsyncArmsBase<A> & { readonly failure: Handlers },
+  arms: NoExcess<Arms, AsyncArmsHandled<A, E>> & { readonly failure: Handlers },
 ): Effect.Effect<
   View<Types.ExcludeTag<E, keyof Handlers & string>>,
   never,
-  R | Scope.Scope
+  R | Scope.Scope | FoldArmsR<Arms> | FoldArmsR<Handlers>
 >
-export function Async<A, E, R = never>(
+export function Async<
+  A,
+  E,
+  R = never,
+  Arms extends AsyncArmsOpen<A> = AsyncArmsOpen<A>,
+>(
   from: AsyncSource<A, E, R>,
-  arms: AsyncArmsOpen<A>,
-): Effect.Effect<View<E>, never, R | Scope.Scope>
+  arms: NoExcess<Arms, AsyncArmsOpen<A>>,
+): Effect.Effect<View<E>, never, R | Scope.Scope | FoldArmsR<Arms>>
 export function Async<A, E, R = never>(
   from: AsyncSource<A, E, R>,
   arms: AsyncArmsBase<A> & {
@@ -779,17 +804,24 @@ const makeBoundary = <R>(
  * Catches both phases — **construction** (`child`'s build Effect fails) and
  * **live** (a post-mount reactive re-render or event-handler Effect). `reset()`
  * re-runs construction. `child`'s `R` folds (construction + every reset run on
- * the mount fiber); the fallback's own `E`/`R` are not folded — keep it pure
- * markup, like `Async`'s arms. Tag-selective only catches errors in the *type*;
+ * the mount fiber); the fallback's `R` folds too (#120 — it renders on the
+ * captured context, so its services must be provided at `mount`), while its
+ * own `E` is not: the fallback must produce `View<never>` — like `Async`'s
+ * arms. Tag-selective only catches errors in the *type*;
  * an untyped event-handler or reactive error needs the catch-all form.
  */
-export function Catch<EV, EC, R>(
-  child: Effect.Effect<View<EV>, EC, R>,
-  handler: (
+export function Catch<
+  EV,
+  EC,
+  R,
+  H extends (
     cause: Cause.Cause<EC | EV>,
     reset: () => void,
   ) => View | Effect.Effect<View, any, any>,
-): Effect.Effect<View<never>, never, R | Scope.Scope>
+>(
+  child: Effect.Effect<View<EV>, EC, R>,
+  handler: H,
+): Effect.Effect<View<never>, never, R | Scope.Scope | ArmR<H>>
 export function Catch<
   EV,
   EC,
@@ -801,7 +833,7 @@ export function Catch<
 ): Effect.Effect<
   View<Types.ExcludeTag<EV, keyof Handlers & string>>,
   Types.ExcludeTag<EC, keyof Handlers & string>,
-  R | Scope.Scope
+  R | Scope.Scope | FoldArmsR<Handlers>
 >
 export function Catch(
   child: Effect.Effect<View<any>, any, any>,

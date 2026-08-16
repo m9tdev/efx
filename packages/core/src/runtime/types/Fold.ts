@@ -236,3 +236,33 @@ export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
  * "Handler-scope semantics".
  */
 export type FoldPropsR<P> = Exclude<PairR<FoldPropsChannels<P>>, Scope.Scope>
+
+// ─── Arms fold: Async arms, Catch fallbacks, tag-map handlers (#120) ───────
+//
+// An arm/fallback renders on the node's construction-captured context, so a
+// service it (or a handler inside it) needs must be in that context — i.e.
+// provided at `mount`. Folding the arm's `R` onto the boundary's result makes
+// a missing Layer there the same compile error as everywhere else, instead
+// of a click-time Service-not-found defect. `Scope` is excluded: the arm
+// renders under the node scope (`coerceSync` provides it), like `list` rows
+// and handlers. Only `R` folds — an arm's OWN Effect `E` stays permissive and
+// its success stays `View<never>` (a typed failing handler inside an arm is
+// rejected at the arm; discharge it with a nested `Catch`).
+
+/**
+ * `R` of one arm: a function returning a View-or-Effect (its return is
+ * folded through `ChildR`) or a bare value (`initial`). `any` is inert.
+ */
+export type ArmR<F> =
+  IsAny<F> extends true
+    ? never
+    : F extends (...args: ReadonlyArray<any>) => infer Ret
+      ? IsAny<Ret> extends true
+        ? never
+        : Exclude<ChildR<Ret>, Scope.Scope>
+      : Exclude<ChildR<F>, Scope.Scope>
+
+/** Fold an arms/handlers object to the union of every arm's `R`. */
+export type FoldArmsR<Arms> = Arms extends unknown
+  ? { [K in keyof Arms]-?: ArmR<Arms[K]> }[keyof Arms]
+  : never

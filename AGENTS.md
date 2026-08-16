@@ -23,7 +23,8 @@ fetch loop live, so a dep change can recover the view — while the residual
 rides `View<Exclude<E, { _tag }>>`. (2) _Event handlers_ (#72): an intrinsic's
 `on*` prop returning `Effect<_, E, R>` stamps `E` on the element's `View<E>`
 and folds `R` into its requirements — a forgotten boundary or Layer for a
-handler is the same compile error as for construction. The remaining
+handler is the same compile error as for construction. Since #120, `Async` arms
+and `Catch` fallbacks fold their `R` too, so a handler inside an arm is covered. The remaining
 untracked live surface: a _reactive re-render_ whose Effect fails (an
 `AtomRef`-driven child re-emitting a failing Effect) is still caught only at
 _runtime_ by `Catch`'s sink, not typed.
