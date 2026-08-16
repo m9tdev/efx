@@ -4,8 +4,8 @@
  * Each assertion either holds or produces a type error naming the
  * mismatched channel — this *is* the demonstration.
  */
-import type { Cause, Chunk, Option, Result, Scope } from "effect"
-import { Effect, Stream } from "effect"
+import type { Chunk, Option, Result, Scope } from "effect"
+import { Cause, Effect, Stream } from "effect"
 import { Atom, AtomRegistry, type AtomRef } from "effect/unstable/reactivity"
 import {
   Async,
@@ -297,18 +297,131 @@ const RowR = list(todos, (item) =>
 )
 assertEquals<typeof RowR, Effect.Effect<View, never, Http>>()
 
-// KNOWN EXCEPTION — Async arms and Catch fallbacks are deliberately
-// permissive (`Effect<View, any, any>`, channels not folded — "keep arms
-// pure markup"): a handler's R inside an arm is SWALLOWED, not folded. The
-// #72 guarantee does not reach inside arms; this pin makes the boundary of
-// the guarantee explicit rather than accidental.
+// Async arms and Catch fallbacks FOLD `R` (#120): a handler (or any Effect
+// child) inside an arm needing a service the fetch does not folds onto the
+// boundary's requirements — a missing Layer there is the same compile error
+// as anywhere else, not a click-time Service-not-found defect. `Scope` stays
+// excluded (arms render under the node scope, like list rows/handlers).
 declare const fetchUser: () => Effect.Effect<User, HttpError, Http>
-const ArmSwallowsR = Async(fetchUser, {
-  success: (u) => h("button", { onclick: () => auditedLog }, u.name),
+declare const themedLog: Effect.Effect<void, never, Theme>
+const ArmFoldsR = Async(fetchUser, {
+  success: (u) => h("button", { onclick: () => themedLog }, u.name),
 })
 assertEquals<
-  typeof ArmSwallowsR,
+  typeof ArmFoldsR,
+  Effect.Effect<View<HttpError>, never, Http | Theme | Scope.Scope>
+>()
+// Providing only Http leaves Theme on the requirements — a forgotten Layer
+// for an arm's handler is a compile error, no longer a click-time defect.
+const ArmProvidedHttp = Effect.provide(ArmFoldsR, HttpLive)
+assertEquals<
+  typeof ArmProvidedHttp,
+  Effect.Effect<View<HttpError>, never, Theme | Scope.Scope>
+>()
+
+// Every arm folds: `initial` (bare value), `failure` (function or tag map).
+declare const themedView: Effect.Effect<View, never, Theme>
+const InitialFoldsR = Async(fetchUser, {
+  initial: themedView,
+  failure: () => h("p", {}, "err"),
+  success: (u) => h("p", {}, u.name),
+})
+assertEquals<
+  typeof InitialFoldsR,
+  Effect.Effect<View, never, Http | Theme | Scope.Scope>
+>()
+const FailureFoldsR = Async(fetchUser, {
+  failure: () => themedView,
+  success: (u) => h("p", {}, u.name),
+})
+assertEquals<
+  typeof FailureFoldsR,
+  Effect.Effect<View, never, Http | Theme | Scope.Scope>
+>()
+const TagMapArmFoldsR = Async(fetchUser, {
+  failure: { HttpError: () => themedView },
+  success: (u) => h("p", {}, u.name),
+})
+assertEquals<
+  typeof TagMapArmFoldsR,
+  Effect.Effect<View, never, Http | Theme | Scope.Scope>
+>()
+
+// The original inference worry (a conditional arm) holds up post-#71: a
+// conditional over intrinsics/components folds each branch's R; an `any`
+// arm return is inert (guarded), not poisoning.
+const CondArm = Async(fetchUser, {
+  success: (u) => (flag ? h("p", {}, u.name) : themedView),
+})
+assertEquals<
+  typeof CondArm,
+  Effect.Effect<View<HttpError>, never, Http | Theme | Scope.Scope>
+>()
+// A component-call branch — the shape the original worry named — folds the
+// component's R and stays inferred. (Arms must still return
+// `View | Effect<View>`: `flag && <X/>` is `false | Effect`, rejected as
+// before — unchanged, unrelated to the fold.)
+const CompCondArm = Async(fetchUser, {
+  success: (u) => (flag ? UserPage({ userId: u.id }) : h("p", {}, u.name)),
+})
+assertEquals<
+  typeof CompCondArm,
+  Effect.Effect<View<HttpError>, never, Http | Theme | Scope.Scope>
+>()
+const AnyArm = Async(fetchUser, { success: () => someAny })
+assertEquals<
+  typeof AnyArm,
   Effect.Effect<View<HttpError>, never, Http | Scope.Scope>
+>()
+
+// A generic arms parameter would drop excess-property checking; NoExcess
+// re-arms it — a typo'd optional arm key is still a compile error (on the
+// call, as an overload-resolution failure) in all three forms.
+// @ts-expect-error — `intial` is not an arm
+Async(fetchUser, { intial: themedView, success: (u) => h("p", {}, u.name) })
+// @ts-expect-error — `intial` is not an arm
+Async(fetchUser, {
+  success: (u) => h("p", {}, u.name),
+  failure: () => h("p", {}, "x"),
+  intial: themedView,
+})
+// @ts-expect-error — `intial` is not an arm
+Async(fetchUser, {
+  success: (u) => h("p", {}, u.name),
+  failure: { HttpError: () => h("p", {}, "x") },
+  intial: themedView,
+})
+
+// Catch fallbacks fold too — both forms — while an arm needing only what the
+// runtime provides (Scope) or nothing adds nothing.
+declare const failingView: Effect.Effect<View, HttpError, never>
+const FallbackFoldsR = Catch(failingView, () => themedView)
+assertEquals<
+  typeof FallbackFoldsR,
+  Effect.Effect<View, never, Theme | Scope.Scope>
+>()
+// An inline handler that reads `cause` and `reset` still infers under the
+// generic H, and folds what it uses.
+const InlineFallback = Catch(failingView, (cause, reset) =>
+  Effect.gen(function* () {
+    yield* themedLog
+    return yield* h("button", { onclick: reset }, Cause.pretty(cause))
+  }),
+)
+assertEquals<
+  typeof InlineFallback,
+  Effect.Effect<View, never, Theme | Scope.Scope>
+>()
+const TagFallbackFoldsR = Catch(failingView, { HttpError: () => themedView })
+assertEquals<
+  typeof TagFallbackFoldsR,
+  Effect.Effect<View, never, Theme | Scope.Scope>
+>()
+declare const scopedView: Effect.Effect<View, never, Scope.Scope>
+const ScopedArmAddsNothing = Catch(failingView, () => scopedView)
+assertEquals<
+  typeof ScopedArmAddsNothing,
+  Effect.Effect<View, never, Scope.Scope>
 >()
 
 // A typed FAILING handler inside a Catch fallback is rejected (the fallback

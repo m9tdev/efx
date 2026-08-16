@@ -60,7 +60,8 @@ Public surface (from `index.ts`):
 - `VerrexLive` — deprecated no-op compat Layer (`mount` owns the registry)
 - Types: `View<E>`, `Props`, `FoldE`/`FoldLiveE`/`FoldR` (the `Tag*`
   families died with #71 — component channels are ordinary child folds),
-  `FoldPropsLiveE`/`FoldPropsR` (the props fold, #72),
+  `FoldPropsLiveE`/`FoldPropsR` (the props fold, #72), `ArmR`/`FoldArmsR`
+  (the arms fold, #120),
   `IntrinsicProps`, `HtmlEventHandlers`
 
 This is where the **channel propagation contract lives** —
@@ -118,7 +119,7 @@ and keeps its hint. If you rename a slot, update the regex.
 | `index.ts`             | Public exports + `list`, `Async`, `asyncRef`, `streamRef`, `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`, `VerrexLive`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `coerce.test.ts`       | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `reconcile.test.ts`    | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality; index updates on shift)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `types/Fold.ts`        | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls). Plus the props fold (#72): `FoldPropsLiveE`/`FoldPropsR` — an `on*` handler's `Effect` return contributes live `E` + `R`, via ONE cached `[E, R]` pass (`FoldPropsChannels`) with a zero-handler fast path, an `any`-guard, a bare-`on` exclusion, and AtomRef fold-through. Hard-won pin: the pair is read through a naked type param (`PairE`/`PairR`) — a non-distributive `never extends [infer E, any]` silently resolves to `unknown`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `types/Fold.ts`        | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls). Plus the props fold (#72): `FoldPropsLiveE`/`FoldPropsR` — an `on*` handler's `Effect` return contributes live `E` + `R`, via ONE cached `[E, R]` pass (`FoldPropsChannels`) with a zero-handler fast path, an `any`-guard, a bare-`on` exclusion, and AtomRef fold-through. Hard-won pin: the pair is read through a naked type param (`PairE`/`PairR`) — a non-distributive `never extends [infer E, any]` silently resolves to `unknown`. Plus the arms fold (#120): `ArmR`/`FoldArmsR` — an Async arm or Catch fallback's `R` (minus `Scope`) folds onto the boundary                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `types/Html.ts`        | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics. Handlers return `unknown` (the honest `applyProp` contract: an `Effect` return is run, anything else ignored); the precise `E`/`R` are read off the _inferred_ props type by the props fold, not off this constraint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `types/Fold.test-d.ts` | `assertEquals` matrix — every channel-fold shape                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
@@ -518,19 +519,23 @@ The `from`/thunk runs under the **same dependency tracker as `h.track`**
 changes**, interrupting the stale run. A thunk that reads no refs runs once —
 deps are _discovered, not declared_.
 
-Arm channels are accepted permissively (`any`) and are not folded; that avoids a
-JSX conditional's `any`-folded channels breaking inference. **This also bounds
-the #72 handler guarantee**: a handler's `R` inside an arm (or a `Catch`
-fallback) is SWALLOWED by the arm's `any`, not folded — a missing Layer there
-surfaces only at click time, as a sink-routed defect (pinned explicitly in
-`channels.test-d.ts`). A typed _failing_ handler in an arm/fallback is at
-least rejected (the arm's success is `View<never>`) — discharge it inside
-(nest a `Catch`). **Arms must be
+**Arm `R` folds** (#120): the arms object is a generic `Arms` parameter and
+`FoldArmsR<Arms>` (types/Fold.ts) unions every arm's `R` — a function arm's
+return, a bare `initial`, and each tag-map handler — onto the result, minus
+`Scope` (arms render under the node scope via `coerceSync`). Arms render on
+the construction-captured context, so a service an arm or a handler inside it
+needs is a `mount`-time compile error, not a click-time Service-not-found
+defect. The pre-#120 "keep arms `any`" stance was an inference worry about
+conditional arms; post-#71 (component tags are direct calls) it does not
+reproduce — a conditional arm folds per branch, and an `any` return is inert
+via the `IsAny` guard (pinned in `channels.test-d.ts`). An arm's own Effect
+`E` stays permissive and its success must be `View<never>`: a typed _failing_
+handler in an arm/fallback is rejected at the arm — discharge it inside (nest
+a `Catch`). **Arms must be
 synchronous View-producers** — they render via `coerceSync` (the node's paired
 `runSyncExit`), so
 an _async_ arm effect can never resolve. A _failing_ arm effect is routed to the
 error sink (and renders `Empty`), not stringified — see "Runtime error routing".
-Keep arms pure markup.
 
 **Inline or extracted — both track.** The compiler rewrites `.value`→`h.read`
 across the whole component body, so an extracted thunk —
@@ -612,8 +617,9 @@ node's `setAmbient`). Tag-selective only catches errors in the _type_; an untype
 event-handler/reactive error needs the catch-all form.
 
 A subtree with undischarged errors won't pass `mount` — that's the thesis. (The
-fallback's own `E`/`R` are permissive `any`/not folded — keep it pure markup, like
-`Async`'s arms.)
+fallback's `R` folds — `ArmR<H>` for the catch-all, `FoldArmsR<Handlers>` for
+the tag map — like `Async`'s arms (#120); its own `E` is permissive and its
+success must be `View<never>`.)
 
 Catches **both phases** through one fallback:
 
