@@ -96,51 +96,6 @@ export const trackDepsSettled = <A>(
 }
 
 /**
- * Owns the subscribe/resubscribe/teardown bookkeeping `asyncRef` needs: a
- * fresh set of dependency subscriptions on every run, each firing `onChange`.
- * The caller re-runs a thunk under `trackDeps` and must re-subscribe to
- * whatever refs that run read (an effect's new deps), so the prior
- * subscriptions are dropped first. (`h.track` used to share this; it is now
- * a demand-driven `Atom` — see `bridgeAtom` — whose registry owns the same
- * lifecycle by refcount.)
- *
- * The `unsubs` array is nulled after each teardown because `AtomRef`'s
- * unsubscribe is **not idempotent** — replaying a stale unsubscriber would
- * corrupt a later subscription's bookkeeping. Once `dispose`d the manager is
- * inert: `resubscribe` is a no-op (a retained `refetch`/derived can fire after
- * its scope tears down), and `closed` lets a caller surface that to its own
- * callers.
- */
-export const makeDepSubscription = (
-  onChange: () => void,
-): {
-  resubscribe: (deps: Iterable<AtomRef.ReadonlyRef<unknown>>) => void
-  dispose: () => void
-  readonly closed: boolean
-} => {
-  let unsubs: Array<() => void> = []
-  let closed = false
-  const unsubscribeAll = () => {
-    for (const u of unsubs) u()
-    unsubs = []
-  }
-  return {
-    resubscribe: (deps) => {
-      if (closed) return
-      unsubscribeAll()
-      for (const dep of deps) unsubs.push(dep.subscribe(onChange))
-    },
-    dispose: () => {
-      closed = true
-      unsubscribeAll()
-    },
-    get closed() {
-      return closed
-    },
-  }
-}
-
-/**
  * The AtomRef→Atom bridge. An `Atom`'s read context tracks only `Atom`
  * dependencies, so a tracked thunk's `AtomRef` deps enter the reactive graph
  * through this: an Atom that subscribes to the ref (pushing changes via

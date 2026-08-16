@@ -1,5 +1,6 @@
 import { Cause, Context, Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
+import { contextAtom } from "./atom-runtime.ts"
 import {
   coerceSync,
   type ErrorSink,
@@ -660,6 +661,10 @@ export const mount = <R>(
     // `never` so it threads without a generic — handler Effects are cast to
     // `R = never` at the run site; the services are present at runtime.
     const context = yield* Effect.context<never>()
+    // Publish the mount context into this registry: `rt.atom` / `rt.fn` (the
+    // engine under asyncRef/streamRef/actionRef) run under it — see
+    // atom-runtime.ts.
+    registry.set(contextAtom, context as Context.Context<any>)
     const rootSink = yield* RootSink
     const sink: ErrorSink = (cause) => {
       Effect.runForkWith(context)(rootSink(cause))

@@ -166,6 +166,7 @@ const peelTypeWrappers = (expr: t.Expression): t.Expression => {
  * from elsewhere) keeps its wrap, so its reactivity survives.
  */
 const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set([
+  "actionRef",
   "Async",
   "asyncRef",
   "Catch",

@@ -8,6 +8,8 @@ import type { Cause, Chunk, Option, Result, Scope } from "effect"
 import { Effect, Stream } from "effect"
 import { Atom, AtomRegistry, type AtomRef } from "effect/unstable/reactivity"
 import {
+  type ActionHandle,
+  actionRef,
   Async,
   type AsyncHandle,
   Catch,
@@ -677,6 +679,26 @@ assertEquals<
   typeof HandleTagMap,
   Effect.Effect<View<ParseError>, never, Scope.Scope>
 >()
+
+// ─── ActionHandle (#190): actionRef is the lazy sibling of asyncRef. Its
+//     `R` folds where it ran (Http here); the handle carries [args], A, E and
+//     is an AsyncHandle, so Async renders it with the same E homes.
+
+const SaveAction = Effect.gen(function* () {
+  const http = yield* Http
+  const save = yield* actionRef((id: string) => http.getUser(id))
+  assertEquals<typeof save, ActionHandle<[id: string], User, HttpError>>()
+  const _run: (id: string) => boolean = save.run
+  void _run
+  return yield* Async(save, { success: (u) => h("p", {}, u.name) })
+})
+assertEquals<
+  typeof SaveAction,
+  Effect.Effect<View<HttpError>, never, Http | Scope.Scope>
+>()
+// An open action still needs a boundary (and its Layer) before mount.
+// @ts-expect-error — HttpError rides the live channel; Http is required
+mount(SaveAction, root)
 
 // A handle-based open Async still needs a boundary before mount.
 // @ts-expect-error — HttpError | ParseError ride the live channel

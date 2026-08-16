@@ -1,13 +1,9 @@
 import {
-  Array as Arr,
   Cause,
-  Channel,
   Effect,
   Exit,
-  Fiber,
   Layer,
   Option,
-  Pull,
   Queue,
   Scope,
   Stream,
@@ -17,10 +13,21 @@ import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import {
   coerceAsync,
   type ErrorSink,
+  bridgeAtom,
   isAtomRef,
-  makeDepSubscription,
   trackDeps,
 } from "./coerce.ts"
+import { mirror, rt } from "./atom-runtime.ts"
+
+// The registry is mount-injected: `mount` (and the harness) own one and
+// exclude `AtomRegistry` from `R`. Resolving it here without adding it to the
+// primitives' `R` keeps their signatures to `R | Scope` (the user's channels).
+const mountRegistry: Effect.Effect<AtomRegistry.AtomRegistry> =
+  AtomRegistry.AtomRegistry as unknown as Effect.Effect<AtomRegistry.AtomRegistry>
+
+const notInterruptOnly = (
+  r: AsyncResult.AsyncResult<unknown, unknown>,
+): boolean => !(r._tag === "Failure" && Cause.hasInterruptsOnly(r.cause))
 import type { FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
 import { type BoundaryState, View } from "./View.ts"
 
@@ -126,7 +133,7 @@ type AsyncSource<A, E, R = never> =
  * The reactive effectful data primitive — the async leaf of the
  * errors-as-values model, and what `<Async>` is sugar over.
  *
- * `asyncRef(() => effect)` runs `effect` on the **mount fiber** (so its `R`
+ * `asyncRef(() => effect)` runs `effect` under the **mount context** (so its `R`
  * folds into the component — a forgotten `Layer` is a compile error at the root
  * `mount`) and returns an {@link AsyncHandle}: a reactive `AsyncResult<A, E>`
  * you handle with Effect's own `AsyncResult.match`, plus a manual `refetch`:
@@ -141,106 +148,133 @@ type AsyncSource<A, E, R = never> =
  * ```
  *
  * Reactivity is discovered, not declared: any ref the thunk reads (`.value` →
- * `h.read`) becomes a dependency and the effect re-runs (interrupting the stale
- * run) when it changes — the thunk is the re-run scope; `refetch` triggers the
- * same re-run manually. Built on `AtomRef` + `AsyncResult` + `forkScoped`; no
- * `Atom.runtime` (which would discharge `R`), no new View IR.
+ * `h.read`) becomes a dependency and the effect re-runs (the stale run is
+ * cancelled) when it changes — the thunk is the re-run scope; `refetch`
+ * triggers the same re-run manually. A typed seam over Effect's own
+ * `Atom.make(effect)`: the atom runs on the mount's registry under the mount
+ * context (see `atom-runtime.ts`), so `R` is folded by this signature instead
+ * of an `Atom.runtime` Layer; no new View IR.
  */
 export const asyncRef = <A, E, R>(
   effect: () => Effect.Effect<A, E, R>,
 ): Effect.Effect<AsyncHandle<A, E>, never, R | Scope.Scope> =>
   Effect.gen(function* () {
-    const state = AtomRef.make<AsyncResult.AsyncResult<A, E>>(
-      AsyncResult.initial(true),
-    )
+    const registry = yield* mountRegistry
     const scope = yield* Effect.scope
-
-    // A "run" request carries the effect to fork. The first is produced by
-    // running the thunk under dep-tracking; each tracked ref's change enqueues
-    // a fresh run (re-running the thunk to pick up new ref values + deps).
-    const runs = yield* Queue.unbounded<Effect.Effect<A, E, R>>()
-    // `sub` owns the dep-subscription bookkeeping (resubscribe-fresh per run,
-    // the non-idempotent-unsubscribe guard, the closed-after-teardown gate);
-    // its `onChange` fires `schedule`, defined below.
-    let schedule: () => boolean
-    const sub = makeDepSubscription(() => schedule())
-
-    schedule = (): boolean => {
-      // `schedule` escapes this scope as `refetch`/`retry` (handed to failure
-      // arms), so a retained reference can fire after teardown — a stashed
-      // retry in a setTimeout, a click racing a boundary swap. Once the scope
-      // closes this must be a no-op: re-subscribing would register
-      // subscriptions the (already-run) finalizer can never clean, and the
-      // queue's only consumer is dead. `false` is the caller's only signal.
-      if (sub.closed) return false
-      // Flip to waiting SYNCHRONOUSLY, before the run is even enqueued: a
-      // rebuild in the same tick — `refetch(); reset()` in either order —
-      // must observe waiting, not re-escalate the stale non-waiting Failure.
-      // (The supervisor's own set on take is a deduped duplicate, and
-      // corrective in the rare interleaving where the prior run completes in
-      // between. At construction the state is already Initial(waiting) — the
-      // set dedups to a no-op.)
+    // The atom's read re-runs the thunk under dep-tracking and declares each
+    // ref it read (via its bridge) as a graph dependency — the same shape as
+    // an `h.track` derived — so a tracked ref's change re-runs the effect
+    // (the registry cancels the stale run) and `refresh` re-runs it manually.
+    // `rt` runs it under the mount context: `R` is folded by THIS signature.
+    const atom = rt.atom((get) => {
+      const { result, deps } = trackDeps(effect)
+      for (const dep of deps) get(bridgeAtom(dep))
+      return result as Effect.Effect<A, E>
+    })
+    // An interrupt-only failure is a run's own teardown (a self/sub-fiber
+    // interrupt the effect completed with), not a result — hold the prior
+    // state (the guard every other sink in the runtime applies).
+    const { ref: state, closed } = yield* mirror(
+      registry,
+      atom,
+      scope,
+      notInterruptOnly,
+      () => AsyncResult.initial(true),
+    )
+    const refetch = (): boolean => {
+      // A retained `refetch` (a stashed retry, a click racing a boundary swap)
+      // must be a no-op after teardown; `false` is the caller's only signal.
+      if (closed()) return false
+      // Flip to waiting SYNCHRONOUSLY, before the re-run: a rebuild in the
+      // same tick — `refetch(); reset()` in either order — must observe
+      // waiting, not re-escalate the stale non-waiting Failure.
       state.set(AsyncResult.waitingFrom(Option.some(state.value)))
-      const { result: eff, deps } = trackDeps(effect)
-      sub.resubscribe(deps)
-      Queue.offerUnsafe(runs, eff)
+      registry.refresh(atom)
       return true
     }
-    schedule() // initial run + dep subscriptions
-    yield* Scope.addFinalizer(
-      scope,
-      Effect.sync(() => sub.dispose()),
-    )
-
-    // Supervisor loop on the mount fiber: one child at a time; a new run
-    // interrupts the prior. Scope close interrupts loop + live child.
-    yield* Effect.forkScoped(
-      Effect.gen(function* () {
-        let child: Fiber.Fiber<void, never> | null = null
-        let first = true
-        while (true) {
-          const eff = yield* Queue.take(runs)
-          if (child) yield* Fiber.interrupt(child)
-          // First run shows Initial(waiting); a refetch keeps the prior result with
-          // a waiting flag (stale-while-revalidate) instead of flashing to Initial.
-          state.set(
-            first
-              ? AsyncResult.initial(true)
-              : AsyncResult.waitingFrom(Option.some(state.value)),
-          )
-          first = false
-          child = yield* Effect.forkChild(
-            Effect.matchCause(eff, {
-              onFailure: (cause) => {
-                // A refetch interrupts the prior run; an interrupt-only cause is that
-                // teardown, not a real failure — don't surface it as a Failure (the
-                // guard every other sink in the runtime applies).
-                if (!Cause.hasInterruptsOnly(cause))
-                  state.set(AsyncResult.failure(cause))
-              },
-              onSuccess: (value) => {
-                state.set(AsyncResult.success(value))
-              },
-            }),
-          )
-        }
-      }),
-    )
-
     return {
       state: state as AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>,
-      refetch: schedule,
+      refetch,
+    }
+  })
+
+/**
+ * What `actionRef` returns: an {@link AsyncHandle} plus `run`. `run(...args)`
+ * starts one execution (a run still in flight is interrupted — latest wins,
+ * like a refetch; gate on `state.value.waiting` to drop instead) and flips
+ * the state to waiting SYNCHRONOUSLY. `refetch` re-runs the LAST arguments —
+ * so an `Async` failure arm's `retry` retries the last submission — and is a
+ * `false` no-op before the first `run`. Both return `false` once the creating
+ * scope has closed.
+ */
+export interface ActionHandle<
+  Args extends ReadonlyArray<unknown>,
+  A,
+  E,
+> extends AsyncHandle<A, E> {
+  readonly run: (...args: Args) => boolean
+}
+
+/**
+ * The lazy sibling of `asyncRef` — the mutation/command primitive, a typed
+ * seam over Effect's own `Atom.fn`.
+ *
+ * `asyncRef` is query-shaped: it runs at construction and re-runs when a
+ * tracked ref changes. `actionRef(fn)` runs NOTHING until `run(...args)` is
+ * called, tracks no deps, and starts `Initial` (idle, not waiting). Its result
+ * is the same `AsyncResult<A, E>` on the same {@link AsyncHandle} contract, so
+ * `Async` renders it unchanged: a failure the arms don't handle rides
+ * `View<E>` to the nearest `Catch` — a forgotten boundary is a compile error,
+ * exactly as for a fetch. `R` folds where `actionRef` ran.
+ *
+ * ```tsx
+ * const save = yield* actionRef((id: string) => http.saveUser(id))
+ * //    save: ActionHandle<[id: string], User, HttpError>
+ * <button onclick={() => save.run("42")} disabled={save.state.map((s) => s.waiting)}>save</button>
+ * {Async(save, { initial: () => null, success: (u) => <p>saved {u.name}</p> })}
+ * ```
+ *
+ * This replaces the hand-rolled `pending`/`error` ref pair per mutation; it
+ * is not a form library — validation, optimistic updates and confirmation
+ * stay ordinary Effect code inside `fn`.
+ */
+export const actionRef = <Args extends ReadonlyArray<unknown>, A, E, R>(
+  fn: (...args: Args) => Effect.Effect<A, E, R>,
+): Effect.Effect<ActionHandle<Args, A, E>, never, R | Scope.Scope> =>
+  Effect.gen(function* () {
+    const registry = yield* mountRegistry
+    const scope = yield* Effect.scope
+    const atom = rt.fn((args: Args) => fn(...args) as Effect.Effect<A, E>)
+    const { ref: state, closed } = yield* mirror(
+      registry,
+      atom,
+      scope,
+      notInterruptOnly,
+      () => AsyncResult.initial(false),
+    )
+    let last: Args | undefined
+    const run = (...args: Args): boolean => {
+      if (closed()) return false
+      last = args
+      state.set(AsyncResult.waitingFrom(Option.some(state.value)))
+      registry.set(atom, args)
+      return true
+    }
+    return {
+      state: state as AtomRef.ReadonlyRef<AsyncResult.AsyncResult<A, E>>,
+      run,
+      refetch: () => (last === undefined ? false : run(...last)),
     }
   })
 
 /**
  * The reactive *push* data primitive — `asyncRef`'s sibling for `Stream`.
  *
- * `streamRef(stream, initial?)` runs the stream on the **mount fiber** (so its
- * `R` folds into the component — a forgotten `Layer` is a compile error at the
- * root `mount`) and returns a `ReadonlyRef<A>` tracking the latest element.
- * The fiber is `forkScoped`-d: the stream is interrupted when the enclosing
- * scope closes — the Scope IS the unsubscribe. Derive with the ref's own
+ * `streamRef(stream, initial?)` runs the stream under the **mount context**
+ * (so its `R` folds into the component — a forgotten `Layer` is a compile
+ * error at the root `mount`) and returns a `ReadonlyRef<A>` tracking the
+ * latest element. The stream is interrupted when the enclosing scope closes
+ * — the Scope IS the unsubscribe. Derive with the ref's own
  * `.map` (equality-deduped) and interpolate like any ref:
  *
  * ```tsx
@@ -252,13 +286,12 @@ export const asyncRef = <A, E, R>(
  *
  * `initial` picks the construction behavior, mirroring the blocking-vs-
  * placeholder split of the pull side (in-component fetch vs `Async`):
- * - **omitted** — construction *waits for the first element* by the same
- *   mechanism as `yield* http.getUser`: the first pull runs ON the
- *   constructing fiber (no forked producer, no hand-off), so the wait owns
- *   its work and teardown behaves exactly like a blocking fetch. A stream
- *   that never emits blocks construction (like a fetch that never resolves)
- *   — give sparse streams an `initial`; a stream that ENDS before its first
- *   element is a defect (fails loud, never hangs).
+ * - **omitted** — construction *waits for the first element*, like
+ *   `yield* http.getUser` waits for its result; the enclosing scope closing
+ *   mid-wait unsubscribes (which stops the stream). A stream that never
+ *   emits blocks construction (like a fetch that never resolves) — give
+ *   sparse streams an `initial`; a stream that ENDS before its first element
+ *   is a defect (fails loud, never hangs).
  * - **provided** — construction returns immediately; the ref holds `initial`
  *   until the first emission.
  *
@@ -267,12 +300,11 @@ export const asyncRef = <A, E, R>(
  * handle failures as values at the stream level (`Stream.catch*`,
  * `Stream.retry`, encode them in `A`) before handing it over. This mirrors
  * Effect's own boundary: `Atom.make(stream)` wraps state in `AsyncResult`
- * for the same reason; `streamRef` keeps the sync-read `A` contract instead
- * and pushes the failure story onto the stream where the combinators live.
- * Why not `Atom.make(stream)`: its source must already be context-free
- * (`R = AtomRegistry`), so a service-needing stream forces `Atom.runtime` —
- * which bakes the Layer and discharges `R`, losing the thesis. Running on
- * the mount fiber is what keeps `R` folded (same design as `asyncRef`).
+ * for the same reason; `streamRef` IS `Atom.make(stream)` under the mount
+ * context (see `atom-runtime.ts`) and keeps the sync-read `A` contract by
+ * unwrapping `Success` — the failure story stays on the stream where the
+ * combinators live. `R` is folded by this signature, not an `Atom.runtime`
+ * Layer (same design as `asyncRef`).
  */
 export const streamRef: {
   <A, R>(
@@ -289,42 +321,51 @@ export const streamRef: {
   ...initial: [A] | []
 ): Effect.Effect<AtomRef.ReadonlyRef<A>, never, R | Scope.Scope> =>
   Effect.gen(function* () {
-    // One pull shared by the (optional) blocking first read and the forked
-    // consumer — the stream is subscribed exactly once, bound to the
-    // enclosing scope.
+    const registry = yield* mountRegistry
     const scope = yield* Effect.scope
-    const pull = yield* Channel.toPullScoped(stream.channel, scope)
-    const ref =
+    // `rt.atom(stream)`: the registry runs the stream (under the mount
+    // context) and holds the latest element as an `AsyncResult`; the mirror
+    // unwraps `Success` into the sync-read `A` contract. `E` is `never`, so
+    // the only Failure left is the end-before-first-element one below.
+    const source = stream as Stream.Stream<A, never, AtomRegistry.AtomRegistry>
+    const atom =
       initial.length > 0
-        ? AtomRef.make(initial[0])
-        : // No initial: block construction on the first chunk, ON THIS fiber —
-          // the same mechanism as a blocking in-component fetch. No forked
-          // producer means no hand-off a closing scope could orphan. A stream
-          // that ends before its first element dies loud instead of hanging.
-          AtomRef.make(
-            Arr.lastNonEmpty(
-              yield* Pull.catchDone(pull, () =>
-                Effect.die(
-                  new Error(
-                    "streamRef: the stream ended before its first element — provide an `initial` value",
-                  ),
-                ),
-              ),
-            ),
-          )
-    yield* Effect.forkScoped(
-      Effect.whileLoop({
-        while: () => true,
-        body: () => pull,
-        step: (chunk) => {
-          for (const a of chunk) ref.set(a)
-        },
-      }).pipe(
-        // E is `never`, so the only typed failure left is the pull's
-        // end-of-stream halt — the consumer just stops.
-        Effect.catch(() => Effect.void),
-      ),
+        ? rt.atom(source, { initialValue: initial[0] as A })
+        : rt.atom(source)
+    // Mirror Success values into a sync-read ref; subscribing mounts the atom
+    // (the stream starts now) and the scope's finalizer is the unsubscribe.
+    const ended = () =>
+      new Error(
+        "streamRef: the stream ended before its first element — provide an `initial` value",
+      )
+    const seed = registry.get(atom)
+    const ref = AtomRef.make<A>(
+      (seed._tag === "Success" ? seed.value : undefined) as A,
     )
+    let resolveFirst: ((exit: Exit.Exit<void>) => void) | undefined
+    const unsub = registry.subscribe(atom, (r) => {
+      if (r._tag === "Success") {
+        ref.set(r.value)
+        resolveFirst?.(Exit.void)
+      } else if (r._tag === "Failure") {
+        // E is `never`: the only failure is end-before-first-element.
+        resolveFirst?.(Exit.die(ended()))
+      }
+      resolveFirst = undefined
+    })
+    yield* Scope.addFinalizer(scope, Effect.sync(unsub))
+    if (initial.length === 0 && seed._tag !== "Success") {
+      if (seed._tag === "Failure") return yield* Effect.die(ended())
+      // No initial: block construction on the first element — the same
+      // shape as a blocking in-component fetch. A stream that ends before
+      // its first element dies loud instead of hanging.
+      yield* Effect.callback<void>((resume) => {
+        resolveFirst = (exit) => resume(exit)
+        return Effect.sync(() => {
+          resolveFirst = undefined
+        })
+      })
+    }
     return ref as AtomRef.ReadonlyRef<A>
   })
 

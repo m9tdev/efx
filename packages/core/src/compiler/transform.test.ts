@@ -537,6 +537,14 @@ describe("asyncRef / streamRef calls are not h.track-wrapped", () => {
     expect(out).toContain(`h.read(id)`)
     expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*asyncRef\(/)
   })
+
+  it("leaves a `.value`-reading actionRef(...) bare, keeping h.read", () => {
+    const out = compile(`
+      const x = <div>{actionRef((n) => client.save(id.value, n))}</div>
+    `)
+    expect(out).toContain(`h.read(id)`)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*actionRef\(/)
+  })
 })
 
 describe("whole-body `.value` reads (tracking outside JSX)", () => {
