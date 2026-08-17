@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { hintText, SUPPRESS_RE } from "./hint-text.ts"
+import { hintText, READER_TYPE_HINT_RE, SUPPRESS_RE } from "./hint-text.ts"
 
 describe("hintText", () => {
   it("reads a plain string label", () => {
@@ -50,6 +50,11 @@ describe("SUPPRESS_RE", () => {
     }
   })
 
+  it("matches h.reader's compiler-filled _read slot", () => {
+    for (const s of ["_read", "_read:"]) expect(SUPPRESS_RE.test(s)).toBe(true)
+    expect(SUPPRESS_RE.test("read:")).toBe(false)
+  })
+
   it("matches Component.make's compiler-filled _name slot (underscore only)", () => {
     for (const s of ["_name", "_name:", "_Name:"]) {
       expect(SUPPRESS_RE.test(s)).toBe(true)
@@ -61,6 +66,16 @@ describe("SUPPRESS_RE", () => {
   it("does not match unrelated labels", () => {
     for (const s of ["count:", "name:", "tagName:", "children2:", "_named:"]) {
       expect(SUPPRESS_RE.test(s)).toBe(false)
+    }
+  })
+})
+
+describe("READER_TYPE_HINT_RE", () => {
+  it("matches the injected reader param's type hint and nothing else", () => {
+    expect(READER_TYPE_HINT_RE.test(": Get")).toBe(true)
+    expect(READER_TYPE_HINT_RE.test(":Get")).toBe(true)
+    for (const s of [": Getter", ": Get<number>", "get:", ": string"]) {
+      expect(READER_TYPE_HINT_RE.test(s)).toBe(false)
     }
   })
 })

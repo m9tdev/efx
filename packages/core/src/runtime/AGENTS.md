@@ -99,11 +99,11 @@ service. See [`types/Fold.ts`](./types/Fold.ts).
 ### Compiler-slot parameter naming — coupled to the TS plugin
 
 The `HFn` type's parameters are `_tag`, `_props`, `_children` (in
-`h.ts`) and `Component.make`'s name slot is `_name` (in `Component.ts`)
+`h.ts`), `h.reader`'s function slot is `_read`, and `Component.make`'s name slot is `_name` (in `Component.ts`)
 — underscore prefix marks a compiler-filled slot. This is **coupled to
 [`@verrex/ts-plugin`](../../../ts-plugin/AGENTS.md)** — the plugin's
 inlay-hint filter drops any hint matching
-`/^(?:_?(?:tag|props|children)|_name):?$/i`, so these labels never
+`/^(?:_?(?:tag|props|children)|_name|_read):?$/i` (plus `READER_TYPE_HINT_RE` for the injected reader param's `: Get` type hint, which has no source loc), so these labels never
 appear in the editor margin (without the filter, the injected name
 argument's `_name:` hint would render after the call's `})`). `_name`
 is matched underscore-only — bare `name:` is a common user parameter

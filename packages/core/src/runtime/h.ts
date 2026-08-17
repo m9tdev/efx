@@ -27,7 +27,7 @@ import { type Props, View } from "./View.ts"
 /** What a reader's `get` accepts: an atom or a local ref. */
 export type Get = <A>(source: Atom.Atom<A> | AtomRef.ReadonlyRef<A>) => A
 
-const readerImpl = <A>(read: (get: Get) => A): Atom.Atom<A> =>
+const readerImpl = <A>(_read: (get: Get) => A): Atom.Atom<A> =>
   Atom.readable((ctx) => {
     const get: Get = (source) =>
       isAtomRef(source)
@@ -46,7 +46,7 @@ const readerImpl = <A>(read: (get: Get) => A): Atom.Atom<A> =>
     // guard is ours to keep; user-written `Atom.readable`s get Effect's
     // behaviour (upstream issue).
     try {
-      return read(get)
+      return _read(get)
     } catch (error) {
       const previous = ctx.self<A>()
       if (Option.isNone(previous)) throw error

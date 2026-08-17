@@ -22,8 +22,10 @@ import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity"
 
 /** The atom's own services — never captured from the caller. */
 type Own = Scope.Scope | AtomRegistry.AtomRegistry
-/** What the wrapper needs from the caller: a registry to mount in, a Scope to release on. */
-type Held = AtomRegistry.AtomRegistry | Scope.Scope
+// What the wrapper needs from the caller — a registry to mount in, a Scope to
+// release on — is written INLINE in the public overloads (not as a `Held`
+// alias): TypeScript keeps alias names in hovers, and `Http | Held` tells a
+// user nothing where `Http | AtomRegistry | Scope` does.
 
 // `own` MUST be annotated: unannotated it infers `unknown` and poisons `R`.
 const under =
@@ -50,7 +52,8 @@ const provideStream =
 
 const mounted = <T extends Atom.Atom<any>>(
   a: T,
-): Effect.Effect<T, never, Held> => Effect.as(Atom.mount(a), a)
+): Effect.Effect<T, never, AtomRegistry.AtomRegistry | Scope.Scope> =>
+  Effect.as(Atom.mount(a), a)
 
 export interface AtomOptions<A> {
   readonly initialValue?: A | undefined
@@ -72,7 +75,7 @@ export const atom: {
   ): Effect.Effect<
     Atom.Atom<AsyncResult.AsyncResult<A, E>>,
     never,
-    Exclude<R, Own> | Held
+    Exclude<R, Own> | AtomRegistry.AtomRegistry | Scope.Scope
   >
   <A, E, R>(
     create: (get: Atom.AtomContext) => Effect.Effect<A, E, R>,
@@ -80,7 +83,7 @@ export const atom: {
   ): Effect.Effect<
     Atom.Atom<AsyncResult.AsyncResult<A, E>>,
     never,
-    Exclude<R, Own> | Held
+    Exclude<R, Own> | AtomRegistry.AtomRegistry | Scope.Scope
   >
   <A, E, R>(
     stream: Stream.Stream<A, E, R>,
@@ -88,7 +91,7 @@ export const atom: {
   ): Effect.Effect<
     Atom.Atom<AsyncResult.AsyncResult<A, E | Cause.NoSuchElementError>>,
     never,
-    Exclude<R, Own> | Held
+    Exclude<R, Own> | AtomRegistry.AtomRegistry | Scope.Scope
   >
   <A, E, R>(
     create: (get: Atom.AtomContext) => Stream.Stream<A, E, R>,
@@ -96,7 +99,7 @@ export const atom: {
   ): Effect.Effect<
     Atom.Atom<AsyncResult.AsyncResult<A, E | Cause.NoSuchElementError>>,
     never,
-    Exclude<R, Own> | Held
+    Exclude<R, Own> | AtomRegistry.AtomRegistry | Scope.Scope
   >
 } = (
   arg:
@@ -169,27 +172,35 @@ export const fn: {
     <A, E, R>(
       f: (arg: Arg, get: Atom.FnContext) => Effect.Effect<A, E, R>,
       options?: FnOptions<A>,
-    ): Effect.Effect<Fn<Arg, A, E>, never, Exclude<R, Own> | Held>
+    ): Effect.Effect<
+      Fn<Arg, A, E>,
+      never,
+      Exclude<R, Own> | AtomRegistry.AtomRegistry | Scope.Scope
+    >
     <A, E, R>(
       f: (arg: Arg, get: Atom.FnContext) => Stream.Stream<A, E, R>,
       options?: FnOptions<A>,
     ): Effect.Effect<
       Fn<Arg, A, E | Cause.NoSuchElementError>,
       never,
-      Exclude<R, Own> | Held
+      Exclude<R, Own> | AtomRegistry.AtomRegistry | Scope.Scope
     >
   }
   <A, E, R, Arg = void>(
     f: (arg: Arg, get: Atom.FnContext) => Effect.Effect<A, E, R>,
     options?: FnOptions<A>,
-  ): Effect.Effect<Fn<Arg, A, E>, never, Exclude<R, Own> | Held>
+  ): Effect.Effect<
+    Fn<Arg, A, E>,
+    never,
+    Exclude<R, Own> | AtomRegistry.AtomRegistry | Scope.Scope
+  >
   <A, E, R, Arg = void>(
     f: (arg: Arg, get: Atom.FnContext) => Stream.Stream<A, E, R>,
     options?: FnOptions<A>,
   ): Effect.Effect<
     Fn<Arg, A, E | Cause.NoSuchElementError>,
     never,
-    Exclude<R, Own> | Held
+    Exclude<R, Own> | AtomRegistry.AtomRegistry | Scope.Scope
   >
 } = function (...args: ReadonlyArray<any>) {
   if (args.length === 0) return makeFn
@@ -202,7 +213,11 @@ const makeFn = (
     get: Atom.FnContext,
   ) => Effect.Effect<any, any, any> | Stream.Stream<any, any, any>,
   options?: FnOptions<any>,
-): Effect.Effect<Fn<any, any, any>, never, Held> =>
+): Effect.Effect<
+  Fn<any, any, any>,
+  never,
+  AtomRegistry.AtomRegistry | Scope.Scope
+> =>
   Effect.flatMap(Effect.context<never>(), (ctx) => {
     const inner = Atom.fn(
       ((arg: any, get: Atom.FnContext) => {
