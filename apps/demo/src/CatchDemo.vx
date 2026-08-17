@@ -89,18 +89,16 @@ export const CatchDemo = Component.make(function* () {
 
       {/* tag-map (object): route by tag; handler gets the unwrapped error */}
       <Catch
-        Failure={{
-          HttpError: (e, reset) => (
-            <div class="boundary-fallback">
-              <p class="caught">
-                caught HttpError {e.status}: {e.message}
-              </p>
-              <button class="retry" onclick={reset}>
-                retry
-              </button>
-            </div>
-          ),
-        }}
+        HttpError={(e, reset) => (
+          <div class="boundary-fallback">
+            <p class="caught">
+              caught HttpError {e.status}: {e.message}
+            </p>
+            <button class="retry" onclick={reset}>
+              retry
+            </button>
+          </div>
+        )}
       >
         <BadRequest />
       </Catch>

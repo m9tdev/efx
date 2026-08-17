@@ -57,9 +57,11 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   covers the first fetch too. EXCEPT a
   failure-carrying variant (`{ _tag: "Failure"; cause }` or `{ …; failure }`
   — the only two special-cased shapes): unhandled, it escalates as
-  `View<E>`; `Failure` takes a function (all handled → `never`) or a TAG MAP
-  over the error's tags (leaf-handled, residual `Exclude<E, {_tag}>` rides
-  to the nearest `Catch`). Interrupt-only causes are dropped. Handler
+  `View<E>`; the ERROR'S tags are arms too (`HttpError={(e, f) => …}` —
+  leaf-handled, residual `Exclude<E, {_tag}>` rides to the nearest `Catch`;
+  `HandledKeys` counts only keys that carry a handler), and `Failure` takes
+  the whole variant (all handled → `never`). Dispatch: error-tag arm first,
+  then `Failure`, else escalate. Interrupt-only causes are dropped. Handler
   returns fold (E live, R). Runtime: one `Atom.readable` (reads `on`,
   bridging a ref) whose emission is the handler result or an
   `Effect.failCause` — the fold's phase switch types it. This is the old
@@ -67,7 +69,7 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   of its own; the explicit alternatives (`AsyncResult.builder`,
   `Match.valueTags`) stay first-class for custom states. Pinned by
   `testing/on.test.ts`.
-- `Catch` — view-level error boundary (one overloaded helper: function 2nd-arg = catch-all, object 2nd-arg = tag-selective; mirrors `Effect.catch*`; see "`Catch`" below)
+- `Catch` — view-level error boundary, a JSX tag with the same arm props as `On` (`Tag={…}` = tag-selective, `Failure={…}` = catch-all; mirrors `Effect.catch*`; see "`Catch`" below)
 - `Fragment` — `<>...</>` compile target (a direct-call component since
   #71: `Fragment({ children: [...] })`, generic over the children tuple —
   also the canonical pattern for effectful-children components)
@@ -366,29 +368,36 @@ bypassing the typed channel). Pinned by `testing/atom-escalate.test.ts`.
 subtree, let success pass through (the children render themselves). Contrast
 `On`, which matches a tagged value and renders _every_ state — a boundary only
 supplies the failure fallback. **A JSX tag, same shape as `On`**: the subtree
-is the children, the handling is the `Failure` prop (a function or a tag map —
-exactly `On`'s `Failure` arm), and the compiler lowers it to the direct call
-`Catch({ Failure, children: [...] })`. Multiple children are wrapped in a
-`Fragment`. Two forms picked by `Failure`:
+is the children, the handling is the arm props — one prop per error `_tag`, plus
+`Failure` as the catch-all — and the compiler lowers it to the direct call
+`Catch({ children: [...], HttpError: … })`. Multiple children are wrapped in a
+`Fragment`. Two kinds of arm:
 
-- **catch-all** — `<Catch Failure={(cause, reset) => fallback}>…</Catch>`. The
-  handler gets the _precise_ `Cause<EC | EV>` (both the construction `EC` and
-  live `EV` of the children — not `Cause<unknown>`) and discharges everything to
-  `Effect<View<never>, never, R | Scope>`.
-- **tag-selective** — `<Catch Failure={{ Tag: (error, reset) => …, … }}>…</Catch>`.
-  Handles a subset of the children's error tags (each handler gets the unwrapped
-  tagged error) and **narrows** both channels by `Exclude<E, { _tag }>`. Keys
-  are constrained to the children's actual error tags — a typo'd key is a
-  compile error _when it is the only key_; mixed with ≥1 valid key it is
-  silently accepted (the exactness guard is omitted to preserve per-handler
-  `error` inference). That is a safe over-approximation, not a soundness hole: a
-  bad key just yields a dead handler, and the residual keeps its tag in `E`, so
-  no error is ever wrongly discharged — an ergonomic gap, not a soundness one. A
-  leftover tag must still be discharged before `mount`.
+- **tag arms** — `<Catch Tag={(error, reset) => …}>…</Catch>`. Handle a subset of
+  the children's error tags (each handler gets the unwrapped tagged error) and
+  **narrow** both channels by `Exclude<E, { _tag }>` (`CatchResidual`, over the
+  keys that actually carry a handler). Keys are constrained to the children's
+  actual error tags — a typo'd key is a compile error _when it is the only key_;
+  mixed with ≥1 valid key it is silently accepted (the exactness guard is
+  omitted to preserve per-handler `error` inference). That is a safe
+  over-approximation, not a soundness hole: a bad key just yields a dead handler,
+  and the residual keeps its tag in `E`, so no error is ever wrongly discharged —
+  an ergonomic gap, not a soundness one. A leftover tag must still be discharged
+  before `mount`.
+- **catch-all** — `<Catch Failure={(cause, reset) => fallback}>…</Catch>`. Gets
+  the _precise_ `Cause<EC | EV>` (both the construction `EC` and live `EV` of the
+  children — not `Cause<unknown>`) of whatever no tag arm took, and discharges
+  everything to `Effect<View<never>, never, R | Scope>`. `CatchArms` is ONE mapped
+  type over `Tags<E> | "Failure"` (not an intersection), and a catch-all-only
+  overload comes first, so a GENERIC child `E` (the demo's `setupDemo`) still
+  resolves.
+
+Dispatch order: tag arm first, then `Failure`, else escalate. `assertHandlerMap`
+runs on the props object itself (a rest-spread would hide its prototype).
 
 Both run over the internal `makeBoundary(child, accepts, handler)` (builds the
-`Boundary` node, drives `state`); they differ only in `accepts` (catch-all = always;
-tag-map = `_tag ∈ keys`) and how the handler is invoked. A cause a tag-map doesn't
+`Boundary` node, drives `state`); they differ only in `accepts` (`Failure` present = always;
+else `_tag ∈ keys`) and how the handler is invoked. A cause a tag-map doesn't
 `accept` is **escalated**: at construction it re-raises on the Effect channel (its
 residual rides `EC`, so a parent boundary / `mount` still sees it); when live it
 goes to the ambient sink (the parent boundary — `mount` hands it over via the

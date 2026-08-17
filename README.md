@@ -37,13 +37,13 @@ the running component (with a reset button) on the right.
   — the compiler lowers it to `h.reader(() => …)` (an `Atom.readable`), one
   word shared with atom bodies. No `get` → the expression stays static.
 - **Errors escalate as values.** `<On value={user} Waiting={…}
-Success={(s) => …} Failure={{ NotFound: (e) => … }} />` renders a tagged
+Success={(s) => …} NotFound={(e) => … } />` renders a tagged
   value by tag and BUBBLES any unhandled failure — the residual `E` rides
   `View<E>` to the nearest `Catch`. Works for `Option`, `Result`,
   `AsyncResult`, `Exit`, your own tagged unions.
 - **Effect-native error boundary.** `<Catch Failure={(cause, reset) => fallback}>`
-  (or `Failure={{ HttpError: … }}` for tag-selective — the same prop shape as
-  `On`) recovers the failure side of
+  (or `<Catch HttpError={(e, reset) => …}>` for tag-selective — the same arm
+  props as `On`) recovers the failure side of
   a view subtree, mirroring Effect's `catch*`. `mount` requires every error
   discharged, so a forgotten boundary is a compile error that names the unhandled
   error — the runtime counterpart of a forgotten `Layer`.

@@ -305,7 +305,7 @@ const App = (
         step: "07",
         title: "Error boundary (catch the failure side)",
         concept:
-          "Catch mirrors Effect's catch*: recover the failure side of a view subtree, let success pass through. It catches BOTH a failed construction Effect and a post-mount failure inside the live subtree — here the crash button's Effect, which has no E channel to land on and is routed to the boundary instead of dropped. reset re-runs the child's construction. Scope is the boundary's own contribution (it forks its reset/report loop into the enclosing scope). Failure is the fallback — the same prop shape as On: a function is the catch-all (it gets the full Cause); an object of {Tag: handler} narrows the channel by the handled tags. mount requires every error discharged — a forgotten boundary is a compile error that names it.",
+          "Catch mirrors Effect's catch*: recover the failure side of a view subtree, let success pass through. It catches BOTH a failed construction Effect and a post-mount failure inside the live subtree — here the crash button's Effect, which has no E channel to land on and is routed to the boundary instead of dropped. reset re-runs the child's construction. Scope is the boundary's own contribution (it forks its reset/report loop into the enclosing scope). The arms are props, the same shape as On: one prop per error tag (HttpError={…}) narrows the channel by the handled tags; Failure is the catch-all (it gets the full Cause). mount requires every error discharged — a forgotten boundary is a compile error that names it.",
         type: "Effect<View, never, Scope>",
         code: `export const CatchDemo = Component.make(function* () {
   return yield* (
@@ -321,10 +321,8 @@ const App = (
       </Catch>
 
       {/* tag-map: route by tag; handler gets the unwrapped error */}
-      <Catch Failure={{
-        HttpError: (e, reset) =>
-          <p>HttpError {e.status} <button onclick={reset}>retry</button></p>,
-      }}>
+      <Catch HttpError={(e, reset) =>
+        <p>HttpError {e.status} <button onclick={reset}>retry</button></p>}>
         <BadRequest />
       </Catch>
     </section>
@@ -340,7 +338,7 @@ const App = (
         step: "08",
         title: "Failure homes: leaf, page, or split by tag",
         concept:
-          "Each block's data is an atom — Atom<AsyncResult<User, HttpError | RateLimited>>, created in the component body and rendered by tag with <On value={…}> — so the data outlives the views: an escalated block keeps tracking userId (get(userId) in its create fn), and Atom.refresh works from anywhere (the spam button is literally Atom.refresh(tagUser) ×3). On picks where each error lives: HttpError is handled at the leaf via the Failure tag map (the banner's retry IS Atom.refresh; the Waiting arm shows in flight), while any OTHER failure BUBBLES BY DEFAULT — the residual is typed like catchTag narrows, View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfterMs typed). Deleting that Catch names RateLimited, and only RateLimited. The open form below handles nothing at the leaf: EVERY failure rides View<HttpError | RateLimited> to a catch-all. A boundary reset re-renders the atom's CURRENT state without refetching, so the banners compose Atom.refresh + reset. The rate limit is real (2 req/s across both atoms) and the request log narrates every request: budget verdict, outcome, and stale runs interrupted by newer refetches. Hit spam ×3 and watch the third request 429 in the log AND ride to the page banner — your id selection survives.",
+          "Each block's data is an atom — Atom<AsyncResult<User, HttpError | RateLimited>>, created in the component body and rendered by tag with <On value={…}> — so the data outlives the views: an escalated block keeps tracking userId (get(userId) in its create fn), and Atom.refresh works from anywhere (the spam button is literally Atom.refresh(tagUser) ×3). On picks where each error lives: HttpError is handled at the leaf via an HttpError arm (the banner's retry IS Atom.refresh; the Waiting arm shows in flight), while any OTHER failure BUBBLES BY DEFAULT — the residual is typed like catchTag narrows, View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfterMs typed). Deleting that Catch names RateLimited, and only RateLimited. The open form below handles nothing at the leaf: EVERY failure rides View<HttpError | RateLimited> to a catch-all. A boundary reset re-renders the atom's CURRENT state without refetching, so the banners compose Atom.refresh + reset. The rate limit is real (2 req/s across both atoms) and the request log narrates every request: budget verdict, outcome, and stale runs interrupted by newer refetches. Hit spam ×3 and watch the third request 429 in the log AND ride to the page banner — your id selection survives.",
         type: "Effect<View, never, Http | AtomRegistry | Scope>",
         code: `// fetchUser: (id) => Effect<User, HttpError | RateLimited, AtomRegistry>
 // — a REAL sliding-window limiter: >2 req/s fails with RateLimited
@@ -349,22 +347,22 @@ const App = (
 const tagUser = yield* atom((get) => fetchUser(get(userId)))
 <button onclick={spam}>spam ×3</button>   // Atom.refresh(tagUser) ×3
 
-<Catch Failure={{
+<Catch
   // the residual: View<RateLimited> — unwrapped + typed here.
   // reset re-renders CURRENT state; compose refresh + reset:
-  RateLimited: (e, reset) =>
+  RateLimited={(e, reset) =>
     <p>retry in {e.retryAfterMs}ms{" "}
       <button onclick={() => Effect.andThen(Atom.refresh(tagUser), Effect.sync(reset))}>
-        retry</button></p>,
-}}>
+        retry</button></p>}
+>
   <section>
     <On value={tagUser}
       Waiting={() => <span>loading…</span>}
       Success={(s) => <strong>{s.value.name}</strong>}
       // handled at the leaf — retry IS Atom.refresh(tagUser);
       // any OTHER failure (RateLimited) bubbles: View<RateLimited>
-      Failure={{ HttpError: () =>
-        <p>404 <button onclick={() => Atom.refresh(tagUser)}>retry</button></p> }}
+      HttpError={() =>
+        <p>404 <button onclick={() => Atom.refresh(tagUser)}>retry</button></p>}
     />
   </section>
 </Catch>`,
@@ -401,10 +399,8 @@ const tagUser = yield* atom((get) => fetchUser(get(userId)))
 // Loader: Effect<View<HttpError>, never, Http | AtomRegistry> — the
 // failing click must meet a Catch before mount, which names it otherwise:
 
-<Catch Failure={{
-  HttpError: (e, reset) =>
-    <p>HttpError {e.status} <button onclick={reset}>reset</button></p>,
-}}>
+<Catch HttpError={(e, reset) =>
+  <p>HttpError {e.status} <button onclick={reset}>reset</button></p>}>
   <Loader />
 </Catch>`,
         file: "TypedHandlers.vx",

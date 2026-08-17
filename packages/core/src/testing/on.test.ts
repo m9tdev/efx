@@ -84,9 +84,8 @@ describe("On — failures bubble by default", () => {
           value: user,
           Initial: () => h("p", { class: "loading" }, "loading"),
           Success: (s) => h("b", {}, s.value),
-          Failure: {
-            NotFound: (e) => h("p", { class: "leaf" }, `no ${e.id}`),
-          },
+
+          NotFound: (e) => h("p", { class: "leaf" }, `no ${e.id}`),
         }),
       )
       // Type pin: only RateLimited is left to bubble.
@@ -95,9 +94,8 @@ describe("On — failures bubble by default", () => {
       >()
       return yield* Catch({
         children: [body],
-        Failure: {
-          RateLimited: (e) => h("p", { class: "fallback" }, `retry in ${e.ms}`),
-        },
+
+        RateLimited: (e) => h("p", { class: "fallback" }, `retry in ${e.ms}`),
       })
     })
     const ui = await render(App())
@@ -126,9 +124,8 @@ describe("On — failures bubble by default", () => {
       >()
       return yield* Catch({
         children: [body],
-        Failure: {
-          NotFound: (e) => h("p", { class: "fb" }, `nf ${e.id}`),
-        },
+
+        NotFound: (e) => h("p", { class: "fb" }, `nf ${e.id}`),
       })
     })
     const ui = await render(App())
@@ -178,6 +175,7 @@ describe("On — failures bubble by default", () => {
             }),
           ),
         ],
+
         Failure: () => h("p", { class: "fb2" }, "escalated"),
       })
     })
@@ -206,6 +204,7 @@ describe("On — waiting failure", () => {
             On({ value: r, Success: (s) => String(s.value) }),
           ),
         ],
+
         Failure: () => h("p", { class: "fb" }, "escalated"),
       })
     })
@@ -283,7 +282,7 @@ describe("On — types", () => {
     expectTypeOf(all).toEqualTypeOf<Effect.Effect<View<Err>, never, never>>()
     const part = On({
       value: user,
-      Failure: { NotFound: () => null },
+      NotFound: () => null,
     })
     expectTypeOf(part).toEqualTypeOf<
       Effect.Effect<View<RateLimited>, never, never>

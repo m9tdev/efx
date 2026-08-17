@@ -56,19 +56,16 @@ const Saver = Component.make(function* () {
 export const SaveButton = Component.make(function* () {
   return yield* (
     <Catch
-      Failure={{
-        HttpError: (e, reset) => (
-          <div class="boundary-fallback">
-            <p class="caught">
-              save failed after the re-render: HttpError {e.status} —{" "}
-              {e.message}
-            </p>
-            <button class="reset" onclick={reset}>
-              reset
-            </button>
-          </div>
-        ),
-      }}
+      HttpError={(e, reset) => (
+        <div class="boundary-fallback">
+          <p class="caught">
+            save failed after the re-render: HttpError {e.status} — {e.message}
+          </p>
+          <button class="reset" onclick={reset}>
+            reset
+          </button>
+        </div>
+      )}
     >
       <Saver />
     </Catch>

@@ -261,7 +261,7 @@ mount(
 mount(
   Catch({
     children: [SaveButton],
-    Failure: { HttpError: (e) => h("p", {}, `${e.status}`) },
+    HttpError: (e) => h("p", {}, `${e.status}`),
   }),
   root,
 )
@@ -416,7 +416,7 @@ const TagArmFoldsR = h(
   On({
     value: userResult,
     Success: (s) => h("p", {}, s.value.name),
-    Failure: { HttpError: () => themedView },
+    HttpError: () => themedView,
   }),
 )
 assertEquals<typeof TagArmFoldsR, Effect.Effect<View, never, Theme>>()
@@ -474,7 +474,7 @@ assertEquals<
 >()
 const TagFallbackFoldsR = Catch({
   children: [failingView],
-  Failure: { HttpError: () => themedView },
+  HttpError: () => themedView,
 })
 assertEquals<
   typeof TagFallbackFoldsR,
@@ -502,9 +502,8 @@ mount(
         children: [
           h("button", { onclick: () => failingSave, onblur: reset }, "retry"),
         ],
-        Failure: {
-          HttpError: (e) => h("p", {}, `retry failed: ${e.status}`),
-        },
+
+        HttpError: (e) => h("p", {}, `retry failed: ${e.status}`),
       }),
   }),
   root,
@@ -643,13 +642,12 @@ declare const TwoErrors: Effect.Effect<View, HttpError | ParseError, Http>
 // `Exclude<E, { _tag }>`.
 const CaughtHttp = Catch({
   children: [TwoErrors],
-  Failure: {
-    HttpError: (e, reset) => {
-      const _status: number = e.status
-      void _status
-      void reset
-      return h("p", {}, "http error")
-    },
+
+  HttpError: (e, reset) => {
+    const _status: number = e.status
+    void _status
+    void reset
+    return h("p", {}, "http error")
   },
 })
 assertEquals<
@@ -658,7 +656,7 @@ assertEquals<
 >()
 
 // @ts-expect-error — "Nope" is not one of the child's error tags
-Catch({ children: [TwoErrors], Failure: { Nope: () => h("p", {}, "x") } })
+Catch({ children: [TwoErrors], Nope: () => h("p", {}, "x") })
 
 // @ts-expect-error — ParseError is still undischarged; mount rejects it, naming it
 mount(CaughtHttp, root)
@@ -666,12 +664,11 @@ mount(CaughtHttp, root)
 // Handle the remaining tag → fully discharged, mountable.
 const CaughtBoth = Catch({
   children: [CaughtHttp],
-  Failure: {
-    ParseError: (e) => {
-      const _msg: string = e.message
-      void _msg
-      return h("p", {}, "parse error")
-    },
+
+  ParseError: (e) => {
+    const _msg: string = e.message
+    void _msg
+    return h("p", {}, "parse error")
   },
 })
 assertEquals<
@@ -683,10 +680,9 @@ mount(CaughtBoth, root)
 // Handle every tag at once → discharged, mountable.
 const AllTags = Catch({
   children: [TwoErrors],
-  Failure: {
-    HttpError: (e) => h("p", {}, `${e.status}`),
-    ParseError: (e) => h("p", {}, e.message),
-  },
+
+  HttpError: (e) => h("p", {}, `${e.status}`),
+  ParseError: (e) => h("p", {}, e.message),
 })
 assertEquals<typeof AllTags, Effect.Effect<View, never, Http | Scope.Scope>>()
 mount(AllTags, root)
@@ -714,7 +710,7 @@ mount(
 mount(
   Catch({
     children: [liveOnly],
-    Failure: { HttpError: (e) => h("p", {}, `${e.status}`) },
+    HttpError: (e) => h("p", {}, `${e.status}`),
   }),
   root,
 )
@@ -784,7 +780,7 @@ mount(
 mount(
   Catch({
     children: [OpenInTree],
-    Failure: { HttpError: (e) => h("p", {}, `${e.status}`) },
+    HttpError: (e) => h("p", {}, `${e.status}`),
   }),
   root,
 )
@@ -808,12 +804,11 @@ const TagMapAsync = h(
     value: userTwo,
     Waiting: () => h("i", {}, "…"),
     Success: (s) => h("b", {}, s.value.name),
-    Failure: {
-      HttpError: (e) => {
-        const _status: number = e.status
-        void _status
-        return h("b", {}, "http error")
-      },
+
+    HttpError: (e) => {
+      const _status: number = e.status
+      void _status
+      return h("b", {}, "http error")
     },
   }),
 )
@@ -826,7 +821,7 @@ assertEquals<
 On({
   value: userTwo,
   // @ts-expect-error — not a tag of HttpError | ParseError
-  Failure: { Nope: () => h("p", {}, "x") },
+  Nope: () => h("p", {}, "x"),
 })
 
 // "Bogus" is not one of the AsyncResult's tags (unknown arm key)
@@ -843,7 +838,7 @@ mount(TagMapAsync, root)
 mount(
   Catch({
     children: [TagMapAsync],
-    Failure: { ParseError: (e) => h("p", {}, e.message) },
+    ParseError: (e) => h("p", {}, e.message),
   }),
   root,
 )
@@ -856,10 +851,9 @@ const TagMapAll = h(
     value: userTwo,
     Waiting: () => h("i", {}, "…"),
     Success: (s) => h("b", {}, s.value.name),
-    Failure: {
-      HttpError: (e) => h("b", {}, `${e.status}`),
-      ParseError: (e) => h("b", {}, e.message),
-    },
+
+    HttpError: (e) => h("b", {}, `${e.status}`),
+    ParseError: (e) => h("b", {}, e.message),
   }),
 )
 assertEquals<typeof TagMapAll, Effect.Effect<View, never, never>>()

@@ -20,6 +20,7 @@ export {
   type Residual as OnResidual,
   type TagHandlers as OnArms,
 } from "./on.ts"
+import type { HandledKeys } from "./on.ts"
 export { atom, fn, type Fn, type AtomOptions, type FnOptions } from "./atom.ts"
 export { mount, RootSink } from "./mount.ts"
 export { type Props, View } from "./View.ts"
@@ -124,26 +125,6 @@ export function For(props: {
 type Tagged = { readonly _tag: string }
 
 /**
- * Tag-selective handler map over `E`'s tagged members; `Extra` appends the
- * surface-specific trailing params (Catch's `reset`; Async's `retry`).
- * Both tag-map surfaces instantiate THIS alias so the deliberate trade-offs
- * live once: keys are constrained to the child's tags for per-handler `error`
- * inference, and the exactness guard is omitted on purpose — a typo'd key
- * beside ≥1 valid key is silently dead (its tag stays on the channel, so the
- * type never lies for inline literals), while a typo as the only key is a
- * compile error. Prototype-keyed objects and explicit-`undefined` slots are
- * rejected at construction by `assertHandlerMap`; pre-built maps whose TYPE
- * declares keys the value doesn't carry can still over-discharge — invisible
- * at runtime (erasure), documented limitation (#91).
- */
-type TagHandlers<E, Extra extends ReadonlyArray<unknown> = []> = {
-  readonly [K in Types.Tags<E>]?: (
-    error: Extract<E, { readonly _tag: K }>,
-    ...rest: Extra
-  ) => View | Effect.Effect<View, any, any>
-}
-
-/**
  * Construction-time guard for tag-map handler objects (#91): the type level
  * discharges every `keyof Handlers`, but dispatch only honors OWN,
  * function-valued keys — so reject, loudly and at the call site, the two
@@ -165,6 +146,7 @@ const assertHandlerMap = (
     )
   }
   for (const key of Object.keys(handlers)) {
+    if (key === "children") continue
     if (typeof handlers[key] !== "function") {
       throw new TypeError(
         `${surface}: tag-map handler "${key}" is not a function — its tag was discharged from the type but would never dispatch (#91)`,
@@ -363,26 +345,26 @@ const makeBoundary = <R>(
  * View-level error boundary — `Catch`. Mirrors Effect's `catch*`: recover the
  * FAILURE side of a view subtree, let success pass through (the children
  * render themselves). A JSX tag, like `On`: the subtree is the children, the
- * handling is the `Failure` prop — the same shape as `On`'s `Failure` arm:
+ * handling is in the props — the same shape as `On`'s failure arms:
  *
- *  - **catch-all** — a function gets the precise `Cause<EC | EV>` and
- *    discharges *every* error to `never` (mountable):
- *    ```tsx
- *    <Catch Failure={(cause, reset) =>
- *      <div class="err">{Cause.pretty(cause)}<button onclick={reset}>retry</button></div>}>
- *      <UserCard id={id} />
- *    </Catch>
- *    ```
- *  - **tag-selective** — a map of `_tag → handler` for any subset of the
+ *  - **tag-selective** — one prop per error `_tag`, for any subset of the
  *    children's error tags (each handler gets the unwrapped tagged error). The
  *    result **narrows** both channels by `Exclude<E, { _tag }>`, so a leftover
  *    tag must still be discharged before `mount`. A non-matching error
  *    escalates to the next boundary out.
  *    ```tsx
- *    <Catch Failure={{
- *      HttpError: (e, reset) => <Banner status={e.status} onRetry={reset} />,
- *      ParseError: (e) => <p>bad data: {e.message}</p>,
- *    }}>
+ *    <Catch
+ *      HttpError={(e, reset) => <Banner status={e.status} onRetry={reset} />}
+ *      ParseError={(e) => <p>bad data: {e.message}</p>}
+ *    >
+ *      <UserCard id={id} />
+ *    </Catch>
+ *    ```
+ *  - **catch-all** — `Failure` gets the precise `Cause<EC | EV>` of whatever
+ *    no tag arm took, and discharges *every* error to `never` (mountable):
+ *    ```tsx
+ *    <Catch Failure={(cause, reset) =>
+ *      <div class="err">{Cause.pretty(cause)}<button onclick={reset}>retry</button></div>}>
  *      <UserCard id={id} />
  *    </Catch>
  *    ```
@@ -390,15 +372,50 @@ const makeBoundary = <R>(
  * Catches both phases — **construction** (a child's build Effect fails) and
  * **live** (a post-mount reactive re-render or event-handler Effect). `reset()`
  * re-runs construction. The children's `R` folds (construction + every reset
- * run on the mount fiber); the fallback's `R` folds too (#120 — it renders on
- * the captured context, so its services must be provided at `mount`), while
- * its own `E` is not: the fallback must produce `View<never>` — like `On`'s
- * arms. Tag-selective only catches errors in the *type*; an untyped
- * event-handler or reactive error needs the catch-all form.
+ * run on the mount fiber); the arms' `R` folds too (#120 — they render on
+ * the captured context, so their services must be provided at `mount`), while
+ * their own `E` is not: an arm must produce `View<never>` — like `On`'s
+ * arms. Tag arms only catch errors in the *type*; an untyped
+ * event-handler or reactive error needs `Failure`.
  *
  * Multiple children are wrapped in a `Fragment`; from plain TS call it as
- * `Catch({ Failure, children: [child] })`.
+ * `Catch({ children: [child], HttpError: … })`.
  */
+/**
+ * `Catch`'s arms: one optional handler per error `_tag` (plus `Failure`, the
+ * catch-all). Keys are constrained to the children's tags for per-handler
+ * `error` inference, and the exactness guard is omitted on purpose — a typo'd
+ * key beside ≥1 valid key is silently dead (its tag stays on the channel, so
+ * the type never lies for inline literals), while a typo as the only key is a
+ * compile error. Prototype-keyed objects and explicit-`undefined` slots are
+ * rejected at construction by `assertHandlerMap`; pre-built maps whose TYPE
+ * declares keys the value doesn't carry can still over-discharge — invisible
+ * at runtime (erasure), documented limitation (#91).
+ */
+// One mapped type (not `tag map & { Failure }`): with a GENERIC `E`, TS
+// can't rule "Failure" out of `Tags<E>`, so an intersection would give the
+// `Failure` prop a union parameter type. A single map resolves the key.
+export type CatchArms<E> = {
+  readonly [K in Types.Tags<E> | "Failure"]?: K extends "Failure"
+    ? (
+        cause: Cause.Cause<E>,
+        reset: () => void,
+      ) => View | Effect.Effect<View, any, any>
+    : (
+        error: Extract<E, { readonly _tag: K }>,
+        reset: () => void,
+      ) => View | Effect.Effect<View, any, any>
+}
+type CatchResidual<E, H> = H extends {
+  readonly Failure: (...args: any) => unknown
+}
+  ? never
+  : Types.ExcludeTag<E, HandledKeys<H> & string>
+type CatchArmsR<H> = FoldArmsR<Omit<H, "children">>
+
+// Catch-all only, stated first: it also resolves for a GENERIC child `E`
+// (`<E,>(make: () => Effect<View, E, R>) => <Catch Failure={…}>{make()}</Catch>`),
+// where the tag-mapped overload below can't relate the props to `CatchArms<E>`.
 export function Catch<
   const Cs extends ReadonlyArray<unknown>,
   H extends (
@@ -411,39 +428,38 @@ export function Catch<
 }): Effect.Effect<View<never>, never, FoldR<Cs> | Scope.Scope | ArmR<H>>
 export function Catch<
   const Cs extends ReadonlyArray<unknown>,
-  Handlers extends TagHandlers<FoldE<Cs> | FoldLiveE<Cs>, [reset: () => void]>,
->(props: {
-  readonly children: Cs
-  readonly Failure: Handlers
-}): Effect.Effect<
-  View<Types.ExcludeTag<FoldLiveE<Cs>, keyof Handlers & string>>,
-  Types.ExcludeTag<FoldE<Cs>, keyof Handlers & string>,
-  FoldR<Cs> | Scope.Scope | FoldArmsR<Handlers>
+  const H extends CatchArms<FoldE<Cs> | FoldLiveE<Cs>>,
+>(
+  props: { readonly children: Cs } & H,
+): Effect.Effect<
+  View<CatchResidual<FoldLiveE<Cs>, H>>,
+  CatchResidual<FoldE<Cs>, H>,
+  FoldR<Cs> | Scope.Scope | CatchArmsR<H>
 >
-export function Catch(props: {
-  readonly children: ReadonlyArray<unknown>
-  readonly Failure:
+export function Catch(
+  props: { readonly children: ReadonlyArray<unknown> } & Record<
+    string,
+    unknown
+  >,
+): Effect.Effect<View<never>, unknown, unknown> {
+  // Validate the PROPS object (a rest-spread would hide its prototype).
+  assertHandlerMap(props, "Catch")
+  const { children, Failure: failure, ...tags } = props
+  const child: Effect.Effect<View<any>, any, any> = children.length === 1 &&
+  Effect.isEffect(children[0])
+    ? (children[0] as Effect.Effect<View<any>, any, any>)
+    : Fragment({ children })
+  const catchAll = failure as
     | ((cause: Cause.Cause<unknown>, reset: () => void) => unknown)
-    | Record<string, (error: any, reset: () => void) => unknown>
-}): Effect.Effect<View<never>, unknown, unknown> {
-  const child: Effect.Effect<View<any>, any, any> = props.children.length ===
-    1 && Effect.isEffect(props.children[0])
-    ? (props.children[0] as Effect.Effect<View<any>, any, any>)
-    : Fragment({ children: props.children })
-  const handlerOrMap = props.Failure
-  if (typeof handlerOrMap === "function") {
-    return makeBoundary(child, () => true, handlerOrMap)
-  }
-  const handlers = handlerOrMap
-  assertHandlerMap(handlers, "Catch")
-  // Dispatch rules (own function-valued key, first-error routing) live in
-  // `taggedMatch`, shared with On's tag-map `Failure` arm.
+    | undefined
+  // Dispatch: tag arm first (own function-valued key, first-error routing —
+  // `taggedMatch`, shared with On), then the catch-all, else escalate.
   return makeBoundary(
     child,
-    (cause) => taggedMatch(handlers, cause) !== undefined,
+    (cause) => catchAll !== undefined || taggedMatch(tags, cause) !== undefined,
     (cause, reset) => {
-      const m = taggedMatch(handlers, cause)!
-      return m.handler(m.error, reset)
+      const m = taggedMatch(tags, cause)
+      return m ? m.handler(m.error, reset) : catchAll!(cause, reset)
     },
   )
 }

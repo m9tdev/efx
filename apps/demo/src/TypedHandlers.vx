@@ -48,18 +48,16 @@ const Loader = Component.make(function* () {
 export const TypedHandlers = Component.make(function* () {
   return yield* (
     <Catch
-      Failure={{
-        HttpError: (e, reset) => (
-          <div class="boundary-fallback">
-            <p class="caught">
-              handler failed: HttpError {e.status} — {e.message}
-            </p>
-            <button class="reset" onclick={reset}>
-              reset
-            </button>
-          </div>
-        ),
-      }}
+      HttpError={(e, reset) => (
+        <div class="boundary-fallback">
+          <p class="caught">
+            handler failed: HttpError {e.status} — {e.message}
+          </p>
+          <button class="reset" onclick={reset}>
+            reset
+          </button>
+        </div>
+      )}
     >
       <Loader />
     </Catch>

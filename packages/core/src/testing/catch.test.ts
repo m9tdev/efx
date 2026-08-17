@@ -158,10 +158,9 @@ describe("Catch — tag-selective (object)", () => {
       Effect.fn("App")(function* (_props: {} = {}) {
         return yield* Catch({
           children: [Child({ fail })],
-          Failure: {
-            HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
-            ParseError: (e) => h("p", { class: "parse" }, `parse ${e.message}`),
-          },
+
+          HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
+          ParseError: (e) => h("p", { class: "parse" }, `parse ${e.message}`),
         })
       })()
 
@@ -181,11 +180,11 @@ describe("Catch — tag-selective (object)", () => {
         children: [
           Catch({
             children: [Child({ fail: "parse" })],
-            Failure: {
-              HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
-            },
+
+            HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
           }),
         ],
+
         Failure: (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
       })
     })
@@ -298,11 +297,11 @@ describe("Catch — lifecycle correctness", () => {
         children: [
           Catch({
             children: [Child({ trip: false })],
-            Failure: {
-              ParseError: () => h("p", { class: "inner" }, "parse"),
-            },
+
+            ParseError: () => h("p", { class: "inner" }, "parse"),
           }),
         ],
+
         Failure: (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
       })
     })

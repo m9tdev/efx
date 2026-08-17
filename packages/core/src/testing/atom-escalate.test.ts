@@ -42,10 +42,9 @@ describe("atom → typed live escalation", () => {
       >()
       return yield* Catch({
         children: [body],
-        Failure: {
-          NotFound: (e, _reset) =>
-            h("p", { class: "fallback" }, `no user ${e.id}`),
-        },
+
+        NotFound: (e, _reset) =>
+          h("p", { class: "fallback" }, `no user ${e.id}`),
       })
     })
     const ui = await render(App())

@@ -11,9 +11,10 @@ import type { View } from "./View.ts"
 // renders nothing) EXCEPT that a failure-carrying variant — `{ _tag:
 // "Failure"; cause: Cause<E> }` (AsyncResult, Exit) or `{ _tag: "Failure";
 // failure: E }` (Result) — is escalated when unhandled: the residual rides
-// `View<E>` to the nearest `Catch`, and `mount` refuses it. `Failure` takes a
-// function (handles all → residual never) or a TAG MAP over the error's tags
-// (handled at the leaf, the rest bubbles: `Exclude<E, { _tag: handled }>`).
+// `View<E>` to the nearest `Catch`, and `mount` refuses it. Failures are
+// handled by the ERROR'S TAG directly in the props (`HttpError={(e, f) => …}`
+// — handled at the leaf, the rest bubbles: `Exclude<E, { _tag: handled }>`)
+// or by a `Failure` arm over the whole variant (handles all → residual never).
 // Interrupt-only causes are dropped, not escalated (teardown, not an error),
 // and so is an unhandled failure whose retry is in flight (`waiting`) — it
 // renders nothing until it settles.
@@ -36,12 +37,12 @@ type FailureError<T> =
         : never
 
 /**
- * `Failure` as a tag map over the error's tags. Each handler also receives
- * the whole `Failure` variant (`f.waiting` on an AsyncResult — a retry in
- * flight is STILL a Failure here; tags are the truth, unlike
+ * The error's tags as arms, next to the value's own tags. Each handler also
+ * receives the whole `Failure` variant (`f.waiting` on an AsyncResult — a
+ * retry in flight is STILL a Failure here; tags are the truth, unlike
  * `builder.onInitialOrWaiting`).
  */
-type FailureTagMap<E, F> = {
+type FailureTagArms<E, F> = {
   readonly [K in Types.Tags<E>]?: (
     error: Extract<E, { readonly _tag: K }>,
     variant: F,
@@ -53,7 +54,8 @@ type HasWaiting<T> = T extends { readonly waiting: boolean } ? true : never
 
 /**
  * The arms, as PROPS of `<On value={…} Tag={…} />`: one optional function
- * per tag (missing → nothing); `Failure` may be a tag map; `Waiting` (only
+ * per tag (missing → nothing); the failure's ERROR tags are arms too;
+ * `Failure` handles the whole variant; `Waiting` (only
  * for waiting-capable values) wins over the tag arms while `waiting` is true
  * — `builder.onWaiting` semantics — and covers the first fetch too
  * (`AsyncResult.initial(true)` is waiting).
@@ -65,10 +67,8 @@ export type TagHandlers<T> = {
 } & ([FailureError<T>] extends [never]
   ? { readonly Failure?: (variant: Variant<T, "Failure">) => unknown }
   : {
-      readonly Failure?:
-        | ((variant: Variant<T, "Failure">) => unknown)
-        | FailureTagMap<FailureError<T>, Variant<T, "Failure">>
-    }) &
+      readonly Failure?: (variant: Variant<T, "Failure">) => unknown
+    } & FailureTagArms<FailureError<T>, Variant<T, "Failure">>) &
   ([HasWaiting<T>] extends [never]
     ? {}
     : { readonly Waiting?: (value: T & { readonly waiting: true }) => unknown })
@@ -78,18 +78,19 @@ export type Residual<T, H> = [FailureError<T>] extends [never]
   ? never
   : H extends { readonly Failure: (variant: any) => unknown }
     ? never
-    : H extends { readonly Failure: infer M }
-      ? Exclude<FailureError<T>, { readonly _tag: keyof M }>
-      : FailureError<T>
+    : Exclude<FailureError<T>, { readonly _tag: HandledKeys<H> }>
+
+/** The keys of `H` that actually carry a handler (an unset optional key is not one). */
+export type HandledKeys<H> = {
+  [K in keyof H]-?: H[K] extends (...args: any) => unknown ? K : never
+}[keyof H]
 
 /** Handler returns (views, Effects) fold like any reactive emission: E is LIVE, R folds. */
 type HandlerRet<H> = {
   // `value` is not an arm (a callable `Fn` there would otherwise fold its R).
   [K in Exclude<keyof H, "value">]: H[K] extends (...args: any) => infer R
     ? R
-    : H[K] extends Record<string, (...args: any) => infer R>
-      ? R
-      : never
+    : never
 }[Exclude<keyof H, "value">]
 type HandlersLiveE<H> = ChildE<HandlerRet<H>> | ChildLiveE<HandlerRet<H>>
 type HandlersR<H> = ChildR<HandlerRet<H>>
@@ -99,7 +100,7 @@ type HandlersR<H> = ChildR<HandlerRet<H>>
  * <On value={user}
  *   Waiting={() => "loading"}
  *   Success={(s) => s.value.name}
- *   Failure={{ HttpError: (e) => e.message }}   // RateLimited bubbles: View<RateLimited>
+ *   HttpError={(e) => e.message}   // RateLimited bubbles: View<RateLimited>
  * />
  * <On value={selected} Some={(o) => <b>{o.value}</b>} />   // None → nothing
  * ```
@@ -143,22 +144,17 @@ const dispatch = (
   }
   if (tag === "Failure") {
     const cause = causeOf(value)
-    if (typeof failure === "function") return failure(value)
-    if (
-      failure !== undefined &&
-      failure !== null &&
-      typeof failure === "object"
-    ) {
-      const err = Option.getOrUndefined(Cause.findErrorOption(cause))
-      const t =
-        typeof err === "object" && err !== null && "_tag" in err
-          ? (err as Tagged)._tag
-          : undefined
-      if (t !== undefined && Object.hasOwn(failure, t)) {
-        const fn = (failure as Record<string, unknown>)[t]
-        if (typeof fn === "function") return fn(err, value)
-      }
+    // Error-tag arm first (the more specific), then the whole-variant arm.
+    const err = Option.getOrUndefined(Cause.findErrorOption(cause))
+    const t =
+      typeof err === "object" && err !== null && "_tag" in err
+        ? (err as Tagged)._tag
+        : undefined
+    if (t !== undefined && Object.hasOwn(handlers, t)) {
+      const fn = handlers[t]
+      if (typeof fn === "function") return fn(err, value)
     }
+    if (typeof failure === "function") return failure(value)
     // Unhandled: escalate — unless it is teardown, or a retry is in flight
     // (`waiting`, AsyncResult): re-escalating a stale failure while its
     // refetch runs would bounce a `Catch` back into its fallback before the
@@ -189,16 +185,6 @@ const assertHandlers = (handlers: Record<string, unknown>): void => {
   for (const key of Object.keys(handlers)) {
     const v = handlers[key]
     if (typeof v === "function") continue
-    if (key === "Failure" && v !== null && typeof v === "object") {
-      for (const t of Object.keys(v as object)) {
-        if (typeof (v as Record<string, unknown>)[t] !== "function") {
-          throw new TypeError(
-            `On: Failure tag-map handler "${t}" is not a function — its tag was discharged from the type but would never dispatch (#91)`,
-          )
-        }
-      }
-      continue
-    }
     throw new TypeError(
       `On: handler "${key}" is not a function — its tag was discharged from the type but would never dispatch (#91)`,
     )
