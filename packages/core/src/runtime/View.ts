@@ -89,19 +89,37 @@ export interface ViewReactive {
    */
   readonly context?: Context.Context<never>
 }
+/**
+ * What a keyed list renders from (docs/reactivity-migration.md step 4b).
+ * - `Collection`: rows ARE `AtomRef`s, keyed by ref identity — no key fn, no
+ *   value diffing; per-cell reactivity via `row.prop`/`row.map`.
+ * - `Keyed`: any `Atom<ReadonlyArray<T>>` (a cell, `atom(...)`, `Atom.pull`,
+ *   a derived) plus a key fn; mount derives one `Atom<T>` per key
+ *   (`Atom.family` + `withEquality`, so an unchanged item costs one Equal
+ *   check and no DOM write) and reconciles structure by key.
+ */
+export type ListSource =
+  | {
+      readonly _tag: "Collection"
+      readonly collection: AtomRef.Collection<unknown>
+    }
+  | {
+      readonly _tag: "Keyed"
+      readonly each: Atom.Atom<ReadonlyArray<unknown>>
+      readonly key: (item: unknown) => unknown
+    }
 export interface ViewList {
   readonly _tag: "List"
-  readonly source: AtomRef.Collection<unknown>
+  readonly source: ListSource
   // Returns a View or a sync Effect of one — mount's coerceSync materializes
   // each row on this node's captured context (fallback: mount's), so row
-  // channels claimed by `list`'s signature are genuinely available, including
+  // channels claimed by `For`'s signature are genuinely available, including
   // under a mid-tree Effect.provide.
-  // `index` is a reactive ref: mount pushes each row's current position into it
-  // on reorder/shift, so `{index.value}` in a row updates without re-rendering.
-  readonly render: (
-    item: AtomRef.AtomRef<unknown>,
-    index: AtomRef.ReadonlyRef<number>,
-  ) => unknown
+  // `row` is an `AtomRef<T>` (Collection source) or an `Atom<T>` (Keyed
+  // source). `index` is a reactive ref: mount pushes each row's current
+  // position into it on reorder/shift, so a row displaying it updates
+  // without re-rendering.
+  readonly render: (row: unknown, index: AtomRef.ReadonlyRef<number>) => unknown
   /** Construction-captured context — rows build on it. See ViewReactive.context. */
   readonly context?: Context.Context<never>
 }

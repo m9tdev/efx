@@ -1,4 +1,4 @@
-import { Cause, Context, Effect, Exit, Scope } from "effect"
+import { Cause, Context, Effect, Equal, Exit, Option, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import {
   coerceSync,
@@ -483,24 +483,59 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       // Per-row: its DOM node, its own scope (holds every finalizer the row
       // registered — subscriptions, user `acquireRelease` releases), and a
       // reactive index ref the planner's `keep`/`move` ops update. Keyed by
-      // AtomRef identity so reactivity is preserved across reorders/inserts.
+      // an opaque KEY: the row's AtomRef (Collection source — identity IS the
+      // key) or the user's key value (Keyed source), so reactivity is
+      // preserved across reorders/inserts.
       type Row = {
         readonly node: Node
         readonly rowScope: Scope.Closeable
         readonly indexRef: AtomRef.AtomRef<number>
       }
-      const rendered = new Map<AtomRef.AtomRef<unknown>, Row>()
+      const rendered = new Map<unknown, Row>()
       // Rows build on the list's construction-captured context — the runtime
-      // side of list()'s folded row R (see ViewList.context).
+      // side of For's folded row R (see ViewList.context).
       const nodeCtx = withContext(ctx, view.context)
-      // Snapshot the array (not just the reference!) — CollectionImpl mutates
-      // its internal array in place on push/remove, so comparing references
-      // would never detect structural changes. This is the planner's `prev`.
-      let snapshot: Array<AtomRef.AtomRef<unknown>> = []
+      // The planner's `prev`. For a Collection, snapshot the ARRAY (not just
+      // the reference!) — CollectionImpl mutates its internal array in place on
+      // push/remove, so comparing references would never detect structural
+      // changes.
+      let snapshot: Array<unknown> = []
 
       // A plan's `before` is a row key; resolve it to the reference node.
-      const nodeBefore = (key: AtomRef.AtomRef<unknown> | null): Node | null =>
+      const nodeBefore = (key: unknown): Node | null =>
         key === null ? null : (rendered.get(key)?.node ?? null)
+
+      // What a key renders as. Collection: the ref itself. Keyed: one derived
+      // `Atom<T>` per key — `Atom.family` memoizes by key (WeakRef'd; released
+      // once its registry node goes), reads the item out of an index Map that
+      // is ITS OWN atom (so the array is indexed once per emission, not once
+      // per row), and `withEquality(Equal.equals)` INSIDE the family fn (the
+      // combinator returns a new atom object; applied at the use site it would
+      // churn node identity per emission) so an unchanged item costs one Equal
+      // check and no DOM write. Pinned by testing/for.test.ts.
+      const rowHandle: (key: unknown) => unknown =
+        view.source._tag === "Collection"
+          ? (key) => key
+          : (() => {
+              const src = view.source
+              const index = Atom.map(src.each, (items) => {
+                const m = new Map<unknown, unknown>()
+                for (const item of items) m.set(src.key(item), item)
+                return m
+              })
+              return Atom.family((key: unknown) =>
+                Atom.readable((get) => {
+                  const m = get(index)
+                  // A removed key's row atom recomputes BEFORE the structural
+                  // reconcile tears the row down (the index atom notifies its
+                  // dependents first): hold the last value rather than emit
+                  // `undefined` into a row that is about to be removed.
+                  return m.has(key)
+                    ? m.get(key)
+                    : Option.getOrUndefined(get.self())
+                }).pipe(Atom.withEquality(Equal.equals)),
+              )
+            })()
 
       const setIndex = (row: Row, index: number): void => {
         if (row.indexRef.value !== index) row.indexRef.set(index)
@@ -508,9 +543,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 
       // The diff itself lives in the pure `plan` (see reconcile.ts); this is the
       // interpreter — it just applies the ops to real DOM + scopes.
-      const reconcile = (
-        next: ReadonlyArray<AtomRef.AtomRef<unknown>>,
-      ): void => {
+      const reconcile = (next: ReadonlyArray<unknown>): void => {
         for (const op of plan(snapshot, next)) {
           switch (op.op) {
             case "remove": {
@@ -530,7 +563,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
               // Handler owner = the rowScope: survives moves (DOM reparenting
               // only), closes on removal.
               const { node, scope: rowScope } = buildScopedChild(
-                view.render(op.key, indexRef),
+                view.render(rowHandle(op.key), indexRef),
                 scope,
                 nodeCtx,
                 "child",
@@ -557,23 +590,34 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
         snapshot = Array.from(next)
       }
 
-      reconcile(view.source.value)
-
-      // Re-reconcile only on structural changes. CollectionImpl also notifies
-      // on per-item value updates (which are handled separately by each row's
-      // own reactive bindings) — those are no-ops here. This is a pure perf
-      // short-circuit, not a correctness gate: a redundant reconcile would just
-      // plan all-`keep`. Don't tighten it into something the diff relies on.
-      subscribeRefScoped(
-        view.source,
-        (next) => {
-          const structural =
-            next.length !== snapshot.length ||
-            next.some((ref, i) => ref !== snapshot[i])
-          if (structural) reconcile(next)
-        },
-        scope,
-      )
+      // Re-reconcile only on structural changes (a different key sequence).
+      // A Collection also notifies on per-item value updates and a Keyed
+      // source on any emission (handled by each row's own reactive bindings)
+      // — those plan all-`keep`, so skipping them is a pure perf short-circuit,
+      // not a correctness gate. Don't tighten it into something the diff
+      // relies on.
+      const onKeys = (next: ReadonlyArray<unknown>): void => {
+        const structural =
+          next.length !== snapshot.length ||
+          next.some((key, i) => key !== snapshot[i])
+        if (structural) reconcile(next)
+      }
+      if (view.source._tag === "Collection") {
+        const collection = view.source.collection
+        reconcile(collection.value)
+        subscribeRefScoped(collection, onKeys, scope)
+      } else {
+        const src = view.source
+        const keysOf = (items: ReadonlyArray<unknown>) => items.map(src.key)
+        // `applyAndSubscribeSource` reads once (initial reconcile) and then
+        // subscribes through the registry, unsubscribing on scope close.
+        applyAndSubscribeSource(
+          src.each,
+          ctx.registry,
+          (items) => onKeys(keysOf(items as ReadonlyArray<unknown>)),
+          scope,
+        )
+      }
 
       return wrapper
     }

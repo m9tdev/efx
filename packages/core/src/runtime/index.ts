@@ -13,7 +13,12 @@ import {
   Stream,
   type Types,
 } from "effect"
-import { AsyncResult, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
+import {
+  AsyncResult,
+  Atom,
+  AtomRef,
+  AtomRegistry,
+} from "effect/unstable/reactivity"
 import {
   coerceAsync,
   type ErrorSink,
@@ -21,7 +26,16 @@ import {
   makeDepSubscription,
   trackDeps,
 } from "./coerce.ts"
-import type { ArmR, FoldArmsR, FoldE, FoldLiveE, FoldR } from "./types/Fold.ts"
+import type {
+  ArmR,
+  ChildE,
+  ChildLiveE,
+  ChildR,
+  FoldArmsR,
+  FoldE,
+  FoldLiveE,
+  FoldR,
+} from "./types/Fold.ts"
 import { type BoundaryState, View } from "./View.ts"
 
 export * as Component from "./Component.ts"
@@ -77,6 +91,10 @@ export type {
  * supplied by the list runtime and excluded from the folded `R`, so a parent
  * rendering the list stays Scope-free. The Effect shell carries `E`/`R`
  * through the child fold (and performs the capture).
+ *
+ * @deprecated Use {@link For}: `<For each={coll}>{(row, i) => …}</For>` is the
+ * same IR node; `<For each={atom} key={…}>` extends it to any array atom.
+ * Removed once the demo has migrated (docs/reactivity-migration.md step 4b).
  */
 export const list = <T, E = never, R = never>(
   from: AtomRef.Collection<T>,
@@ -88,13 +106,94 @@ export const list = <T, E = never, R = never>(
   Effect.map(Effect.context<never>(), (context) =>
     View.List({
       context,
-      source: from as AtomRef.Collection<unknown>,
+      source: {
+        _tag: "Collection",
+        collection: from as AtomRef.Collection<unknown>,
+      },
       render: render as (
-        item: AtomRef.AtomRef<unknown>,
+        row: unknown,
         index: AtomRef.ReadonlyRef<number>,
       ) => unknown,
     }),
   )
+
+// ─── For ──────────────────────────────────────────────────────────────────
+
+/** A row renderer's return: a View or a (sync) Effect of one. */
+type RowRet = unknown
+/**
+ * A row builds AFTER construction (on insert), so everything it can fail
+ * with is LIVE — its Effect's own `E` and any `View<E>` it returns both land
+ * on the list's `View<E>` (same phase switch as an Atom child, Fold.ts).
+ */
+type RowLiveE<F> = F extends (...args: any) => infer Ret
+  ? ChildE<Ret> | ChildLiveE<Ret>
+  : never
+type RowR<F> = F extends (...args: any) => infer Ret
+  ? Exclude<ChildR<Ret>, Scope.Scope>
+  : never
+
+/**
+ * Keyed reactive list — the `<For>` component
+ * (docs/reactivity-migration.md step 4b). Two sources, one renderer shape:
+ *
+ * ```tsx
+ * <For each={todos}>{(todo) => <li>{todo.prop("title")}</li>}</For>            // AtomRef.Collection
+ * <For each={users} key={(u) => u.id}>{(u) => <li>{Atom.map(u, x => x.name)}</li>}</For> // Atom<Array>
+ * ```
+ *
+ * - `each: AtomRef.Collection<T>` — rows are the collection's `AtomRef<T>`s,
+ *   keyed by identity (no `key`); per-cell reactivity via `row.prop`/`row.map`.
+ * - `each: Atom<ReadonlyArray<T>>` + `key` — any array atom (a cell,
+ *   `atom(...)`, `Atom.pull`, a derived); rows are `Atom<T>`s derived per key
+ *   (`Atom.family` + `withEquality`: an unchanged item = no DOM write).
+ * - `index` is a live `ReadonlyRef<number>` mount updates on reorder/shift.
+ *
+ * `children` is a 1-tuple because the compiler always emits
+ * `children: [ … ]`. Structure diff is `reconcile.plan` + a per-row `Scope`
+ * (unchanged). Row channels fold: a row's `E` (Effect or `View<E>`) is LIVE on
+ * the result (rows build on insert, after construction); its `R` minus the
+ * runtime-supplied `Scope` surfaces on the result and is captured at
+ * construction (`ViewList.context`), so rows genuinely build on the Layer
+ * demanded here.
+ */
+export function For<
+  T,
+  F extends (
+    row: AtomRef.AtomRef<T>,
+    index: AtomRef.ReadonlyRef<number>,
+  ) => RowRet,
+>(props: {
+  readonly each: AtomRef.Collection<T>
+  readonly children: readonly [F]
+}): Effect.Effect<View<RowLiveE<F>>, never, RowR<F>>
+export function For<
+  T,
+  K,
+  F extends (row: Atom.Atom<T>, index: AtomRef.ReadonlyRef<number>) => RowRet,
+>(props: {
+  readonly each: Atom.Atom<ReadonlyArray<T>>
+  readonly key: (item: T) => K
+  readonly children: readonly [F]
+}): Effect.Effect<View<RowLiveE<F>>, never, RowR<F>>
+export function For(props: {
+  readonly each: AtomRef.Collection<unknown> | Atom.Atom<ReadonlyArray<unknown>>
+  readonly key?: (item: unknown) => unknown
+  readonly children: readonly [
+    (row: any, index: AtomRef.ReadonlyRef<number>) => unknown,
+  ]
+}): Effect.Effect<View<any>, never, any> {
+  const render = props.children[0]
+  return Effect.map(Effect.context<never>(), (context) =>
+    View.List({
+      context,
+      source: Atom.isAtom(props.each)
+        ? { _tag: "Keyed", each: props.each, key: props.key! }
+        : { _tag: "Collection", collection: props.each },
+      render,
+    }),
+  )
+}
 
 /**
  * What `asyncRef` returns: the reactive result plus a manual `refetch`.

@@ -33,7 +33,21 @@ own)` — the atom keeps its own `Scope`/`AtomRegistry`, so an atom-body
   latest, span parent).
 - `mount` — DOM renderer. **Requires `Effect<View<never>, never, R>`** (every
   error discharged), returns `Effect<void, never, R | AtomRegistry | Scope>`
-- `list` — keyed reactive list helper (`View.List` IR node). Folds row
+- `For` — the keyed reactive list component (docs/reactivity-migration.md
+  step 4b; `View.List` IR node, `ListSource` = `Collection` | `Keyed`). Two
+  overloads: `each: AtomRef.Collection<T>` (rows are the refs, keyed by
+  identity, no `key`) and `each: Atom<ReadonlyArray<T>>` + `key` (rows are
+  per-key `Atom<T>`s: `Atom.family` over an index-Map atom, `withEquality(
+Equal.equals)` INSIDE the family fn — applied at the use site the
+  combinator's new object would churn node identity — and a removed key holds
+  its last value via `get.self()` because its row atom recomputes before the
+  structural reconcile tears the row down). `children` is a 1-tuple (the
+  compiler emits `children: [ … ]`). Row `E` (Effect or `View<E>`) is LIVE on
+  the result — rows build on insert, after construction — and row `R` minus
+  the runtime `Scope` folds. Pinned by `testing/for.test.ts` (both sources,
+  DOM identity across moves, Equal-dedup = 0 cell recompute, row Scope
+  release, channel pins).
+- `list` — DEPRECATED alias shape over the same IR (`Collection` source). Folds row
   channels (#72 review): a row's live `E` and `R` surface on `list`'s
   result (`Effect<View<E>, never, Exclude<R, Scope>>`; the per-row `Scope`
   is the list runtime's own and stays excluded). The Effect shell carries
