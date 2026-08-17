@@ -1,6 +1,6 @@
 import { Effect } from "effect"
-import { AsyncResult, Atom } from "effect/unstable/reactivity"
-import { Catch, Component, fn } from "@verrex/core"
+import { Atom } from "effect/unstable/reactivity"
+import { Catch, Component, fn, MatchTags } from "@verrex/core"
 import { Http } from "./services.ts"
 
 // #160/#161: the pending → run → settle mutation pattern, as `fn` — the
@@ -24,24 +24,30 @@ const Saver = Component.make(function* () {
     }),
   )
 
+  const buttons = (
+    <span>
+      <button class="save" onclick={() => save("42")}>
+        save
+      </button>{" "}
+      <button class="save-fail" onclick={() => save("999")}>
+        save (fails)
+      </button>
+    </span>
+  )
+
   return yield* (
     <div class="save-button">
       <p>
         saved: <strong class="saved">{saved}</strong>
       </p>
-      {AsyncResult.builder(get(save))
-        .onWaiting(() => <span class="saving">saving…</span>)
-        .onFailure(Effect.failCause) // HttpError → live channel → Catch
-        .orElse(() => (
-          <span>
-            <button class="save" onclick={() => save("42")}>
-              save
-            </button>{" "}
-            <button class="save-fail" onclick={() => save("999")}>
-              save (fails)
-            </button>
-          </span>
-        ))}
+      <MatchTags
+        on={save}
+        Waiting={() => <span class="saving">saving…</span>}
+        // Initial and Success (settled) both show the buttons; a failure has
+        // no arm here → HttpError bubbles (live channel) to the Catch.
+        Initial={() => buttons}
+        Success={() => buttons}
+      />
     </div>
   )
 })

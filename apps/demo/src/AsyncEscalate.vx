@@ -1,5 +1,5 @@
 import { Cause, Data, Effect } from "effect"
-import { AsyncResult, Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/unstable/reactivity"
 import { atom, Catch, Component, MatchTags } from "@verrex/core"
 import { Http, type User } from "./services.ts"
 
@@ -12,7 +12,7 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
 }> {}
 
 /**
- * Failure homes (step 08) — **the `AsyncResult.builder` chain picks where
+ * Failure homes (step 08) — **`MatchTags` picks where
  * each error lives, per call site and per tag** — built on **`atom`**: each
  * block's data is an `Atom<AsyncResult<User, HttpError | RateLimited>>`
  * created in the component body, OUTSIDE the boundaries, then rendered via
@@ -185,11 +185,12 @@ export const AsyncEscalate = Component.make(function* () {
       </p>
       {Catch(
         <section class="contrast">
-          {AsyncResult.builder(get(openUser))
-            .onInitialOrWaiting(() => <span class="loading">loading…</span>)
-            .onSuccess((user) => <strong class="open-ok">{user.name}</strong>)
-            .onFailure(Effect.failCause)
-            .exhaustive()}
+          {/* No Failure arm at all: EVERY failure bubbles to the catch-all. */}
+          <MatchTags
+            on={openUser}
+            Waiting={() => <span class="loading">loading…</span>}
+            Success={(s) => <strong class="open-ok">{s.value.name}</strong>}
+          />
         </section>,
         (cause, reset) => (
           <div class="boundary-fallback open-fallback">

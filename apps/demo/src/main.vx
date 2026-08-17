@@ -192,7 +192,7 @@ const App = (
         step: "03",
         title: "Async data as an atom (non-blocking)",
         concept:
-          "Same fetch as an atom: atom(effect) runs it on its own fiber and hands back Atom<AsyncResult<User, HttpError>> — the state of the Effect. A pending placeholder shows immediately; the failure is rendered at the leaf (.onFailure), so E is discharged to never. Http still folds into R — a forgotten Layer is still a compile error. AtomRegistry | Scope are the atom's own contribution: it is mounted on the component's Scope, so the fetch is interrupted when that scope closes — here the demo scope, so reset cancels an in-flight fetch. AsyncResult.builder renders the states as values; exhaustive() type-checks that every case is handled.",
+          "Same fetch as an atom: atom(effect) runs it on its own fiber and hands back Atom<AsyncResult<User, HttpError>> — the state of the Effect. A pending placeholder shows immediately; the failure is rendered at the leaf (a function Failure arm), so E is discharged to never. Http still folds into R — a forgotten Layer is still a compile error. AtomRegistry | Scope are the atom's own contribution: it is mounted on the component's Scope, so the fetch is interrupted when that scope closes — here the demo scope, so reset cancels an in-flight fetch. <MatchTags on={user} Waiting Success Failure /> renders the states by tag, arms as props: every arm is optional, Waiting wins while a fetch is in flight, and an unhandled failure would bubble by default (View<E>).",
         type: "Effect<View, never, Http | AtomRegistry | Scope>",
         code: `export const AsyncUserPage = Component.make(function* (props: {
   userId: string
@@ -202,11 +202,12 @@ const App = (
 
   return yield* (
     <article>
-      {AsyncResult.builder(get(user))
-          .onInitialOrWaiting(() => <p>loading…</p>)
-          .onSuccess((user) => <h1>{user.name}</h1>) // user: User (inferred)
-          .onFailure(() => <p>failed</p>)            // handled at the leaf
-          .exhaustive()}
+      <MatchTags
+        on={user}
+        Waiting={() => <p>loading…</p>}
+        Success={(s) => <h1>{s.value.name}</h1>}   // s.value: User (inferred)
+        Failure={() => <p>failed</p>}              // handled at the leaf
+      />
     </article>
   )
 })`,
@@ -408,7 +409,7 @@ const tagUser = yield* atom((get) => fetchUser(get(userId)))
         step: "10",
         title: "Pending → run → settle (the state of a function call)",
         concept:
-          "The standard mutation pattern, as fn: save(id) runs the body on the fn's own fiber and get(save) is its AsyncResult. Waiting swaps the buttons for a spinner — the clicked element is gone while the 600ms Http call runs — and success settles back to the buttons (saved += 1). The fn is mounted on the component's Scope: tear it down (↻ reset while saving) and the in-flight call is interrupted — no leak, no stale write. save (fails) shows the corollary: the failure is escalated with .onFailure(Effect.failCause), so the typed HttpError rides the live channel to the Catch. The fn's R (Http) rides the component like any atom's.",
+          "The standard mutation pattern, as fn: save(id) runs the body on the fn's own fiber and get(save) is its AsyncResult. Waiting swaps the buttons for a spinner — the clicked element is gone while the 600ms Http call runs — and success settles back to the buttons (saved += 1). The fn is mounted on the component's Scope: tear it down (↻ reset while saving) and the in-flight call is interrupted — no leak, no stale write. save (fails) shows the corollary: MatchTags has no Failure arm, so the failure bubbles by default — the typed HttpError rides the live channel to the Catch. The fn's R (Http) rides the component like any atom's.",
         type: "Effect<View<HttpError>, never, Http | AtomRegistry | Scope>",
         code: `const Saver = Component.make(function* () {
   const saved = Atom.make(0)
@@ -422,10 +423,13 @@ const tagUser = yield* atom((get) => fetchUser(get(userId)))
   return yield* (
     <div>
       <p>saved: <strong>{saved}</strong></p>
-      {AsyncResult.builder(get(save))
-          .onWaiting(() => <span>saving…</span>)   // hides THIS button
-          .onFailure(Effect.failCause)             // HttpError → live → Catch
-          .orElse(() => <button onclick={() => save("42")}>save</button>)}
+      <MatchTags
+        on={save}
+        Waiting={() => <span>saving…</span>}   // hides THIS button
+        Initial={() => <button onclick={() => save("42")}>save</button>}
+        Success={() => <button onclick={() => save("42")}>save</button>}
+        // no Failure arm: HttpError bubbles → live → Catch
+      />
     </div>
   )
 })`,

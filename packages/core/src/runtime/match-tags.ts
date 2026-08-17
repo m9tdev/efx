@@ -84,12 +84,13 @@ export type Residual<T, H> = [FailureError<T>] extends [never]
 
 /** Handler returns (views, Effects) fold like any reactive emission: E is LIVE, R folds. */
 type HandlerRet<H> = {
-  [K in keyof H]: H[K] extends (...args: any) => infer R
+  // `on` is not an arm (a callable `Fn` there would otherwise fold its R).
+  [K in Exclude<keyof H, "on">]: H[K] extends (...args: any) => infer R
     ? R
     : H[K] extends Record<string, (...args: any) => infer R>
       ? R
       : never
-}[keyof H]
+}[Exclude<keyof H, "on">]
 type HandlersLiveE<H> = ChildE<HandlerRet<H>> | ChildLiveE<HandlerRet<H>>
 type HandlersR<H> = ChildR<HandlerRet<H>>
 

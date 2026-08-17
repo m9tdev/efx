@@ -1,6 +1,5 @@
 import { Cause } from "effect"
-import { AsyncResult } from "effect/unstable/reactivity"
-import { atom, Component } from "@verrex/core"
+import { atom, Component, MatchTags } from "@verrex/core"
 import { Http } from "./services.ts"
 
 /**
@@ -11,7 +10,7 @@ import { Http } from "./services.ts"
  * extracted in the component body, so it folds into `R` (a forgotten Layer
  * is still a compile error); `AtomRegistry | Scope` are the atom's own
  * contribution (mounted on the component's Scope, so ↻ reset interrupts an
- * in-flight fetch). `AsyncResult.builder(get(user))` renders the three
+ * in-flight fetch). `<MatchTags on={user} …/>` renders the three
  * states as values; `.onFailure` handles the failure at the leaf — never
  * thrown, never folded to `E` — and `exhaustive()` type-checks that every
  * case is covered.
@@ -26,15 +25,16 @@ export const AsyncUserPage = Component.make(function* (props: {
 
   return yield* (
     <article class="async-user-page">
-      {AsyncResult.builder(get(user))
-        .onInitialOrWaiting(() => <p class="loading"> loading user…</p>)
-        .onSuccess((user) => (
+      <MatchTags
+        on={user}
+        Waiting={() => <p class="loading"> loading user…</p>}
+        Success={(s) => (
           <div class="user-body">
-            <h1>{user.name}</h1>
-            {user.bio && <p class="bio">{user.bio}</p>}
-            {user.posts.length > 0 ? (
+            <h1>{s.value.name}</h1>
+            {s.value.bio && <p class="bio">{s.value.bio}</p>}
+            {s.value.posts.length > 0 ? (
               <ul class="posts">
-                {user.posts.map((p) => (
+                {s.value.posts.map((p) => (
                   <li data-post-id={p.id}>{p.title}</li>
                 ))}
               </ul>
@@ -42,9 +42,9 @@ export const AsyncUserPage = Component.make(function* (props: {
               <p class="empty">No posts yet.</p>
             )}
           </div>
-        ))
-        .onFailure((cause) => <p class="error">error: {Cause.pretty(cause)}</p>)
-        .exhaustive()}
+        )}
+        Failure={(f) => <p class="error">error: {Cause.pretty(f.cause)}</p>}
+      />
     </article>
   )
 })
