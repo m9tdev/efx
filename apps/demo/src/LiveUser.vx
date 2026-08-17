@@ -1,6 +1,6 @@
 import { Cause } from "effect"
-import { AsyncResult, Atom } from "effect/unstable/reactivity"
-import { atom, Component } from "@verrex/core"
+import { Atom } from "effect/unstable/reactivity"
+import { atom, Component, MatchTags } from "@verrex/core"
 import { Http } from "./services.ts"
 
 /**
@@ -31,18 +31,21 @@ export const LiveUser = Component.make(function* () {
         <button onclick={() => Atom.set(userId, "7")}>Grace (7)</button>
         <button onclick={() => Atom.set(userId, "999")}>Bad id</button>
       </div>
-      {AsyncResult.builder(get(user))
-        .onInitialOrWaiting(() => <span class="loading"> loading…</span>)
-        .onSuccess((user) => (
-          <div class="user-card">
-            <strong>{user.name}</strong>
-            {user.bio && <p class="bio">{user.bio}</p>}
-          </div>
-        ))
-        .onFailure((cause) => (
-          <span class="error">error: {Cause.pretty(cause)}</span>
-        ))
-        .exhaustive()}
+      <MatchTags on={user}>
+        {{
+          Initial: () => <span class="loading"> loading…</span>,
+          Success: (s) => (
+            <div class="user-card">
+              <strong>{s.value.name}</strong>
+              {s.value.bio && <p class="bio">{s.value.bio}</p>}
+            </div>
+          ),
+          // A function Failure handles everything at the leaf → View<never>.
+          Failure: (f) => (
+            <span class="error">error: {Cause.pretty(f.cause)}</span>
+          ),
+        }}
+      </MatchTags>
     </div>
   )
 })

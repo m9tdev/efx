@@ -47,6 +47,23 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   the runtime `Scope` folds. Pinned by `testing/for.test.ts` (both sources,
   DOM identity across moves, Equal-dedup = 0 cell recompute, row Scope
   release, channel pins).
+- `MatchTags` — `<MatchTags on={x}>{{ Tag: (v) => …, … }}</MatchTags>`
+  (`match-tags.ts`): render a tagged value — or an atom/ref of one — by tag,
+  with FAILURES BUBBLING BY DEFAULT. Generic over anything `_tag`ged
+  (`Option`, `Result`, `AsyncResult`, `Exit`, a `Data.TaggedEnum` state
+  union). Every tag handler is optional (missing → nothing) EXCEPT a
+  failure-carrying variant (`{ _tag: "Failure"; cause }` or `{ …; failure }`
+  — the only two special-cased shapes): unhandled, it escalates as
+  `View<E>`; `Failure` takes a function (all handled → `never`) or a TAG MAP
+  over the error's tags (leaf-handled, residual `Exclude<E, {_tag}>` rides
+  to the nearest `Catch`). Interrupt-only causes are dropped. Handler
+  returns fold (E live, R). Runtime: one `Atom.readable` (reads `on`,
+  bridging a ref) whose emission is the handler result or an
+  `Effect.failCause` — the fold's phase switch types it. This is the old
+  `Async` arms default generalized to any tagged value, with no matching API
+  of its own; the explicit alternatives (`AsyncResult.builder`,
+  `Match.valueTags`) stay first-class for custom states. Pinned by
+  `testing/match-tags.test.ts`.
 - `Catch` — view-level error boundary (one overloaded helper: function 2nd-arg = catch-all, object 2nd-arg = tag-selective; mirrors `Effect.catch*`; see "`Catch`" below)
 - `Fragment` — `<>...</>` compile target (a direct-call component since
   #71: `Fragment({ children: [...] })`, generic over the children tuple —

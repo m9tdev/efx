@@ -15,6 +15,11 @@ import { type BoundaryState, View } from "./View.ts"
 
 export * as Component from "./Component.ts"
 export { get, type Get, h } from "./h.ts"
+export {
+  MatchTags,
+  type Residual as MatchResidual,
+  type TagHandlers as MatchTagHandlers,
+} from "./match-tags.ts"
 export { atom, fn, type Fn, type AtomOptions, type FnOptions } from "./atom.ts"
 export { mount, RootSink } from "./mount.ts"
 export { type Props, View } from "./View.ts"
