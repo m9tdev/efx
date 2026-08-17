@@ -116,16 +116,52 @@ const runHandlerEffect = (
   deps: HandlerDeps,
 ): void => {
   const dispatchScope = Scope.forkUnsafe(deps.ownerScope, "sequential")
-  Effect.runForkWith(deps.context)(
-    Effect.forkIn(
-      Effect.onExit(Scope.use(effect, dispatchScope), (exit) =>
-        Effect.sync(() => {
-          if (Exit.isFailure(exit)) deps.sink(exit.cause)
-        }),
+  // BATCHING (docs/reactivity-migration.md step 1): the handler's SYNCHRONOUS
+  // prefix runs inside `Atom.batch`, so a write that fans out through the
+  // registry graph (a diamond `a → b, a → c, d = b + c`) recomputes `d` once
+  // and writes the DOM once. Two load-bearing details:
+  // - `startImmediately: true` — without it `forkIn` schedules the fiber on
+  //   the dispatcher and the batch closes before a single write runs (the
+  //   batch would cover nothing).
+  // - only when no batch is open (`batchState.depth === 0`). `Registry.batch`
+  //   does not restore the previous phase in `finally`: a batch opened while
+  //   an outer batch is COMMITTING flips the phase back to `collect` and the
+  //   invalidations it records are never rebuilt (dependents freeze until
+  //   read). A handler dispatched synchronously inside a notify (an emission
+  //   that focuses an input, say) is exactly that case, so we skip our batch
+  //   and let the outer one collect the writes. Effect's own `fn` writes
+  //   batch internally too; those nest fine (depth > 1 keeps collecting).
+  // Writes after the first suspension (`yield* sleep`), from atom bodies,
+  // streams or timers stay unbatched — accepted until upstream `batch` saves/
+  // restores its phase.
+  batchIfIdle(() =>
+    Effect.runForkWith(deps.context)(
+      Effect.forkIn(
+        Effect.onExit(Scope.use(effect, dispatchScope), (exit) =>
+          Effect.sync(() => {
+            if (Exit.isFailure(exit)) deps.sink(exit.cause)
+          }),
+        ),
+        deps.ownerScope,
+        { startImmediately: true },
       ),
-      deps.ownerScope,
     ),
   )
+}
+
+// `batchState` is exported from the registry module at runtime but marked
+// `@internal` (absent from the .d.ts), hence the loose read. If a future
+// effect stops exporting it we fall back to "never batch" rather than risk
+// the nested-commit corruption above.
+const registryBatchState = (
+  AtomRegistry as unknown as { batchState?: { depth: number } }
+).batchState
+const batchIfIdle = (f: () => void): void => {
+  if (registryBatchState !== undefined && registryBatchState.depth === 0) {
+    Atom.batch(f)
+  } else {
+    f()
+  }
 }
 
 // Subscribe to a ref and register the unsubscribe as a finalizer on the

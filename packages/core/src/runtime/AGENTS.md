@@ -734,6 +734,19 @@ the node-scoped `BuildCtx` for the DYNAMIC-render variants that go through
 is a per-context cache that stays paired with `context` — only mount-root and
 `withContext` set it), `SyncRunner` (coerce.ts), the per-variant `context`
 docs in View.ts.
+**Handler dispatch is batched (sync prefix only).** `runHandlerEffect`
+runs the fiber with `forkIn(…, { startImmediately: true })` inside
+`Atom.batch`, so a handler write fanning through the registry graph (a
+diamond `a → b, a → c, d = b + c`) recomputes `d` once — pinned by
+`testing/handler-batch.test.ts` (2 → 1 recomputes; no glitch value). Two
+rules: `startImmediately` is load-bearing (without it the fiber starts on the
+dispatcher after the batch closed), and the batch opens ONLY when none is
+open (`batchState.depth === 0`, an `@internal` runtime export read loosely) —
+`Registry.batch` does not restore its phase in `finally`, so a batch opened
+during an outer batch's COMMIT strands invalidations. Writes past the first
+suspension, from atom bodies, streams or timers stay unbatched (see
+`docs/reactivity-migration.md`).
+
 **Handler-scope semantics (#160/#161) — the canonical statement; code
 comments point here.** A dispatch has two lifetimes:
 

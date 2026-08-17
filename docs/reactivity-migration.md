@@ -13,11 +13,11 @@ to the atom it builds; `R` rides the component's Effect to `mount`.
 
 Rejected on the way (see spikes in the agent worktrees `spikes/{c,d,e}-*`):
 
-| Option | Why not |
-| --- | --- |
-| C — own signal core | Solves nothing the atom API does not, and verrex would own a scheduler. Contradicts "be effect-atom". |
-| D — fiber/Stream per hole | Joins (`zipLatest`) land on `setImmediate`; diamonds glitch; a fiber per hole (cost unmeasured). |
-| E — keys/cache/`Reactivity` now | Deferred. Later it is `Atom.family` + `Reactivity`, no new concept. |
+| Option                          | Why not                                                                                               |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| C — own signal core             | Solves nothing the atom API does not, and verrex would own a scheduler. Contradicts "be effect-atom". |
+| D — fiber/Stream per hole       | Joins (`zipLatest`) land on `setImmediate`; diamonds glitch; a fiber per hole (cost unmeasured).      |
+| E — keys/cache/`Reactivity` now | Deferred. Later it is `Atom.family` + `Reactivity`, no new concept.                                   |
 
 ## New public surface (`@verrex/core`)
 
@@ -73,19 +73,27 @@ Two rules in the implementation:
 
 ```ts
 type Own = Scope.Scope | AtomRegistry.AtomRegistry
-const under = (ctx: Context.Context<never>) => (own: Context.Context<Own>) => Context.merge(ctx, own) // own wins
+const under = (ctx: Context.Context<never>) => (own: Context.Context<Own>) =>
+  Context.merge(ctx, own) // own wins
 export const atom = (arg, opts) =>
   Effect.gen(function* () {
     const ctx = yield* Effect.context()
     // branch per arg kind — a union argument does not resolve Atom.make's overloads
-    const a = Effect.isEffect(arg) ? Atom.make(Effect.updateContext(arg, under(ctx)), opts)
-      : Stream.isStream(arg)       ? Atom.make(Stream.updateContext(arg, under(ctx)), opts)
-      : Atom.make((get) => { const r = arg(get); return Effect.isEffect(r)
-          ? Effect.updateContext(r, under(ctx)) : Stream.updateContext(r, under(ctx)) }, opts)
+    const a = Effect.isEffect(arg)
+      ? Atom.make(Effect.updateContext(arg, under(ctx)), opts)
+      : Stream.isStream(arg)
+        ? Atom.make(Stream.updateContext(arg, under(ctx)), opts)
+        : Atom.make((get) => {
+            const r = arg(get)
+            return Effect.isEffect(r)
+              ? Effect.updateContext(r, under(ctx))
+              : Stream.updateContext(r, under(ctx))
+          }, opts)
     yield* Atom.mount(a)
     return a
   })
 ```
+
 (`own` MUST be annotated — unannotated it infers `unknown` and poisons `R`;
 verified with tsc.) Timing: registry node disposal is scheduled on the
 dispatcher; `mount` passes `scheduleTask: queueMicrotask` so "row removed →
@@ -134,7 +142,7 @@ origin. What changes is how live errors reach it:
   escalate by emitting an Effect: `.onFailure(Effect.failCause)` (or with
   `AsyncResult.match`: `onFailure: (f) => Effect.failCause(f.cause)` — `match`
   hands a `Failure`, not a `Cause`). The atom then emits `View | Effect<never,
-  E>`; the fold puts `E` on `View<E>` → nearest `Catch`. Partial handling
+E>`; the fold puts `E` on `View<E>` → nearest `Catch`. Partial handling
   narrows `E`; the residual rides. `h` has NO `AsyncResult` special case; this
   is `Async`'s job done by plain Effect, so `Async` is deleted.
 - Fold rule (verified necessary): today `ChildE<Atom<Effect<_,E>>> = E`
@@ -146,7 +154,7 @@ origin. What changes is how live errors reach it:
   `Atom.refresh(x)`.
 - THE idiom for "handle some, bubble the rest" is Effect's own builder:
   `AsyncResult.builder(r).onInitialOrWaiting(…).onErrorTag("NotFound", …)
-  .onSuccess(…).onFailure(Effect.failCause).exhaustive()` — `onErrorTag`
+.onSuccess(…).onFailure(Effect.failCause).exhaustive()` — `onErrorTag`
   narrows `E` like `Effect.catchTag`, `onFailure` receives the residual
   `Cause<E>`, `exhaustive()` type-checks completeness. Never `.render()` (it
   throws the squashed cause, bypassing the typed channel).
@@ -173,6 +181,7 @@ const user   = yield* atom((get) => http.getUser(get(userId)))
 ```
 
 Compiler rule (name-based, the same size as today's `.value` pass):
+
 - A JSX expression (child, or non-`on*` prop) containing a top-level
   `get(…)` call → `Atom.readable((get) => expr)`. No `get` → untouched
   (static; generics survive, purely syntactically).
@@ -208,7 +217,7 @@ name injection stays semantic (name-matched, alias-defeated, fails soft).
 **Risk kept, not solved (mechanism verified in a scratch test):**
 `AtomRegistry.invalidateChildren` swaps the children Set and iterates; a
 throwing read (`name = Atom.readable((get) => get(user)!.name)` while `user`
-is null) aborts that loop, and the *remaining siblings* (`status =
+is null) aborts that loop, and the _remaining siblings_ (`status =
 Atom.map(user, …)`) are dropped from the parent's children FOREVER — they
 never update again, even on later writes or direct reads. The thrower itself
 recovers (its edge was registered before the throw), and the exception
@@ -235,19 +244,19 @@ only". Upstream issue: `batch` should save/restore `phase`.
 
 ## Invariant changes (update `runtime/AGENTS.md`)
 
-| Today | After |
-| --- | --- |
-| The registry never executes user Effects. | The registry executes user Effects only with `R` already provided from the constructing context. Types enforce it (`Atom.make` requires `R ⊆ Scope \| AtomRegistry`). |
-| `asyncRef` uses `makeDepSubscription`. | Deleted. |
-| Track/read dance, run-twice, throwing-thunk, empty-deps early return | Deleted with `h.track`/`h.read`. |
-| Diamond: 2 recomputes (measured in spike E) | Handler dispatch: `forkIn(…, { startImmediately: true })` inside `Atom.batch`, guarded by `batchState.depth === 0` → 1 for the handler's synchronous writes. Emissions/timers/streams: unbatched (accepted; upstream `batch` fix first). |
-| Registry node disposal timing | `mount` creates the registry with `scheduleTask: queueMicrotask` (default is `setImmediate`): a removed row's atom fibers are interrupted after one microtask, before the next paint. Never synchronous (removal may run inside a notify). Tests `await` a microtask. |
-| Mount owns the registry | Unchanged. |
+| Today                                                                | After                                                                                                                                                                                                                                                                 |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The registry never executes user Effects.                            | The registry executes user Effects only with `R` already provided from the constructing context. Types enforce it (`Atom.make` requires `R ⊆ Scope \| AtomRegistry`).                                                                                                 |
+| `asyncRef` uses `makeDepSubscription`.                               | Deleted.                                                                                                                                                                                                                                                              |
+| Track/read dance, run-twice, throwing-thunk, empty-deps early return | Deleted with `h.track`/`h.read`.                                                                                                                                                                                                                                      |
+| Diamond: 2 recomputes (measured in spike E)                          | Handler dispatch: `forkIn(…, { startImmediately: true })` inside `Atom.batch`, guarded by `batchState.depth === 0` → 1 for the handler's synchronous writes. Emissions/timers/streams: unbatched (accepted; upstream `batch` fix first).                              |
+| Registry node disposal timing                                        | `mount` creates the registry with `scheduleTask: queueMicrotask` (default is `setImmediate`): a removed row's atom fibers are interrupted after one microtask, before the next paint. Never synchronous (removal may run inside a notify). Tests `await` a microtask. |
+| Mount owns the registry                                              | Unchanged.                                                                                                                                                                                                                                                            |
 
 ## Steps (one PR each, `packages/core` only unless noted)
 
 1. **Batch handler writes** — `runHandlerEffect`: `Effect.forkIn(eff, scope,
-   { startImmediately: true })` wrapped in `Atom.batch` ONLY when
+{ startImmediately: true })` wrapped in `Atom.batch` ONLY when
    `batchState.depth === 0` (internal export in `AtomRegistry.ts`). Never
    wrap emissions. Test: diamond `d = b + c` recomputes once from a handler
    write; nested-batch-in-commit regression pin. No API change.
@@ -275,7 +284,7 @@ only". Upstream issue: `batch` should save/restore `phase`.
    (`.onFailure(Effect.failCause)`). Keep `Async` as a deprecated wrapper
    until the demo migrates (step 6), then delete. Pin the fold; update README
    "honest scope" (the reactive-re-render hole is closed).
-4b. **Lists: `<For>`** (replaces `list`). Two layers, shippable separately:
+   4b. **Lists: `<For>`** (replaces `list`). Two layers, shippable separately:
    - (i) Mechanism (mount): a keyed-list IR node (today's `List`, generalised)
      reconciled with `reconcile.plan` + per-row `Scope`. INTERNAL to `For`:
      there is no `key` prop on elements (a React-ism; would be the one
@@ -303,12 +312,12 @@ only". Upstream issue: `batch` should save/restore `phase`.
      unchanged item = 0 DOM writes; family entries are WeakRef'd and released
      one tick after the row's DOM unsubscribes. Sources: `Atom.make`, `atom(...)`,
      `Atom.pull` (paging), `Atom.readable`. `<Index>` later if needed.
-   Known ergonomic gap: ref rows have `row.prop("title")`, atom rows need
-   `Atom.map(row, (x) => x.title)`. Propose `Atom.prop` upstream (mirror of
-   `AtomRef.prop`, `map` + `withEquality`); no verrex helper.
-   Tests: keyed insert/move/remove for both sources, unchanged-row zero
-   writes, row atom released on removal, `Atom.pull` source, E/R fold of the row renderer onto `For`. Drop `list` and
-   the compiler `.map → list` sugar (step 5).
+     Known ergonomic gap: ref rows have `row.prop("title")`, atom rows need
+     `Atom.map(row, (x) => x.title)`. Propose `Atom.prop` upstream (mirror of
+     `AtomRef.prop`, `map` + `withEquality`); no verrex helper.
+     Tests: keyed insert/move/remove for both sources, unchanged-row zero
+     writes, row atom released on removal, `Atom.pull` source, E/R fold of the row renderer onto `For`. Drop `list` and
+     the compiler `.map → list` sugar (step 5).
 5. **Compiler + runtime deletions (one PR)** — replace `.value → h.read` +
    `h.track` wrap with the `get(…)` → `Atom.readable((get) => …)` wrap
    (+ nested-function compile error); remove `isSelfTrackingCall`,
