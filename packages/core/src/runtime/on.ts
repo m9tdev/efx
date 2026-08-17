@@ -4,7 +4,7 @@ import { bridgeAtom, isAtomRef } from "./coerce.ts"
 import type { ChildE, ChildLiveE, ChildR } from "./types/Fold.ts"
 import type { View } from "./View.ts"
 
-// `<MatchTags on={x} Tag={(v) => …} … />` — render a tagged value (or an
+// `<On value={x} Tag={(v) => …} … />` — render a tagged value (or an
 // atom/ref of one) by tag, with FAILURES BUBBLING BY DEFAULT.
 // Works for anything `_tag`ged: Option (Some/None), Result, AsyncResult, Exit,
 // a `Data.TaggedEnum` state union. Every tag handler is optional (missing →
@@ -52,7 +52,7 @@ type FailureTagMap<E, F> = {
 type HasWaiting<T> = T extends { readonly waiting: boolean } ? true : never
 
 /**
- * The arms, as PROPS of `<MatchTags on={…} Tag={…} />`: one optional function
+ * The arms, as PROPS of `<On value={…} Tag={…} />`: one optional function
  * per tag (missing → nothing); `Failure` may be a tag map; `Waiting` (only
  * for waiting-capable values) wins over the tag arms while `waiting` is true
  * — `builder.onWaiting` semantics — and covers the first fetch too
@@ -84,33 +84,33 @@ export type Residual<T, H> = [FailureError<T>] extends [never]
 
 /** Handler returns (views, Effects) fold like any reactive emission: E is LIVE, R folds. */
 type HandlerRet<H> = {
-  // `on` is not an arm (a callable `Fn` there would otherwise fold its R).
-  [K in Exclude<keyof H, "on">]: H[K] extends (...args: any) => infer R
+  // `value` is not an arm (a callable `Fn` there would otherwise fold its R).
+  [K in Exclude<keyof H, "value">]: H[K] extends (...args: any) => infer R
     ? R
     : H[K] extends Record<string, (...args: any) => infer R>
       ? R
       : never
-}[Exclude<keyof H, "on">]
+}[Exclude<keyof H, "value">]
 type HandlersLiveE<H> = ChildE<HandlerRet<H>> | ChildLiveE<HandlerRet<H>>
 type HandlersR<H> = ChildR<HandlerRet<H>>
 
 /**
  * ```tsx
- * <MatchTags on={user}
+ * <On value={user}
  *   Waiting={() => "loading"}
  *   Success={(s) => s.value.name}
  *   Failure={{ HttpError: (e) => e.message }}   // RateLimited bubbles: View<RateLimited>
  * />
- * <MatchTags on={selected} Some={(o) => <b>{o.value}</b>} />   // None → nothing
+ * <On value={selected} Some={(o) => <b>{o.value}</b>} />   // None → nothing
  * ```
  */
-export function MatchTags<T extends Tagged, const H extends TagHandlers<T>>(
-  props: { readonly on: T | Atom.Atom<T> | AtomRef.ReadonlyRef<T> } & H,
+export function On<T extends Tagged, const H extends TagHandlers<T>>(
+  props: { readonly value: T | Atom.Atom<T> | AtomRef.ReadonlyRef<T> } & H,
 ): Effect.Effect<View<Residual<T, H> | HandlersLiveE<H>>, never, HandlersR<H>>
-export function MatchTags(
-  props: { readonly on: unknown } & Record<string, unknown>,
+export function On(
+  props: { readonly value: unknown } & Record<string, unknown>,
 ): Effect.Effect<View<any>, never, any> {
-  const { on, ...handlers } = props
+  const { value: on, ...handlers } = props
   assertHandlers(handlers)
   const failure = handlers["Failure"]
   const waiting = handlers["Waiting"]
@@ -183,7 +183,7 @@ const assertHandlers = (handlers: Record<string, unknown>): void => {
   const proto = Object.getPrototypeOf(handlers)
   if (proto !== Object.prototype && proto !== null) {
     throw new TypeError(
-      "MatchTags: handlers must be a plain object — handlers on a prototype (class instance) never dispatch (#91)",
+      "On: arms must be a plain object — handlers on a prototype (class instance) never dispatch (#91)",
     )
   }
   for (const key of Object.keys(handlers)) {
@@ -193,14 +193,14 @@ const assertHandlers = (handlers: Record<string, unknown>): void => {
       for (const t of Object.keys(v as object)) {
         if (typeof (v as Record<string, unknown>)[t] !== "function") {
           throw new TypeError(
-            `MatchTags: Failure tag-map handler "${t}" is not a function — its tag was discharged from the type but would never dispatch (#91)`,
+            `On: Failure tag-map handler "${t}" is not a function — its tag was discharged from the type but would never dispatch (#91)`,
           )
         }
       }
       continue
     }
     throw new TypeError(
-      `MatchTags: handler "${key}" is not a function — its tag was discharged from the type but would never dispatch (#91)`,
+      `On: handler "${key}" is not a function — its tag was discharged from the type but would never dispatch (#91)`,
     )
   }
 }

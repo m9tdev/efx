@@ -1,6 +1,6 @@
 import { Cause, Data, Effect } from "effect"
 import { Atom } from "effect/unstable/reactivity"
-import { atom, Catch, Component, MatchTags } from "@verrex/core"
+import { atom, Catch, Component, On } from "@verrex/core"
 import { Http, type User } from "./services.ts"
 
 /**
@@ -12,7 +12,7 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
 }> {}
 
 /**
- * Failure homes (step 08) — **`MatchTags` picks where
+ * Failure homes (step 08) — **`On` picks where
  * each error lives, per call site and per tag** — built on **`atom`**: each
  * block's data is an `Atom<AsyncResult<User, HttpError | RateLimited>>`
  * created in the component body, OUTSIDE the boundaries, then rendered via
@@ -134,8 +134,8 @@ export const AsyncEscalate = Component.make(function* () {
       <pre class="req-log">{reqLog}</pre>
       {Catch(
         <section class="content">
-          <MatchTags
-            on={tagUser}
+          <On
+            value={tagUser}
             Waiting={() => <span class="loading">loading…</span>}
             Success={(s) => (
               <div class="user-card">
@@ -145,7 +145,7 @@ export const AsyncEscalate = Component.make(function* () {
             )}
             // Handled at the leaf: the atom stays live, so another id
             // recovers without any reset; retry is Atom.refresh(tagUser).
-            // Anything else (RateLimited) BUBBLES — MatchTags escalates
+            // Anything else (RateLimited) BUBBLES — On escalates
             // unhandled failures by default: View<RateLimited>.
             Failure={{
               HttpError: (e) => (
@@ -186,8 +186,8 @@ export const AsyncEscalate = Component.make(function* () {
       {Catch(
         <section class="contrast">
           {/* No Failure arm at all: EVERY failure bubbles to the catch-all. */}
-          <MatchTags
-            on={openUser}
+          <On
+            value={openUser}
             Waiting={() => <span class="loading">loading…</span>}
             Success={(s) => <strong class="open-ok">{s.value.name}</strong>}
           />

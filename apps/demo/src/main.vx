@@ -192,7 +192,7 @@ const App = (
         step: "03",
         title: "Async data as an atom (non-blocking)",
         concept:
-          "Same fetch as an atom: atom(effect) runs it on its own fiber and hands back Atom<AsyncResult<User, HttpError>> — the state of the Effect. A pending placeholder shows immediately; the failure is rendered at the leaf (a function Failure arm), so E is discharged to never. Http still folds into R — a forgotten Layer is still a compile error. AtomRegistry | Scope are the atom's own contribution: it is mounted on the component's Scope, so the fetch is interrupted when that scope closes — here the demo scope, so reset cancels an in-flight fetch. <MatchTags on={user} Waiting Success Failure /> renders the states by tag, arms as props: every arm is optional, Waiting wins while a fetch is in flight, and an unhandled failure would bubble by default (View<E>).",
+          "Same fetch as an atom: atom(effect) runs it on its own fiber and hands back Atom<AsyncResult<User, HttpError>> — the state of the Effect. A pending placeholder shows immediately; the failure is rendered at the leaf (a function Failure arm), so E is discharged to never. Http still folds into R — a forgotten Layer is still a compile error. AtomRegistry | Scope are the atom's own contribution: it is mounted on the component's Scope, so the fetch is interrupted when that scope closes — here the demo scope, so reset cancels an in-flight fetch. <On value={user} Waiting Success Failure /> renders the states by tag, arms as props: every arm is optional, Waiting wins while a fetch is in flight, and an unhandled failure would bubble by default (View<E>).",
         type: "Effect<View, never, Http | AtomRegistry | Scope>",
         code: `export const AsyncUserPage = Component.make(function* (props: {
   userId: string
@@ -202,8 +202,8 @@ const App = (
 
   return yield* (
     <article>
-      <MatchTags
-        on={user}
+      <On
+        value={user}
         Waiting={() => <p>loading…</p>}
         Success={(s) => <h1>{s.value.name}</h1>}   // s.value: User (inferred)
         Failure={() => <p>failed</p>}              // handled at the leaf
@@ -221,7 +221,7 @@ const App = (
         step: "04",
         title: "Async, auto-tracking (deps discovered)",
         concept:
-          "The atom's create function reads get(userId), so the id is a tracked dependency and the fetch re-runs whenever it changes — interrupting the stale request. Deps are discovered, not declared: no key array. Pending and failure are AsyncResult values, rendered by tag with <MatchTags on={user} Waiting Success Failure /> — every arm optional, Waiting wins while a fetch is in flight, a function Failure handles all failures here. Click the buttons (Atom.set) to refetch.",
+          "The atom's create function reads get(userId), so the id is a tracked dependency and the fetch re-runs whenever it changes — interrupting the stale request. Deps are discovered, not declared: no key array. Pending and failure are AsyncResult values, rendered by tag with <On value={user} Waiting Success Failure /> — every arm optional, Waiting wins while a fetch is in flight, a function Failure handles all failures here. Click the buttons (Atom.set) to refetch.",
         type: "Effect<View, never, Http | AtomRegistry | Scope>",
         code: `export const LiveUser = Component.make(function* () {
   const userId = Atom.make("42")
@@ -232,7 +232,7 @@ const App = (
     <div>
       <button onclick={() => Atom.set(userId, "7")}>Grace</button>
 
-      <MatchTags on={user}
+      <On value={user}
         Waiting={() => <span>loading…</span>}
         Success={(s) => <strong>{s.value.name}</strong>}
         Failure={() => <span>not found</span>}   // a function: handled here → View<never>
@@ -336,7 +336,7 @@ const App = (
         step: "08",
         title: "Failure homes: leaf, page, or split by tag",
         concept:
-          "Each block's data is an atom — Atom<AsyncResult<User, HttpError | RateLimited>>, created in the component body and rendered by tag with <MatchTags on={…}> — so the data outlives the views: an escalated block keeps tracking userId (get(userId) in its create fn), and Atom.refresh works from anywhere (the spam button is literally Atom.refresh(tagUser) ×3). MatchTags picks where each error lives: HttpError is handled at the leaf via the Failure tag map (the banner's retry IS Atom.refresh; the Waiting arm shows in flight), while any OTHER failure BUBBLES BY DEFAULT — the residual is typed like catchTag narrows, View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfterMs typed). Deleting that Catch names RateLimited, and only RateLimited. The open form below handles nothing at the leaf: EVERY failure rides View<HttpError | RateLimited> to a catch-all. A boundary reset re-renders the atom's CURRENT state without refetching, so the banners compose Atom.refresh + reset. The rate limit is real (2 req/s across both atoms) and the request log narrates every request: budget verdict, outcome, and stale runs interrupted by newer refetches. Hit spam ×3 and watch the third request 429 in the log AND ride to the page banner — your id selection survives.",
+          "Each block's data is an atom — Atom<AsyncResult<User, HttpError | RateLimited>>, created in the component body and rendered by tag with <On value={…}> — so the data outlives the views: an escalated block keeps tracking userId (get(userId) in its create fn), and Atom.refresh works from anywhere (the spam button is literally Atom.refresh(tagUser) ×3). On picks where each error lives: HttpError is handled at the leaf via the Failure tag map (the banner's retry IS Atom.refresh; the Waiting arm shows in flight), while any OTHER failure BUBBLES BY DEFAULT — the residual is typed like catchTag narrows, View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfterMs typed). Deleting that Catch names RateLimited, and only RateLimited. The open form below handles nothing at the leaf: EVERY failure rides View<HttpError | RateLimited> to a catch-all. A boundary reset re-renders the atom's CURRENT state without refetching, so the banners compose Atom.refresh + reset. The rate limit is real (2 req/s across both atoms) and the request log narrates every request: budget verdict, outcome, and stale runs interrupted by newer refetches. Hit spam ×3 and watch the third request 429 in the log AND ride to the page banner — your id selection survives.",
         type: "Effect<View, never, Http | AtomRegistry | Scope>",
         code: `// fetchUser: (id) => Effect<User, HttpError | RateLimited, AtomRegistry>
 // — a REAL sliding-window limiter: >2 req/s fails with RateLimited
@@ -347,7 +347,7 @@ const tagUser = yield* atom((get) => fetchUser(get(userId)))
 
 {Catch(
   <section>
-    <MatchTags on={tagUser}
+    <On value={tagUser}
       Waiting={() => <span>loading…</span>}
       Success={(s) => <strong>{s.value.name}</strong>}
       // handled at the leaf — retry IS Atom.refresh(tagUser);
@@ -409,7 +409,7 @@ const tagUser = yield* atom((get) => fetchUser(get(userId)))
         step: "10",
         title: "Pending → run → settle (the state of a function call)",
         concept:
-          "The standard mutation pattern, as fn: save(id) runs the body on the fn's own fiber and get(save) is its AsyncResult. Waiting swaps the buttons for a spinner — the clicked element is gone while the 600ms Http call runs — and success settles back to the buttons (saved += 1). The fn is mounted on the component's Scope: tear it down (↻ reset while saving) and the in-flight call is interrupted — no leak, no stale write. save (fails) shows the corollary: MatchTags has no Failure arm, so the failure bubbles by default — the typed HttpError rides the live channel to the Catch. The fn's R (Http) rides the component like any atom's.",
+          "The standard mutation pattern, as fn: save(id) runs the body on the fn's own fiber and get(save) is its AsyncResult. Waiting swaps the buttons for a spinner — the clicked element is gone while the 600ms Http call runs — and success settles back to the buttons (saved += 1). The fn is mounted on the component's Scope: tear it down (↻ reset while saving) and the in-flight call is interrupted — no leak, no stale write. save (fails) shows the corollary: On has no Failure arm, so the failure bubbles by default — the typed HttpError rides the live channel to the Catch. The fn's R (Http) rides the component like any atom's.",
         type: "Effect<View<HttpError>, never, Http | AtomRegistry | Scope>",
         code: `const Saver = Component.make(function* () {
   const saved = Atom.make(0)
@@ -423,8 +423,8 @@ const tagUser = yield* atom((get) => fetchUser(get(userId)))
   return yield* (
     <div>
       <p>saved: <strong>{saved}</strong></p>
-      <MatchTags
-        on={save}
+      <On
+        value={save}
         Waiting={() => <span>saving…</span>}   // hides THIS button
         Initial={() => <button onclick={() => save("42")}>save</button>}
         Success={() => <button onclick={() => save("42")}>save</button>}

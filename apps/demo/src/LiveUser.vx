@@ -1,6 +1,6 @@
 import { Cause } from "effect"
 import { Atom } from "effect/unstable/reactivity"
-import { atom, Component, MatchTags } from "@verrex/core"
+import { atom, Component, On } from "@verrex/core"
 import { Http } from "./services.ts"
 
 /**
@@ -31,8 +31,8 @@ export const LiveUser = Component.make(function* () {
         <button onclick={() => Atom.set(userId, "7")}>Grace (7)</button>
         <button onclick={() => Atom.set(userId, "999")}>Bad id</button>
       </div>
-      <MatchTags
-        on={user}
+      <On
+        value={user}
         Waiting={() => <span class="loading"> loading…</span>}
         Success={(s) => (
           <div class="user-card">

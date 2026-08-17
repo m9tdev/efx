@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { Atom } from "effect/unstable/reactivity"
-import { Catch, Component, fn, MatchTags } from "@verrex/core"
+import { Catch, Component, fn, On } from "@verrex/core"
 import { Http } from "./services.ts"
 
 // #160/#161: the pending → run → settle mutation pattern, as `fn` — the
@@ -40,8 +40,8 @@ const Saver = Component.make(function* () {
       <p>
         saved: <strong class="saved">{saved}</strong>
       </p>
-      <MatchTags
-        on={save}
+      <On
+        value={save}
         Waiting={() => <span class="saving">saving…</span>}
         // Initial and Success (settled) both show the buttons; a failure has
         // no arm here → HttpError bubbles (live channel) to the Catch.

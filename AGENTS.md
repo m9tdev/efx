@@ -95,7 +95,7 @@ editor plugin is the one separate package, because tsserver resolves Language
 Service plugins only by bare package name.
 
 - **[`src/runtime/`](./packages/core/src/runtime/AGENTS.md)** — export `@verrex/core`. `h`,
-  `mount`, `atom`, `fn`, `get`, `For`, `MatchTags`, `Catch`, `Fragment`, `Component.make`, the
+  `mount`, `atom`, `fn`, `get`, `For`, `On`, `Catch`, `Fragment`, `Component.make`, the
   View IR (mount switches on it), channel-fold types. The thing components
   import from.
 - **[`src/compiler/`](./packages/core/src/compiler/AGENTS.md)** — export

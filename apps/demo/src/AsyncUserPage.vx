@@ -1,5 +1,5 @@
 import { Cause } from "effect"
-import { atom, Component, MatchTags } from "@verrex/core"
+import { atom, Component, On } from "@verrex/core"
 import { Http } from "./services.ts"
 
 /**
@@ -10,7 +10,7 @@ import { Http } from "./services.ts"
  * extracted in the component body, so it folds into `R` (a forgotten Layer
  * is still a compile error); `AtomRegistry | Scope` are the atom's own
  * contribution (mounted on the component's Scope, so ↻ reset interrupts an
- * in-flight fetch). `<MatchTags on={user} …/>` renders the three
+ * in-flight fetch). `<On value={user} …/>` renders the three
  * states as values; `.onFailure` handles the failure at the leaf — never
  * thrown, never folded to `E` — and `exhaustive()` type-checks that every
  * case is covered.
@@ -25,8 +25,8 @@ export const AsyncUserPage = Component.make(function* (props: {
 
   return yield* (
     <article class="async-user-page">
-      <MatchTags
-        on={user}
+      <On
+        value={user}
         Waiting={() => <p class="loading"> loading user…</p>}
         Success={(s) => (
           <div class="user-body">

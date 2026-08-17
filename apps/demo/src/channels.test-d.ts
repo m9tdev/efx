@@ -21,7 +21,7 @@ import {
   For,
   get,
   h,
-  MatchTags,
+  On,
   mount,
   type View,
 } from "@verrex/core"
@@ -49,7 +49,7 @@ declare function assertEquals<
 type UserPageType = ReturnType<typeof UserPage>
 assertEquals<UserPageType, Effect.Effect<View, HttpError, Http | Theme>>()
 
-// ─── AsyncUserPage: the same fetch as an `atom`. MatchTags handles the
+// ─── AsyncUserPage: the same fetch as an `atom`. On handles the
 //     failure locally (`.onFailure(view)`), so E is `never`; Http still folds
 //     (the atom runs on the component's context), plus `AtomRegistry | Scope`
 //     from `atom` (mounted on the component's Scope; mount discharges the
@@ -97,7 +97,7 @@ assertEquals<
 //     (`atom((get) => http.getUser(get(userId)))`). Because the service is
 //     extracted up front (`const http = yield* Http`) and the atom runs on the
 //     component's context (not a baked Atom.runtime), `Http` stays in R — a
-//     forgotten layer is a compile error. `E` is `never`: MatchTags renders
+//     forgotten layer is a compile error. `E` is `never`: On renders
 //     failure at the leaf rather than escalating it.
 
 type LiveUserType = ReturnType<typeof LiveUser>
@@ -354,7 +354,7 @@ assertEquals<typeof KeyedRows, Effect.Effect<View, never, never>>()
 
 // An Atom child's emitted Effects FOLD `R` (the phase switch keeps E live,
 // #120's rule for arms now applies to whatever an atom emits): a handler
-// inside a MatchTags arm needing a service the fetch does not folds onto the
+// inside a On arm needing a service the fetch does not folds onto the
 // element's requirements — a missing Layer there is the same compile error
 // as anywhere else, not a click-time Service-not-found defect. `Scope` is
 // not folded from emitted Effects (they render under the node scope).
@@ -363,8 +363,8 @@ declare const themedLog: Effect.Effect<void, never, Theme>
 const ArmFoldsR = h(
   "div",
   {},
-  MatchTags({
-    on: userResult,
+  On({
+    value: userResult,
     Success: (s) => h("button", { onclick: () => themedLog }, s.value.name),
   }),
 )
@@ -378,13 +378,13 @@ assertEquals<
   Effect.Effect<View<HttpError>, never, Theme>
 >()
 
-// Every arm folds: waiting, success, failure — whatever MatchTags emits.
+// Every arm folds: waiting, success, failure — whatever On emits.
 declare const themedView: Effect.Effect<View, never, Theme>
 const InitialFoldsR = h(
   "div",
   {},
-  MatchTags({
-    on: userResult,
+  On({
+    value: userResult,
     Waiting: () => themedView,
     Success: (s) => h("p", {}, s.value.name),
     Failure: () => h("p", {}, "err"),
@@ -394,8 +394,8 @@ assertEquals<typeof InitialFoldsR, Effect.Effect<View, never, Theme>>()
 const FailureFoldsR = h(
   "div",
   {},
-  MatchTags({
-    on: userResult,
+  On({
+    value: userResult,
     Success: (s) => h("p", {}, s.value.name),
     Failure: () => themedView,
   }),
@@ -404,8 +404,8 @@ assertEquals<typeof FailureFoldsR, Effect.Effect<View, never, Theme>>()
 const TagArmFoldsR = h(
   "div",
   {},
-  MatchTags({
-    on: userResult,
+  On({
+    value: userResult,
     Success: (s) => h("p", {}, s.value.name),
     Failure: { HttpError: () => themedView },
   }),
@@ -418,8 +418,8 @@ assertEquals<typeof TagArmFoldsR, Effect.Effect<View, never, Theme>>()
 const CondArm = h(
   "div",
   {},
-  MatchTags({
-    on: userResult,
+  On({
+    value: userResult,
     Success: (s) => (flag ? h("p", {}, s.value.name) : themedView),
   }),
 )
@@ -427,8 +427,8 @@ assertEquals<typeof CondArm, Effect.Effect<View<HttpError>, never, Theme>>()
 const CompCondArm = h(
   "div",
   {},
-  MatchTags({
-    on: userResult,
+  On({
+    value: userResult,
     Success: (s) =>
       flag ? UserPage({ userId: s.value.id }) : h("p", {}, s.value.name),
   }),
@@ -670,8 +670,8 @@ mount(
 // tag-map discharges it too, narrowing to View<never>.
 mount(Catch(liveOnly, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
 
-// ─── atom: MatchTags picks the error's home ─────────────────────────────
-//     `atom(effect)` exposes `Atom<AsyncResult<A, E>>`; per site `MatchTags`
+// ─── atom: On picks the error's home ─────────────────────────────
+//     `atom(effect)` exposes `Atom<AsyncResult<A, E>>`; per site `On`
 //     either handles the failure at the leaf (a `Failure` arm → `View<never>`,
 //     nothing for a boundary to see) or — with no `Failure` arm — lets it
 //     BUBBLE BY DEFAULT: the unhandled failure is emitted as `Effect<never, E>`,
@@ -696,7 +696,7 @@ declare const user: Atom.Atom<AsyncResult.AsyncResult<User, HttpError>>
 const OpenAsync = h(
   "p",
   {},
-  MatchTags({ on: user, Success: (s) => h("b", {}, s.value.name) }),
+  On({ value: user, Success: (s) => h("b", {}, s.value.name) }),
 )
 assertEquals<typeof OpenAsync, Effect.Effect<View<HttpError>, never, never>>()
 
@@ -704,8 +704,8 @@ assertEquals<typeof OpenAsync, Effect.Effect<View<HttpError>, never, never>>()
 const HandledAsync = h(
   "p",
   {},
-  MatchTags({
-    on: user,
+  On({
+    value: user,
     Success: (s) => h("b", {}, s.value.name),
     Failure: (f) => {
       const _typed: Cause.Cause<HttpError> = f.cause
@@ -749,8 +749,8 @@ declare const userTwo: Atom.Atom<
 const TagMapAsync = h(
   "p",
   {},
-  MatchTags({
-    on: userTwo,
+  On({
+    value: userTwo,
     Waiting: () => h("i", {}, "…"),
     Success: (s) => h("b", {}, s.value.name),
     Failure: {
@@ -768,15 +768,15 @@ assertEquals<
 >()
 
 // "Nope" is not one of the atom's error tags
-MatchTags({
-  on: userTwo,
+On({
+  value: userTwo,
   // @ts-expect-error — not a tag of HttpError | ParseError
   Failure: { Nope: () => h("p", {}, "x") },
 })
 
 // "Bogus" is not one of the AsyncResult's tags (unknown arm key)
-MatchTags({
-  on: userTwo,
+On({
+  value: userTwo,
   // @ts-expect-error — not a tag of AsyncResult
   Bogus: () => h("p", {}, "x"),
 })
@@ -791,8 +791,8 @@ mount(Catch(TagMapAsync, { ParseError: (e) => h("p", {}, e.message) }), root)
 const TagMapAll = h(
   "p",
   {},
-  MatchTags({
-    on: userTwo,
+  On({
+    value: userTwo,
     Waiting: () => h("i", {}, "…"),
     Success: (s) => h("b", {}, s.value.name),
     Failure: {
@@ -810,8 +810,8 @@ mount(TagMapAll, root)
 const NoFailureArm = h(
   "p",
   {},
-  MatchTags({
-    on: userTwo,
+  On({
+    value: userTwo,
     Waiting: () => h("i", {}, "…"),
     Success: (s) => h("b", {}, s.value.name),
   }),
@@ -852,7 +852,7 @@ assertEquals<
 const SaveState = h(
   "p",
   {},
-  MatchTags({ on: save, Waiting: () => h("i", {}, "saving…") }),
+  On({ value: save, Waiting: () => h("i", {}, "saving…") }),
 )
 assertEquals<typeof SaveState, Effect.Effect<View<HttpError>, never, never>>()
 

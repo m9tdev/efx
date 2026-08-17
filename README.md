@@ -36,10 +36,11 @@ the running component (with a reset button) on the right.
   Expressions read with `get(...)`: `{get(loading) ? <Spinner /> : <Content />}`
   — the compiler lowers it to `h.reader(() => …)` (an `Atom.readable`), one
   word shared with atom bodies. No `get` → the expression stays static.
-- **Errors escalate as values.** `Atom.map(user, (r) => AsyncResult.builder(r)
-.onSuccess(render).onFailure(Effect.failCause).exhaustive())` — the emitted
-  Effect's `E` rides `View<E>` to the nearest `Catch`; handle some tags at the
-  leaf with `.onErrorTag`, the residual still rides.
+- **Errors escalate as values.** `<On value={user} Waiting={…}
+Success={(s) => …} Failure={{ NotFound: (e) => … }} />` renders a tagged
+  value by tag and BUBBLES any unhandled failure — the residual `E` rides
+  `View<E>` to the nearest `Catch`. Works for `Option`, `Result`,
+  `AsyncResult`, `Exit`, your own tagged unions.
 - **Effect-native error boundary.** `Catch(child, (cause, reset) => fallback)` (or
   `Catch(child, { HttpError: … })` for tag-selective) recovers the failure side of
   a view subtree, mirroring Effect's `catch*`. `mount` requires every error
@@ -148,7 +149,7 @@ apps/
 
 | You import from              | What you get                                                                             |
 | ---------------------------- | ---------------------------------------------------------------------------------------- |
-| `@verrex/core`               | `h`, `mount`, `Component`, `atom`, `fn`, `For`, `Catch`, `Fragment`, `View`, `Get`       |
+| `@verrex/core`               | `h`, `get`, `mount`, `Component`, `atom`, `fn`, `For`, `On`, `Catch`, `Fragment`, `View` |
 | `effect`                     | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, … |
 | `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                         |
 

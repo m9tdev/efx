@@ -47,8 +47,8 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   the runtime `Scope` folds. Pinned by `testing/for.test.ts` (both sources,
   DOM identity across moves, Equal-dedup = 0 cell recompute, row Scope
   release, channel pins).
-- `MatchTags` — `<MatchTags on={x} Tag={(v) => …} … />`
-  (`match-tags.ts`): render a tagged value — or an atom/ref of one — by tag,
+- `On` — `<On value={x} Tag={(v) => …} … />`
+  (`on.ts`): render a tagged value — or an atom/ref of one — by tag,
   with FAILURES BUBBLING BY DEFAULT. Generic over anything `_tag`ged
   (`Option`, `Result`, `AsyncResult`, `Exit`, a `Data.TaggedEnum` state
   union). Arms are PROPS. Every tag arm is optional (missing → nothing);
@@ -66,7 +66,7 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   `Async` arms default generalized to any tagged value, with no matching API
   of its own; the explicit alternatives (`AsyncResult.builder`,
   `Match.valueTags`) stay first-class for custom states. Pinned by
-  `testing/match-tags.test.ts`.
+  `testing/on.test.ts`.
 - `Catch` — view-level error boundary (one overloaded helper: function 2nd-arg = catch-all, object 2nd-arg = tag-selective; mirrors `Effect.catch*`; see "`Catch`" below)
 - `Fragment` — `<>...</>` compile target (a direct-call component since
   #71: `Fragment({ children: [...] })`, generic over the children tuple —
