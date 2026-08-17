@@ -168,7 +168,9 @@ const peelTypeWrappers = (expr: t.Expression): t.Expression => {
 const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set([
   "Async",
   "asyncRef",
+  "atom",
   "Catch",
+  "fn",
   "list",
   "streamRef",
 ])

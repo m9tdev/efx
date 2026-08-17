@@ -530,6 +530,15 @@ describe("asyncRef / streamRef calls are not h.track-wrapped", () => {
     expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*streamRef\(/)
   })
 
+  it("leaves atom(...) / fn(...) bare (their get-based bodies are self-tracking)", () => {
+    const out = compile(`
+      import { atom, fn } from "@verrex/core"
+      const x = <div>{atom((get) => client.get(get(id)))}{fn((n) => save(n))}</div>
+    `)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*atom\(/)
+    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*fn\(/)
+  })
+
   it("leaves a `.value`-reading asyncRef(...) bare, keeping h.read", () => {
     const out = compile(`
       const x = <div>{asyncRef(() => client.get(id.value))}</div>
