@@ -28,129 +28,19 @@ export const isHandlerKey = (key: string): boolean =>
  */
 export type ErrorSink = (cause: Cause.Cause<unknown>) => void
 
-// ─── Dependency tracking (shared by h.track and Async) ───────────────────
-//
-// `currentTracker`, when set, collects every ref passed to `readTracked`.
-// `trackDeps(thunk)` runs `thunk` with a fresh collector and returns its
-// result plus the set of refs it read — the low-level primitive both the
-// compiler-driven `h.track` and the `Async` boundary use to learn what to
-// re-run on.
-
-let currentTracker: Set<AtomRef.ReadonlyRef<unknown>> | null = null
-
-export const trackDeps = <A>(
-  thunk: () => A,
-): { readonly result: A; readonly deps: Set<AtomRef.ReadonlyRef<unknown>> } => {
-  const deps = new Set<AtomRef.ReadonlyRef<unknown>>()
-  const prev = currentTracker
-  currentTracker = deps
-  try {
-    return { result: thunk(), deps }
-  } finally {
-    currentTracker = prev
-  }
-}
-
-/** Record `ref` as a dependency of the active `trackDeps` scope, if any. */
-export const recordDep = (ref: AtomRef.ReadonlyRef<unknown>): void => {
-  if (currentTracker) currentTracker.add(ref)
-}
-
-/**
- * `trackDeps` that reifies a throw instead of propagating it — and, crucially,
- * still returns **the deps read before the throw**.
- *
- * Only `h.track`'s registry read uses this, and the dep set is why. A tracked
- * thunk that throws mid-run (`h.read(user)!.name` while `user` is briefly
- * `null`) must not take its node — or the propagation pass it is running
- * inside — down with it: an exception escaping an `Atom` read aborts the
- * registry's notify cascade, so SIBLING nodes on the same ref never see that
- * update and the graph is left mid-computation. Recovery then needs two
- * things: the node must survive, and it must still be SUBSCRIBED to whatever
- * it managed to read, or nothing will ever wake it again. Hence deps in both
- * outcomes.
- */
-export const trackDepsSettled = <A>(
-  thunk: () => A,
-):
-  | {
-      readonly ok: true
-      readonly value: A
-      readonly deps: Set<AtomRef.ReadonlyRef<unknown>>
-    }
-  | {
-      readonly ok: false
-      readonly error: unknown
-      readonly deps: Set<AtomRef.ReadonlyRef<unknown>>
-    } => {
-  const deps = new Set<AtomRef.ReadonlyRef<unknown>>()
-  const prev = currentTracker
-  currentTracker = deps
-  try {
-    return { ok: true, value: thunk(), deps }
-  } catch (error) {
-    return { ok: false, error, deps }
-  } finally {
-    currentTracker = prev
-  }
-}
-
-/**
- * Owns the subscribe/resubscribe/teardown bookkeeping `asyncRef` needs: a
- * fresh set of dependency subscriptions on every run, each firing `onChange`.
- * The caller re-runs a thunk under `trackDeps` and must re-subscribe to
- * whatever refs that run read (an effect's new deps), so the prior
- * subscriptions are dropped first. (`h.track` used to share this; it is now
- * a demand-driven `Atom` — see `bridgeAtom` — whose registry owns the same
- * lifecycle by refcount.)
- *
- * The `unsubs` array is nulled after each teardown because `AtomRef`'s
- * unsubscribe is **not idempotent** — replaying a stale unsubscriber would
- * corrupt a later subscription's bookkeeping. Once `dispose`d the manager is
- * inert: `resubscribe` is a no-op (a retained `refetch`/derived can fire after
- * its scope tears down), and `closed` lets a caller surface that to its own
- * callers.
- */
-export const makeDepSubscription = (
-  onChange: () => void,
-): {
-  resubscribe: (deps: Iterable<AtomRef.ReadonlyRef<unknown>>) => void
-  dispose: () => void
-  readonly closed: boolean
-} => {
-  let unsubs: Array<() => void> = []
-  let closed = false
-  const unsubscribeAll = () => {
-    for (const u of unsubs) u()
-    unsubs = []
-  }
-  return {
-    resubscribe: (deps) => {
-      if (closed) return
-      unsubscribeAll()
-      for (const dep of deps) unsubs.push(dep.subscribe(onChange))
-    },
-    dispose: () => {
-      closed = true
-      unsubscribeAll()
-    },
-    get closed() {
-      return closed
-    },
-  }
-}
+// ─── AtomRef → Atom bridge (used by h.reader) ─────────────────────────────
 
 /**
  * The AtomRef→Atom bridge. An `Atom`'s read context tracks only `Atom`
- * dependencies, so a tracked thunk's `AtomRef` deps enter the reactive graph
+ * dependencies, so a reader's `get(ref)` deps enter the reactive graph
  * through this: an Atom that subscribes to the ref (pushing changes via
  * `setSelf`) and unsubscribes in its node finalizer — the same
  * external-source pattern effect uses internally. The registry refcounts the
  * node, so the ref subscription exists exactly while something downstream
- * (a mounted `h.track` derived) is subscribed — no manual teardown anywhere.
+ * (a mounted `h.reader`) is subscribed — no manual teardown anywhere.
  *
  * Memoized per ref: the graph keys dependencies by atom object identity, so
- * every `h.track` derived reading the same ref must `get` the same bridge.
+ * every reader reading the same ref must `get` the same bridge.
  *
  * The cache is module-global, ACROSS registries, and that's safe: an Atom is
  * a description, not a node — each registry keys its own node state per

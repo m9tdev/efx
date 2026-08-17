@@ -5,7 +5,7 @@ Public surface (from `index.ts`):
 
 - `h` — the view factory for INTRINSIC elements only (the compile target
   for lowercase `<div>` source syntax; component tags lower to direct
-  calls since #71) + `h.track`/`h.read` (compiler hooks)
+  calls since #71) + `h.reader` (the compiler hook for `get(...)` expressions)
 - `Component` — `Component.make`, the canonical component constructor
   (a thin seam over `Effect.fn`; see "`Component.make`" below)
 - `atom` / `fn` — effect-atom's `Atom.make` / `Atom.fn` with `R`/`E` owned by
@@ -47,54 +47,10 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   the runtime `Scope` folds. Pinned by `testing/for.test.ts` (both sources,
   DOM identity across moves, Equal-dedup = 0 cell recompute, row Scope
   release, channel pins).
-- `list` — DEPRECATED alias shape over the same IR (`Collection` source). Folds row
-  channels (#72 review): a row's live `E` and `R` surface on `list`'s
-  result (`Effect<View<E>, never, Exclude<R, Scope>>`; the per-row `Scope`
-  is the list runtime's own and stays excluded). The Effect shell carries
-  the channels AND captures the construction context onto the node, so
-  rows genuinely build on the provided services (`ViewList.context`)
-- `Async` / `asyncRef` / `AsyncHandle` — async render boundary + primitive returning `{ state, refetch }` (errors-as-values; see "`asyncRef` / `Async`" below)
-- `streamRef` — `asyncRef`'s push sibling: `streamRef(stream, initial?)` runs
-  the stream on the mount fiber (`R` folds; same design rationale as
-  `asyncRef` — never `Atom.make(stream)`, whose source must be context-free)
-  and returns a `ReadonlyRef<A>` updated per emission; the fiber is
-  `forkScoped`-d, so the Scope IS the unsubscribe. `initial` mirrors the pull
-  side's blocking-vs-placeholder split: omitted → construction WAITS for the
-  first element by pulling ON the constructing fiber (`Channel.toPullScoped`
-  — the same shape as a blocking `yield* http.getUser`; no forked producer a
-  closing scope could orphan; a never-emitting stream blocks like a hanging
-  fetch — give sparse streams an `initial`; a stream that ENDS first is a
-  defect, fail-loud); provided → returns immediately, ref holds `initial`
-  until the first emission. Import `streamRef` unaliased — it sits in the
-  compiler's `isSelfTrackingCall` skip set with `Async`/`Catch` (an
-  `h.track` wrap would erase its channels AND respawn the stream per dep
-  change). The stream's `E` must be
-  `never` — a live failure has no honest Effect channel; discharge it with
-  `Stream.catch*`/`Stream.retry` (or encode it in `A`) before handing over.
-  Derive with the ref's `.map` (equality-deduped notify). Pinned by
-  `testing/stream-ref.test.ts` (latest-emission semantics, the waiting
-  no-initial form, derived-ref dedup, scope interruption, the R-fold type on
-  both overloads, and the `E = never` constraint).
-- `streamRef` — `asyncRef`'s push sibling: `streamRef(stream, initial)` runs
-  the stream on the mount fiber (`R` folds; same design rationale as
-  `asyncRef` — never `Atom.make(stream)`, whose source must be context-free)
-  and returns a `ReadonlyRef<A>` updated per emission; the fiber is
-  `forkScoped`-d, so the Scope IS the unsubscribe. `initial` mirrors the pull
-  side's blocking-vs-placeholder split: omitted → construction WAITS for the
-  first element (a never-emitting stream blocks — give sparse streams an
-  `initial`); provided → returns immediately, ref holds `initial` until the
-  first emission. The stream's `E` must be
-  `never` — a live failure has no honest Effect channel; discharge it with
-  `Stream.catch*`/`Stream.retry` (or encode it in `A`) before handing over.
-  Derive with the ref's `.map` (equality-deduped notify). Pinned by
-  `testing/stream-ref.test.ts` (latest-emission semantics, the waiting
-  no-initial form, derived-ref dedup, scope interruption, the R-fold type on
-  both overloads, and the `E = never` constraint).
 - `Catch` — view-level error boundary (one overloaded helper: function 2nd-arg = catch-all, object 2nd-arg = tag-selective; mirrors `Effect.catch*`; see "`Catch`" below)
 - `Fragment` — `<>...</>` compile target (a direct-call component since
   #71: `Fragment({ children: [...] })`, generic over the children tuple —
   also the canonical pattern for effectful-children components)
-- `VerrexLive` — deprecated no-op compat Layer (`mount` owns the registry)
 - Types: `View<E>`, `Props`, `FoldE`/`FoldLiveE`/`FoldR` (the `Tag*`
   families died with #71 — component channels are ordinary child folds),
   `FoldPropsLiveE`/`FoldPropsR` (the props fold, #72), `ArmR`/`FoldArmsR`
@@ -160,11 +116,11 @@ and keeps its hint. If you rename a slot, update the regex.
 | `h.ts`                 | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `atom.ts`              | `atom` / `fn` — caller-owned-`R` wrappers over `Atom.make` / `Atom.fn` (context capture UNDER own services, `Atom.mount` on the caller's Scope, callable `fn`); see the surface bullet above                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `Component.ts`         | `Component.make` — the canonical component constructor (traced `Effect.fn` seam + compiler-filled name slot). `Component.test.ts` pins the span-in-Cause; `Component.test-d.ts` pins the channel inference and generic preservation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `coerce.ts`            | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`; takes a `SyncRunner` — runs on the owning node's context, with an `Exit` fast path so `Effect.succeed` children don't spin a fiber). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`), `isHandlerKey` (THE handler-key gate, shared with `applyProp` + `h()`'s capture predicate, mirrored by the type fold), the shared dependency tracker `trackDeps`/`recordDep` (used by `h.track` and `Async`), `bridgeAtom` (the AtomRef→Atom bridge `h.track` deriveds depend through), and `makeDepSubscription` (the manual subscription manager, now `asyncRef`-only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `coerce.ts`            | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`; takes a `SyncRunner` — runs on the owning node's context, with an `Exit` fast path so `Effect.succeed` children don't spin a fiber). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`), `isHandlerKey` (THE handler-key gate, shared with `applyProp` + `h()`'s capture predicate, mirrored by the type fold), and `bridgeAtom` (the AtomRef→Atom bridge `h.reader`'s `get(ref)` goes through)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `View.ts`              | `View<E>` IR. The runtime shape is `ViewNode` — a hand-written union of 7 phantom-free named interfaces (`ViewText`…`ViewBoundary`, `ViewEmpty`); constructors via `Data.taggedEnum<ViewNode>()`. `View<E = never> = ViewNode & ViewErr<E>` layers the runtime-error channel on via a covariant phantom (`ViewErr`), so `View<HttpError>` ⊄ `View<never>` (mount can require it) while a `ViewNode` ⊂ any `View<E>` (constructors need no casts). Plus `isView`, `VIEW_TAGS`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `mount.ts`             | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink, runSyncExit, ownerScope }` — `runSyncExit` is a context-paired `Effect.runSyncExitWith` cache for `coerceSync`; `ownerScope` is the handler-dispatch owner, #160/#161; the Element handler path takes `context`/`sink`/`registry`/`ownerScope` directly, never the ctx), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures). Form-control props (`value`/`checked`/`selected`/`indeterminate`) write DOM _properties_ — post-dirty-flag, attributes stop mirroring — with initial writes deferred past the children loop (`select.value` needs its `<option>`s) and guarded against no-op writes (caret); pins in `testing/form-props.test.ts`. **Known limitation (#156):** options arriving _after_ the value write silently reset the select to its first option |
 | `reconcile.ts`         | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `index.ts`             | Public exports + `list`, `Async`, `asyncRef`, `streamRef`, `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`, `VerrexLive`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `index.ts`             | Public exports + `For` (keyed list over a `ListSource`), `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `coerce.test.ts`       | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `reconcile.test.ts`    | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality; index updates on shift)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `types/Fold.ts`        | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls). Plus the props fold (#72): `FoldPropsLiveE`/`FoldPropsR` — an `on*` handler's `Effect` return contributes live `E` + `R`, via ONE cached `[E, R]` pass (`FoldPropsChannels`) with a zero-handler fast path, an `any`-guard, a bare-`on` exclusion, and AtomRef fold-through. Hard-won pin: the pair is read through a naked type param (`PairE`/`PairR`) — a non-distributive `never extends [infer E, any]` silently resolves to `unknown`. Plus the arms fold (#120): `ArmR`/`FoldArmsR` — an Async arm or Catch fallback's `R` (minus `Scope`) folds onto the boundary                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -180,7 +136,7 @@ if it grows past these, it's grown too much:
    (fine-grained model), so the span costs per-mount, not per-update — and
    buys component stack traces in a failure `Cause` (the boundary fallback
    can show _where_: `App > ProfilePage > UserCard`) plus OTel spans that
-   join UI to backend (the `asyncRef` supervisor forked during construction
+   join UI to backend (an `atom` body captures the construction context
    inherits the span context, so refetches nest under the component).
    Opt-out: write a plain `Effect.fnUntraced` function — components are
    just functions; `make` is a seam, not a gate. (Note `Effect.fnUntraced`
@@ -213,146 +169,63 @@ Pinned in `Component.test-d.ts`.
 
 ## Reactivity model
 
-Reactivity is delegated to `effect/unstable/reactivity`. We do not
-ship our own atom/signal primitive.
+Reactivity is `effect/unstable/reactivity`, used as effect-atom is used —
+see docs/reactivity-migration.md for the full rationale.
 
-- `AtomRef<T>` — local mutable cell (the "ref"). Subscribe gets
-  notified on `.set` / `.update`.
-- `Atom<T>` — derived in an `AtomRegistry` context. Need
-  `registry.get(atom)` / `registry.subscribe(atom, fn)`.
-- `AtomRef.Collection<T>` — reactive array; rows are
-  `AtomRef.AtomRef<T>` so each row is its own subscribable cell.
+- `Atom.make(x)` — the DEFAULT cell (a `Writable`; writes are
+  `Atom.set/update` Effects; `mount` provides the `AtomRegistry`). Derived:
+  `Atom.map` / `Atom.readable`. Async: `atom(...)`, `fn(...)` (caller-owned
+  `R`, see the surface bullet).
+- `AtomRef` — the ROW model only: `AtomRef.Collection` in `<For>`
+  (`row.prop`/`row.map`/`row.set`), never an atom dependency, no bridge into
+  atom bodies. Both kinds are equally fine-grained; the split is
+  composability vs per-cell cost.
+- In JSX, an `Atom`/`AtomRef` IS a value: `{label}`, `value={prompt}` —
+  the renderer subscribes (`Reactive` node / `applyProp`). Expressions use
+  `get(...)`: `{get(count) * 2}` — the compiler lowers it to
+  `h.reader((get) => …)` (see below).
 
 `mount` owns its `AtomRegistry` — it creates one per mount, provides it
 to the app effect (discharging `AtomRegistry` from the app's `R`), and
-disposes it on scope close. `VerrexLive` is deprecated (a no-op compat
-layer); nothing needs to provide a registry.
+disposes it on scope close. Nothing needs to provide a registry.
 
-## The track/read dance
+## `h.reader` — the `get(...)` reader
 
-The compiler wraps `{expr}` JSX expressions in `h.track(() => expr)`
-**only when** it actually rewrote a `.value` read inside (see
-[compiler AGENTS.md](../compiler/AGENTS.md)). Inside that scope:
+`h.reader((get) => expr)` is what the compiler emits for a JSX expression
+containing a free `get(...)` (compiler AGENTS.md "The one reactive
+rewrite"). It is `Atom.readable` under the hood — a demand-driven derived
+the registry owns by refcount (never mounted → never subscribes; unmount →
+released; the old "created-but-unmounted leaks" class does not exist).
+`get` accepts an `Atom` (registry read) or an `AtomRef` — a ref is bridged
+INSIDE the reader's own read (`bridgeAtom` in coerce.ts: an Atom that
+subscribes to the ref, pushes via `setSelf`, unsubscribes in its node
+finalizer; memoized per ref because the graph keys deps by atom identity).
+This is the ONE place verrex still bridges refs into the registry graph.
 
-- `h.read(ref)` — a **faithful, transparent wrapper for `.value`**:
-  byte-for-byte `ref.value` for any non-AtomRef (throws on null exactly
-  as `.value` would — no `?.` swallow), and for a branded AtomRef it
-  _additionally_ registers `ref` as a tracked dep when a tracker is
-  active. This faithfulness is what lets the compiler emit `h.read` for
-  _every_ `.value` read in a component body (not just JSX) without any
-  compile-time atom analysis — the `isAtomRef` brand is the exact gate.
+**Invariant: a throwing reader stays node-local.** `AtomRegistry` has no
+try/catch around a node's read; an escaping exception aborts the notify
+cascade — the parent's REMAINING dependents are dropped from its children
+set for good (siblings freeze silently) and the throw lands in the writer
+(a handler → its sink). One transient bad frame (`get(user)!.name` while
+`user` is briefly null) is common in JSX, so `h.reader` catches: keep the
+last good value (`ctx.self()`), stay subscribed to whatever the failed run
+did read, `console.error`, recover on the next dep change; a FIRST-read
+throw has no last value and rethrows (fail loud at first paint). Pinned by
+`h.test.ts`. User-written `Atom.readable`s get Effect's behaviour (upstream
+issue). Do NOT "simplify" this back to letting the throw propagate.
 
-`h.track` itself (via `trackDeps` in `coerce.ts`, shared with `Async`):
+**Timing:** dep-change propagation (write → reader recompute → mount
+listener) is synchronous. Handler dispatch batches its synchronous prefix
+(see "Handler dispatch is batched"). Orphaned-node disposal is scheduled
+(registry dispatcher), so a dropped reader's bridge unsubscribes a tick
+after the subtree goes away — tests asserting teardown await a tick (full
+registry dispose at scope close is synchronous).
 
-1. `trackDeps` sets a module-level collector to a fresh dep set.
-2. Runs the thunk; `h.read`→`recordDep` adds to the set per AtomRef.
-3. **If the set is empty**, returns the thunk's result directly
-   (no Atom wrap, no reactivity overhead — and the caller's
-   static typing is preserved).
-4. **If the set is non-empty**, returns a **demand-driven derived
-   `Atom`** (`Atom.readable`): its read re-runs the thunk and declares
-   each ref the run read as a graph dependency via `bridgeAtom` (the
-   AtomRef→Atom bridge in `coerce.ts` — an Atom that subscribes to the
-   ref, pushes changes via `setSelf`, unsubscribes in its node
-   finalizer; memoized per ref in a WeakMap because the graph keys deps
-   by atom object identity).
-5. The **`AtomRegistry` owns the whole subscription lifecycle by
-   refcount** — no manual teardown anywhere: deps switching between
-   runs (a ternary's other branch) drop the unused bridge; unmounting
-   the subtree (the registry-subscribe finalizer on the subtree's
-   `Scope`) drops everything; a derived that is created but **never
-   mounted never subscribes to anything** (laziness — the old
-   "created-but-unmounted leaks" boundary is gone by construction);
-   multi-site mounting is just refcount. Pinned by
-   `testing/track-teardown.test.ts` (unmount + subtree-churn cases).
-
-**Invariant: the empty-deps early return is load-bearing.** Without
-it, every `<Row item={item} />` would erase `item`'s generic type to
-`unknown`. Pinned in `testing/track-sharing.test.ts` (it renders
-identically either way, so no rendering test catches its removal).
-
-**Invariant: a throwing tracked thunk stays node-local.** The Atom read
-runs the thunk through `trackDepsSettled`, never `trackDeps` — an
-exception escaping the read aborts the registry's whole notify cascade,
-so every OTHER node on that ref misses the update, and the thrower loses
-its dep subscriptions so nothing wakes it again. One transient bad frame
-(`h.read(user)!.name` while `user` is briefly null) froze the surrounding
-UI permanently and silently. On a failed run the node instead reports
-(`console.error` — there is no reachable `ErrorSink` from a bare sync
-`h.track` call), holds its previous value via `get.self()`, keeps the
-deps it managed to read, and recovers on the next change. Do NOT
-"simplify" this back to letting the throw propagate, and do NOT rethrow
-asynchronously — the propagating throw IS the bug. Pinned by
-`testing/track-throw.test.ts`. Routing these into the nearest `Catch`
-is the real fix and belongs with the typed-live-error work (#72's
-successor), not a global sink.
-
-**Invariant: tracked thunks must be pure — they run once at creation
-and once per registry read.** The creation-time run exists only to
-decide static vs reactive (count deps); its result is deliberately
-discarded, because refs can change between construction and mount and
-the graph edges must be declared inside a registry read anyway. So a
-reactive expression's thunk executes twice before first paint
-(creation + first read), and again on every dep change. Correct
-(pure) thunks can't observe the extra run. Pinned by the run-count
-assertion in `testing/track-teardown.test.ts` — a refactor that
-changes the count (e.g. lazy classification at mount) should trip it
-deliberately.
-
-**This count is co-owned with effect, not solely ours.** It is 2 rather
-than 3 because `registry.subscribe` reuses the value `registry.get` just
-computed (`applyAndSubscribeSource` reads, then subscribes); a registry
-that recomputed on subscribe would make it 3. If an effect bump trips the
-assertion, check that before assuming a verrex regression.
-
-**"Twice" is per tracked expression, NOT per tree.** Nesting compounds:
-an outer tracked expression that re-runs rebuilds its children, which
-CONSTRUCTS a fresh inner derived (new creation run, new first read) — so
-under churn an inner thunk's total runs grow with how often its ancestors
-recompute. Measured at depth 3 where only the innermost reads a ref:
-`[1,1,2]` (the outer two take the empty-deps early return and stay
-static). That compounding is not new — an outer rebuild always
-reconstructed inner deriveds — but the flat "twice" figure describes one
-expression in isolation, so don't read it as a whole-tree budget.
-
-**Property (by construction, not by test): the registry never executes
-user Effects.** The derived's read is the sync thunk; a value it produces
-that happens to be an Effect is executed by mount (`coerceSync`), same as
-any reactive emission. All user-Effect execution stays in
-mount/construction where `R` is provided and type-tracked. What actually
-enforces this is narrow, so check it directly if you touch the seam: we
-only ever construct deriveds with **`Atom.readable` over a sync thunk**.
-`Atom.make`'s effectful overload — which effect pins to
-`R = Scope | AtomRegistry`, so a service-needing Effect wouldn't compile
-there anyway — is never called. Nothing tests this; the guard is that
-one call site.
-
-**Invariant: the mount owns the registry's lifetime.** `mount` creates
-its `AtomRegistry`, provides it to the app effect, and registers its
-disposal as a finalizer BEFORE `buildDom` — so LIFO scope close runs the
-DOM detach and every child-scope unsubscribe against a still-live
-registry, and disposes it last. The registry and the UI it drives die
-together; a mis-scoped provision freezing a live UI is no longer
-expressible, because callers never provide the registry at all. (Before
-this, `AtomRegistry` rode `mount`'s `R` and `Effect.provide(VerrexLive)`
-around the mount silently disposed it once the DOM attached — the type
-system could say "required" but not "must outlive"; making the mount the
-owner deleted the requirement rather than encoding it.)
-
-**Timing:** dep-change propagation (bridge `setSelf` → derived recompute
-→ mount listener) is **synchronous** — DOM update timing is unchanged.
-Orphaned-node **disposal is scheduled** (`scheduleTask(..., 0)`), so a
-dropped derived's bridge unsubscribes a tick after the subtree goes away
-— tests asserting teardown await a tick (full registry dispose at scope
-close is synchronous).
-
-**`asyncRef` still uses `makeDepSubscription`** (in `coerce.ts`) — the
-manual drop-all-then-resubscribe manager with the non-idempotent
-AtomRef-unsubscribe guard and the `closed` gate (a retained `refetch`
-must be inert after its scope tears down). It disposes in its own scope
-finalizer. Unit-tested in `dep-subscription.test.ts`. Migrating it onto
-the registry is possible but is its own design question (its read is
-effectful — see the registry-never-executes-user-Effects invariant).
+**Property (by construction): the registry executes user Effects only with
+`R` already provided.** `h.reader` runs a sync thunk; `atom`/`fn` provide
+the captured construction context under the atom's own services
+(`atom.ts`); an emitted Effect is executed by mount (`coerceSync`) on the
+node's captured context. All `R` is type-tracked to the root.
 
 ## View IR
 
@@ -368,7 +241,7 @@ for-now at 7 variants:
 - `Fragment { children }` — group of views, no DOM container
 - `Reactive { source: Atom | AtomRef.ReadonlyRef }` — subscribe to
   source, swap rendered child on emit
-- `List { source: AtomRef.Collection, render }` — keyed reactive list
+- `List { source: ListSource, render }` — keyed reactive list (`For`); `ListSource` = `Collection` | `Keyed` (any array atom + key fn)
 - `Boundary { state, handler, reset, report, setAmbient }` — error boundary;
   renders the child subtree (with `report` swapped in as the subtree's error sink)
   or, on a caught failure, `handler(cause, reset)`. `setAmbient` lets `mount` hand
@@ -431,206 +304,33 @@ child subtree, which only `buildDom` can do when it descends into the
 node — not expressible by `Reactive`-over-a-ref alone. Anti-pattern:
 convenience wrappers like `Card`/`Heading` — those are components, not IR.
 
-## `asyncRef` / `Async` — the async data primitive + render boundary
+## Async data: `atom` / `fn` + `AsyncResult`
 
-Effectful/async data is **errors-as-values**: it's an `AsyncResult<A, E>` you
-match where it's consumed, not a throw-and-catch boundary (à la effect-atom /
-Solid's Resource — **not** React Suspense). Two exports, both in `index.ts`:
+Errors-as-values (à la effect-atom): `atom(effect)` / `fn(f)` expose an
+`AsyncResult<A, E>` you match where it is consumed — `AsyncResult.builder`
+/ `match` — never a throw-and-catch boundary. THE idiom for "handle some,
+bubble the rest":
 
-- **`asyncRef(() => effect)`** — the primitive. Runs the effect and returns an
-  **`AsyncHandle<A, E>`**: a reactive `state:
-AtomRef.ReadonlyRef<AsyncResult<A, E>>` plus a manual `refetch: () => boolean`
-  (the same `schedule` a dep change triggers — fresh dep snapshot, stale run
-  interrupted; a no-op once the creating scope closes). Handle the state with
-  Effect's own `AsyncResult.match`. (`refetch` returns `boolean` — `false`
-  means the creating scope closed and the request was dropped. Refetch
-  belongs on the handle: it's the same mechanism the arms' `retry` uses
-  (#101) — don't split it back out.)
-  ```tsx
-  const user = yield* asyncRef(() => http.getUser(userId.value))
-  <button onclick={user.refetch}>refresh</button>
-  {user.state.map(AsyncResult.match({ onInitial, onFailure, onSuccess }))}
-  ```
-- **`Async(from, { initial?, failure?, success })`** — the render boundary,
-  **thunk-first positional**, sugar over `asyncRef` + `AsyncResult.match`.
-  `from` is a thunk **or an existing `AsyncHandle`**: a thunk creates a
-  handle private to this boundary (its `R` folds here); a passed handle
-  decouples the data's lifetime from the view — the fetch loop lives where
-  `asyncRef` ran, keeps tracking deps after a `Catch` swaps the subtree away,
-  can be refetched from anywhere, and is shared by every consumer
-  (handle-based `Async` contributes only `Scope` to `R`; the overloads
-  default `R = never` so the union param doesn't leak `unknown`). One
-  semantic shift: a boundary `reset` over a handle re-renders the handle's
-  CURRENT state and does NOT refetch (a still-failed handle re-escalates on
-  rebuild) — compose `() => { handle.refetch(); reset() }` when retry should
-  do both. Pinned by `testing/async-handle.test.ts` (external refetch,
-  shared loop = one fetch for two consumers, refetch+reset recovery, R/E
-  pins):
-  ```tsx
-  {
-    Async(() => http.getUser(userId.value), {
-      initial: <Spinner />,
-      failure: (cause) => <Err cause={cause} />,
-      success: (user) => <UserCard user={user} />,
-    })
-  }
-  ```
-  The compiler lowers the `<Async from initial failure success/>` JSX element to
-  this positional call (planned). **It must stay positional** — a single props
-  object passed through `h(Async, props)` defeats inference (`success`'s value
-  collapses to `unknown`), the same reason `list` is positional.
+```tsx
+{
+  Atom.map(user, (r) =>
+    AsyncResult.builder(r)
+      .onInitialOrWaiting(() => <p>loading…</p>)
+      .onErrorTag("NotFound", () => <p>no such user</p>) // handled here; E narrows
+      .onSuccess((u) => <b>{u.name}</b>)
+      .onFailure(Effect.failCause) // residual → live E → nearest Catch
+      .exhaustive(),
+  )
+} // compile check: nothing unhandled
+```
 
-**The `failure` arm picks the error's home — function, tag map, or absent.**
-Three public overloads (catch-all function first, tag map second, the open
-form's arms typed `failure?: never` so resolution can't fall through),
-mirroring `Catch`'s function-vs-object convention:
-
-- **`failure` as a function** → catch-all: every failure is handled at the
-  leaf, rendered by the arm (which gets the full `Cause<E>`):
-  `Effect<View<never>, never, R | Scope>` — discharged, nothing for a
-  boundary to see.
-- **`failure` as a tag map** — `failure: { NotFound: (e) => … }` → a matched
-  tag is handled at the leaf (the handler gets the unwrapped error) while the
-  **fetch loop stays live**: a dep change still refetches, so the view
-  recovers with no boundary `reset`. That semantic is why this isn't sugar
-  for `Catch(Async(open), tagMap)` — a leaf `Catch` that accepts a failure
-  swaps the subtree and closes its build scope, tearing down a THUNK-form
-  `asyncRef` supervisor (a passed `AsyncHandle`'s supervisor lives where
-  `asyncRef` ran and survives the swap — but the leaf-vs-boundary error-home
-  distinction stands for both forms). The residual rides the live channel:
-  `Effect<View<Exclude<E, { _tag }>>, never, R | Scope>`. Dispatch is shared
-  with `Catch` (`taggedMatch`: own function-valued key, routed on the cause's
-  _first_ error when it is tagged; the helper returns the matched
-  `{ handler, error }` pair so dispatch tag and handler argument can't drift)
-  and inherits its caveats: a typo'd key mixed with ≥1 valid key is silently
-  dead (its tag stays on the channel — for _inline literals_ the type never
-  lies; a typo as the only key is a compile error), and a tag map on an `E`
-  with no tagged members is rejected outright (the overload's constraint
-  collapses to `never`, not the accept-anything empty mapped type). The two
-  runtime-detectable type/runtime gaps — prototype-keyed handler objects and
-  non-function slots (compilable without `exactOptionalPropertyTypes`) — are
-  rejected at the `Async()`/`Catch()` call site by `assertHandlerMap`
-  (TypeError naming the surface and key; pinned by
-  `testing/tagmap-validation.test.ts`). The remaining gap — a pre-built map
-  whose _type_ declares keys the value doesn't carry — is invisible at
-  runtime (erasure) and stays a documented limitation (#91): prefer inline
-  handler literals.
-  The handler-map shape itself is the shared `TagHandlers<E, Extra>` alias
-  (Catch instantiates `Extra = [reset]`, Async `[retry]`). Every Async
-  failure handler — catch-all `(cause, retry)` and tag-map `(error, retry)` —
-  receives **`retry`** last: it re-runs the thunk with a fresh dep snapshot
-  (the handle's `refetch`, the same `schedule` a dep change triggers),
-  the leaf analog of `Catch`'s `reset` (which re-runs _construction_). The
-  same `refetch` is public on the `AsyncHandle` that `asyncRef` returns. Three retry invariants, each
-  hard-won: (1) **failure-waiting renders the `initial` arm**, not the
-  failure arm with its stale cause — stale-while-revalidate keeps _content_
-  (success-waiting renders success), a stale error isn't content, and
-  re-invoking the arm would rebuild its DOM (and retry button) mid-flight;
-  this is also the observable that makes retry testable. (2) **Call `retry`
-  from event handlers only** — calling it during render refetches in an
-  infinite loop (the alternating `waiting` flag defeats `Equal`-dedup).
-  (2b) **`refetch` flips the state to waiting synchronously** (inside
-  `schedule`, before enqueuing): a rebuild in the same tick — `refetch();
-reset()` in either order — observes waiting instead of re-escalating the
-  stale non-waiting Failure; the supervisor's own set on take is a deduped
-  duplicate (and corrective in the rare interleaving where the prior run
-  completed in between). Don't move the set back to the supervisor — the
-  refetch+reset composition's order-independence depends on it.
-  (3) **`schedule` is guarded by a `closed` flag** set in the scope finalizer
-  (which also clears `unsubs`): a retained `retry` (a `setTimeout`, a click
-  racing a boundary swap) fired after teardown must be a no-op — without the
-  guard it would re-subscribe deps the finalizer can never clean, feed a
-  queue whose consumer is dead, and replay non-idempotent AtomRef
-  unsubscribers. Pinned by `testing/async-tagmap.test.ts` (incl. the
-  recover-without-reset semantic and nullish-arm degradation) and
-  `testing/async-retry.test.ts` (retry on both arm forms; the gated test
-  pins waiting→initial and that a failed retry stays retryable), plus the
-  tag-map `Async` section of `apps/demo/src/channels.test-d.ts`.
-- **omit `failure`** → the failure **rides the live channel**:
-  `Effect<View<E>, never, R | Scope>`. This is the leaf primitive that stamps
-  `View<E≠never>`. Both an initial-fetch failure and a refetch failure route to
-  the nearest enclosing `Catch` (whose `reset` re-runs construction → a fresh
-  fetch), and `mount`'s `View<never>` gate makes a missing boundary a compile
-  error naming `E`. Mechanism: on `AsyncResult.failure` the matched source
-  emits `Effect.failCause(cause)`; the Reactive render path (`coerceSync`)
-  runs it, routes the cause to `ctx.sink` — the boundary's `report` — and
-  renders `Empty`. No new runtime machinery: it reuses the reactive-re-render
-  producer of "Runtime error routing" below. The interrupt-only guard already
-  ran in `asyncRef` (teardown never reaches the `Failure` state), and the
-  boundary queues the report off the render stack. Pinned by
-  `testing/async-escalate.test.ts` and the `Async` section of
-  `apps/demo/src/channels.test-d.ts`.
-
-The `from`/thunk runs under the **same dependency tracker as `h.track`**
-(`trackDeps`/`recordDep`, from `coerce.ts`): any reactive ref it reads via
-`.value`/`h.read` becomes a dependency, and the effect **re-runs when one
-changes**, interrupting the stale run. A thunk that reads no refs runs once —
-deps are _discovered, not declared_.
-
-**Arm `R` folds** (#120): the arms object is a generic `Arms` parameter and
-`FoldArmsR<Arms>` (types/Fold.ts) unions every arm's `R` — a function arm's
-return, a bare `initial`, and each tag-map handler — onto the result, minus
-`Scope` (arms render under the node scope via `coerceSync`). Arms render on
-the construction-captured context, so a service an arm or a handler inside it
-needs is a `mount`-time compile error, not a click-time Service-not-found
-defect. The pre-#120 "keep arms `any`" stance was an inference worry about
-conditional arms; post-#71 (component tags are direct calls) it does not
-reproduce — a conditional arm folds per branch, and an `any` return is inert
-via the `IsAny` guard (pinned in `channels.test-d.ts`). An arm's own Effect
-`E` stays permissive and its success must be `View<never>`: a typed _failing_
-handler in an arm/fallback is rejected at the arm — discharge it inside (nest
-a `Catch`). **Arms must be
-synchronous View-producers** — they render via `coerceSync` (the node's paired
-`runSyncExit`), so
-an _async_ arm effect can never resolve. A _failing_ arm effect is routed to the
-error sink (and renders `Empty`), not stringified — see "Runtime error routing".
-
-**Inline or extracted — both track.** The compiler rewrites `.value`→`h.read`
-across the whole component body, so an extracted thunk —
-`const get = () => http.getUser(userId.value)` then `Async(get, …)` — refetches
-identically to inline. The read must happen _inside_ the thunk; a `.value` read
-into a local _before_ it (`const id = userId.value; Async(() => http.getUser(id), …)`)
-captures a snapshot and won't refetch — ordinary eager-read semantics.
-
-**The compiler skips the `h.track` wrap for `Async(...)` calls** (`isSelfTrackingCall`
-in the compiler — the same guard covers `Catch`, `asyncRef`, `streamRef`, and
-manual `list()`, whose
-return carries the folded row channels) — `Async` self-tracks, so the wrap
-would only re-invoke it on every dep change. The inner `.value`→`h.read` rewrite is kept (the
-tracker needs it). Which calls skip is decided **scope-correctly**
-(`resolveHelperCalls`): a call whose callee binds to the `@verrex/core` import
-is skipped _regardless of alias_ (`import { Async as A }` → `A(...)` skips),
-and a same-named call bound to the user's own function keeps its wrap. (An
-`@verrex/core` helper re-exported through a user barrel is the one miss —
-single-file resolution can't follow the chain.)
-
-Neither is a View IR variant. `asyncRef` builds an `AtomRef<AsyncResult>`; `Async`
-maps it through `AsyncResult.match` and returns a `View.Reactive` — the existing
-Reactive node does the DOM work. The design that makes this fit verrex:
-
-- **State** is Effect's `AsyncResult` in a _synchronous_ `AtomRef` (the Reactive
-  node reads it immediately and re-renders on `.set`).
-- **Tracking + execution:** `schedule()` runs the thunk under `trackDeps`,
-  subscribes to the refs it read (re-scheduling on change), and enqueues the
-  effect onto a `Queue`. A `forkScoped` supervisor drains the queue — `forkChild`
-  per run, prior run `Fiber.interrupt`ed — on the **mount fiber**. Fork
-  interrupted on scope close; ref subscriptions are a scope finalizer.
-- **Channels:** because `forkScoped` forks the thunk's effect, the result folds
-  its `R` — `asyncRef`/`Async` are `Effect<…, never, R | Scope>` with **no cast**.
-  Extract services with `yield* Service` before the thunk so they fold into the
-  _component's_ `R` (a missing Layer is a compile error at `mount`). The
-  construction `E` is always `never` — the fetch never fails the build. The
-  failure's home is the `failure`-arm choice above: rendered at the leaf
-  (`View<never>`), or riding the live channel (`View<E>`) to the nearest
-  `Catch`. Contrast in-component fetching (UserPage), where `E`+`R` fold to
-  the root.
-
-Why NOT `Atom`/`Atom.runtime` for this: an `Atom.runtime(layer)` bakes the
-Layer in and discharges `R` (loses the thesis); a per-call runtime built
-from a captured context dies "registry disposed" once the creating program
-returns. Running the user's Effect directly on the mount fiber is what
-keeps `R` folded. `Atom`/`AtomRef` remain the right tool for _synchronous_
-reactive state (Counter, `list`) — just not the spine for effectful data.
+`.onFailure(Effect.failCause)` makes the atom EMIT an `Effect<never, E>`;
+the fold's phase switch (above, "Phase switch at the Atom/AtomRef
+boundary") puts that `E` on `View<E>`, so `mount` refuses the tree without
+a `Catch` naming it — the same guarantee `Async`'s open failure arm gave,
+without a second boundary primitive. Retry = `Catch`'s `reset` +
+`Atom.refresh(x)`. Never `.render()` (it throws the squashed cause,
+bypassing the typed channel). Pinned by `testing/atom-escalate.test.ts`.
 
 ## `Catch` — the view-level error boundary
 
@@ -682,7 +382,7 @@ Catches **both phases** through one fallback:
   _ambient_ sink, so a failure in the fallback bubbles to the next boundary out.
 
 `reset()` re-runs construction. **`report` and `reset` both go through a `Queue`
-drained by a `forkScoped` loop** (like `asyncRef`) — never mutating boundary
+drained by a `forkScoped` loop** — never mutating boundary
 state synchronously inside the child's render, which would close the child scope
 mid-render (reentrant). The runtime impl runs on a deliberately wider, untyped
 signature (`Cause<unknown>` sink); the precise types live in the two public
@@ -700,7 +400,7 @@ overloads that front it.
   child would pass vacuously.
 - **Per-build construction scope.** Each child build (initial + every reset) runs
   in a fresh scope forked from the mount scope (`Scope.forkUnsafe` + `provideService(Scope.Scope, …)`),
-  so a child's construction-time effects (an `asyncRef` supervisor + its
+  so a child's construction-time effects (a forked fiber + its
   finalizers, `acquireRelease`) are released when we swap away or reset — not
   leaked onto the mount scope. The prior build's scope is closed on swap/reset
   (`adopt`); the live one closes on teardown via the fork cascade. A build that
@@ -710,18 +410,15 @@ overloads that front it.
   current content; a rejected cause that is interrupt-only (rebuild torn down
   mid-flight) is dropped, not escalated.
 
-Unlike `Async`, this **is** a View IR variant (`Boundary`) — the sink-swap for
-the child subtree is a `buildDom`-time concern an existing `Reactive` can't
-express. The compiler skips the `h.track` wrap for `Catch(...)` calls (in
-`isSelfTrackingCall` alongside `Async`/`list`; scope-correct, so an aliased
-`@verrex/core` import is fine — see the `Async` section above).
+This **is** a View IR variant (`Boundary`) — the sink-swap for the child
+subtree is a `buildDom`-time concern an existing `Reactive` can't express.
 
 **Scope/fiber lifetime is uniform across the runtime** — internalize this when
 touching any of it: construction effects bind to a per-build scope (above),
 event-handler fibers are `forkIn`'d into their OWNER scope with a
 per-dispatch child for resources (`runHandlerEffect`; the full contract is
 "Handler-scope semantics" below), reactive/list subtrees go through
-`buildScopedChild`, and `asyncRef`'s supervisor is `forkScoped`. Render-path
+`buildScopedChild`. Render-path
 sinks guard `Cause.hasInterruptsOnly` so a teardown interrupt isn't surfaced
 as a failure. **Handler dispatch is the exception (#186):** `runHandlerEffect`
 observes every non-success exit via `onExit` and hands an interrupt-only
@@ -772,7 +469,7 @@ variant — the "new variant" checklist below points here):
 | ------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `Element`                 | `h()`, ONLY when a handler prop exists (`hasHandlerProp` over the shared `isHandlerKey` gate, own keys only) | handler dispatch — `applyProps` gets the `HandlerDeps` quartet (`context`/`sink`/`registry`/`ownerScope`) DIRECTLY; the static-element path derives no node ctx/runner | handler-less elements stay pure data                                                       |
 | `Reactive`                | `coerceAsync`'s reactive-source branch; `Async`                                                              | every re-render (`buildScopedChild` with the node-scoped ctx)                                                                                                          | re-renders run through `coerceSync`, not the construction fiber                            |
-| `List`                    | `list()` (an Effect precisely so it can capture)                                                             | every row build, incl. post-mount inserts                                                                                                                              | rows materialize at reconcile time                                                         |
+| `List`                    | `For()` (an Effect precisely so it can capture)                                                              | every row build, incl. post-mount inserts                                                                                                                              | rows materialize at reconcile time                                                         |
 | `Boundary`                | `makeBoundary`                                                                                               | the FALLBACK arm only                                                                                                                                                  | ok content is rebuilt by the drain fiber, which inherits the construction context natively |
 | `Text`/`Fragment`/`Empty` | —                                                                                                            | —                                                                                                                                                                      | no post-construction user code                                                             |
 
@@ -802,11 +499,11 @@ comments point here.** A dispatch has two lifetimes:
   element's `ownerScope`, runs the handler under it with `Scope.use` (closed
   on exit — success, failure, or interruption). `acquireRelease` inside a
   handler releases per dispatch. Corollary: **the handler's Scope is
-  dispatch-lifetime** — `Effect.forkScoped`, or an `asyncRef`/`streamRef`
+  dispatch-lifetime** — `Effect.forkScoped`, or an `atom`/`fn`
   created inside a handler, dies the moment the handler returns. Work that
   must outlive the click forks INTO a scope captured at construction
   (`const s = yield* Effect.scope`, then `Effect.forkIn(work, s)`) or
-  `forkDaemon`s; create `asyncRef`/`streamRef` at construction, not in a
+  `forkDaemon`s; create `atom`/`fn` at construction, not in a
   handler. Handlers have NO ambient route to the app scope.
 - _Interruption_: the fiber is `forkIn(ownerScope)` — the scope of the node
   that RAN the element's construction, set per call site (`withOwner`):
@@ -881,10 +578,9 @@ Consumers don't call them directly either:
 both reactive consumers (`applyProp`, the Reactive child case) share;
 a third source shape extends it, not a new dispatch site.
 
-**Reactive props accept `Atom` or `AtomRef`.** An Atom passed directly
-as an attr value never goes through `h.track`/`h.read` (it has no
-`.value`) — pass the atom itself, deriving the final attr string with
-`Atom.map`. When an Atom's source needs services, the **component owns
+**Reactive props accept `Atom` or `AtomRef`.** Pass the atom itself as the
+attr value (or a `get(...)` expression, which the compiler lowers to a
+reader Atom), deriving the final attr string with `Atom.map`. When an Atom's source needs services, the **component owns
 the requirements**: extract instances up front (`const http = yield* Http`)
 or capture context (`yield* Effect.context<R>()`), then build the Atom
 from those, so the source is context-free and a forgotten Layer is
@@ -922,7 +618,7 @@ swap into the DOM via `replaceChild`, THEN close the previous
 emit's child scope. The reverse order (close OLD first, then build
 NEW) would unsubscribe many refs and resubscribe many during a
 single `notify` loop on the source — the same "diff, not
-unsub-all-then-resub" hazard documented for `h.track`.
+unsub-all-then-resub" hazard the old tracker had.
 
 **List reconciles by AtomRef identity.** Not by index, not by value
 equality. Each row's `AtomRef` is the key; on `subscribe`, only
@@ -956,14 +652,13 @@ an `AtomRef.ReadonlyRef<number>`, not a plain number. The planner emits
 the next-order index on every retained row (`move`/`keep`), and the
 interpreter pushes it into the row's index ref (guarded by an equality
 check so unchanged indices don't notify). A moved or shifted row's
-`{index.value}` therefore updates **without re-rendering the row**.
-Reading `index.value` tracks via
-`h.read` like any ref. A reorder/shift never rebuilds a row's DOM; only
+`{index}` / `{get(index)}` therefore updates **without re-rendering the
+row**. A reorder/shift never rebuilds a row's DOM; only
 `insert` builds and `remove` tears down.
 
 **List snapshot must be a copy, not a reference.** Effect's
 `CollectionImpl` mutates its internal array in place on `push`/
-`remove`, so storing `view.source.value` and later comparing
+`remove`, so storing the collection's `.value` and later comparing
 references would always say "no change." `snapshot = Array.from(next)`
 is critical.
 
@@ -1016,7 +711,7 @@ typically) and keep it alive for the lifetime of the rendered UI.
   (a Reactive emit, a List `insert`) through `buildScopedChild` — it
   owns the `forkUnsafe → coerceSync → buildDom` triple, so the
   parent-linked-scope invariant has exactly one home.
-- Don't extend `h.track`'s behavior to handle composite expressions
+- Don't extend `h.reader`/the compiler's `get` rule to fire on other shapes
   — the compiler decides what's rewritten; the runtime just executes.
 - Don't subscribe to `AtomRef.Collection` per-item-value events
   (only to structural events). Rows do their own value reactivity.
@@ -1030,32 +725,21 @@ typically) and keep it alive for the lifetime of the rendered UI.
 
 Component tags lower to direct calls (`<Row item={x}/>` →
 `Row({ item: x })`), so a generic component's `T` infers natively at
-the call site. `list()` is the keyed reconciliation primitive only —
-not a generics workaround (the compiler still rewrites
-`{coll.value.map(item => <Row/>)}` into `list(coll, …)`).
+the call site. `<For>` is the keyed reconciliation primitive only —
+not a generics workaround.
 
-The caveat: a **tracked attr** still widens. An attr value containing a
-`.value` read gets wrapped in `h.track(() => …)`, whose return type is
-`T | Atom<T>` — the honest union of its two runtime paths (the
-value when nothing was read, a derived Atom when something was) — so
-`<Row item={ref.value}/>` passes `item: string | Atom<string>`
-rather than the `string` the prop wants. It was `unknown` until #159,
-which is why an unlisted `on*` handler could launder its channels away;
-both members of the union now fold. Static
-attrs pass through untouched (the empty-deps early return in `h.track`
-is what preserves them), and since #72 so do **function-valued attrs**
-(handlers, callbacks): a whole-expression function can't read deps while
-being tracked, so the compiler skips the wrap even when the function
-_body_ reads `.value` — which is what lets a handler's `E`/`R` reach the
-props fold. The erasure is now scoped to non-function reactive attrs
-(`item={ref.value}`). Note the distinct case of a reactive attr on a
-DECLARED handler key — `onclick={cond.value ? a : b}` — which doesn't
-erase but is _rejected_: `h.track`'s `Atom` member fails the
-declared `HandlerSlot<Ev>`. Since #159 that rejection is uniform: the
-old `unknown` return was invisible on unlisted `on*` keys, which pass
-through the `Record<string, unknown>` half of the intersection — so the
-handler ran with both channels erased. The typed form selects inside
-the handler: `onclick={(e) => (cond.value ? incr : decr)(e)}`.
+The caveat: a **reader attr** is an `Atom`. An attr value containing a
+free `get(...)` is lowered to `h.reader((get) => …)`, whose type is
+`Atom<T>` — so `<Row item={get(ref)}/>` passes `item: Atom<string>`
+rather than a `string`. That is honest (it IS reactive) and it folds; a
+component wanting the value takes `Atom<T>` (or the ref itself:
+`<Row item={ref}/>`). Static attrs pass through untouched (no `get` →
+no wrap — purely syntactic, so generics survive), and so do
+function-valued attrs (handlers, callbacks): a free `get` inside a handler
+is a compile error, never a wrap, which is what lets a handler's `E`/`R`
+reach the props fold. A reactive HANDLER is an `Atom`/`AtomRef` holding the
+function (`onclick={handlerAtom}`; typed slots accept it, `applyProp`
+re-applies live).
 
 Don't "fix" anything here by widening `h()`'s signature — `h` is
 intrinsic-only since #71 and the narrow signature is what makes child
@@ -1080,30 +764,6 @@ non-generic `Child[]` is an anti-pattern: `Child` includes
 error channel is assignable to `never`, which silently defeats the
 `mount` gate. Children arrive RAW (any child shape `h` accepts) and
 coerce where embedded.
-
-### `h.read` overload preserves arbitrary `.value` types
-
-`h.read` is intentionally overloaded two ways:
-
-```ts
-function read<T>(obj: AtomRef.ReadonlyRef<T>): T
-function read<T extends HasValue>(obj: T): T["value"]
-```
-
-(`HasValue = { readonly value: unknown }`.) The second signature
-is **load-bearing**: it lets compiled code like `h.read(s).bio`
-(where `s` is an `AsyncResult.Success` and the source said
-`s.value.bio`) type-check against `Success`'s payload. Drop it
-and every pattern-match site against `AsyncResult` / `Option` /
-`Result` shapes that reads `.value` inside a JSX expression
-breaks. There is **no** nullable overload: reading `.value` on a
-possibly-null base is a type error in the source `.value` form
-too, and `h.read` now mirrors that — it is byte-for-byte
-`obj.value` at runtime (it throws on null; there is no `?.`
-swallow). The TS-side overloads are independent of the runtime
-behavior (for AtomRefs it tracks; for anything else it's identity
-to `.value`). Optional chaining (`obj?.value`) is left un-rewritten
-by the compiler, so it never reaches `h.read`.
 
 ## Channel-fold quick check
 

@@ -1,5 +1,5 @@
 import { parse, type ParserOptions } from "@babel/parser"
-import _traverse, { type NodePath } from "@babel/traverse"
+import _traverse, { type NodePath, type Scope } from "@babel/traverse"
 import * as t from "@babel/types"
 import _generate from "@babel/generator"
 import { computeMappings, type CompilerMapping } from "./source-map.ts"
@@ -86,6 +86,15 @@ const PARSER_OPTIONS: ParserOptions = {
 }
 
 /**
+ * An `on*` attribute (length > 2, mirroring the runtime's `isHandlerKey` gate
+ * in coerce.ts): a handler slot, never reader-wrapped.
+ */
+const isHandlerAttr = (key: t.Identifier | t.StringLiteral): boolean => {
+  const name = t.isIdentifier(key) ? key.name : key.value
+  return name.length > 2 && name.startsWith("on")
+}
+
+/**
  * Convert a JSX attribute name to an object-property key.
  * JSX allows `data-foo` and `aria-bar` — wrap those in string literals.
  */
@@ -104,276 +113,160 @@ const attrName = (
  * Per-call mutable state, threaded through every helper that may emit a
  * runtime call. `transformVerrex` creates a fresh instance and reads the
  * flags at the end to decide which runtime imports to auto-inject. `usedH`
- * is per-emission (an intrinsic `h(...)`, an `h.track` wrap, or an
- * `h.read` rewrite) — a file whose JSX is all component tags emits direct
- * calls and needs no `h` at all.
+ * is per-emission (an intrinsic `h(...)` or an `h.reader` wrap) — a file
+ * whose JSX is all component tags emits direct calls and needs no `h` at all.
  */
 interface RewriteState {
-  wroteList: boolean
   usedH: boolean
   usedFragment: boolean
-  /**
-   * The exact `Async`/`Catch`/`list` CALL NODES that resolve to the
-   * `@verrex/core` helper (scope-correct — see `resolveHelperCalls`). Only
-   * these skip the `h.track` wrap; a same-named call bound to the user's own
-   * function (a local `const list = …`, a `.map(list => …)` param, an import
-   * from elsewhere) is absent and keeps its wrap, so its reactivity survives.
-   * Identity is stable: the JSX→`h()` transform mutates a call's children but
-   * never the call node itself, so the node marked here is the one `wrapTracked`
-   * later peels to.
-   */
-  verrexHelperCalls: ReadonlySet<t.Node>
 }
 
 /**
- * Strip expression wrappers that change only the TYPE of their operand, never
- * its runtime value: `x as T`, `x satisfies T`, `x!`. Used by `wrapTracked`'s
- * skip checks so a cast-wrapped handler (`onclick={(e => …) as
- * EventHandler<…>}`) or boundary (`{Async(…) satisfies …}`) is recognized for
- * what it is at runtime. (No `<T>x` branch — the jsx parser plugin makes
- * angle-bracket assertions unparseable; no ParenthesizedExpression — Babel
- * only emits those under `createParenthesizedExpressions`, which we don't
- * set: parens arrive as the bare inner node.)
- */
-const peelTypeWrappers = (expr: t.Expression): t.Expression => {
-  let cur = expr
-  while (
-    t.isTSAsExpression(cur) ||
-    t.isTSSatisfiesExpression(cur) ||
-    t.isTSNonNullExpression(cur)
-  ) {
-    cur = cur.expression
-  }
-  return cur
-}
-
-/**
- * Calls that must NOT be `h.track`-wrapped: each returns an
- * `Effect<View…, never, R | …>` that has to reach the `h()` fold intact, and
- * each manages its own reactivity — `Async` tracks its `from` thunk, `Catch`
- * drives its state from a forked loop, `list` self-subscribes inside mount
- * (and since #72 carries the folded row channels). Wrapping any of them is
- * redundant: each already re-runs itself on the deps it read, so the wrap
- * buys no reactivity while re-invoking the helper on every dep change.
- * (Before #159 it was also harmful — `h.track` returned `unknown` and erased
- * the channels; it now returns `T | ReadonlyRef<T>`, which folds.) The inner `.value` reads are still
- * rewritten to `h.read` (a read in a `Catch` fallback or an `Async` thunk).
+ * The `get(...)` reader sugar (docs/reactivity-migration.md "One dialect").
  *
- * WHICH calls skip is decided SCOPE-CORRECTLY, up front, by
- * `resolveHelperCalls`: only a call whose callee binds to the `@verrex/core`
- * import is the real helper. A same-named call bound to the user's own
- * function (a local `const list = …`, a `.map(list => …)` param, an import
- * from elsewhere) keeps its wrap, so its reactivity survives.
- */
-const SELF_TRACKING_HELPERS: ReadonlySet<string> = new Set([
-  "Async",
-  "asyncRef",
-  "atom",
-  "Catch",
-  "fn",
-  "list",
-  "streamRef",
-])
-
-const isSelfTrackingCall = (expr: t.Expression, state: RewriteState): boolean =>
-  t.isCallExpression(expr) && state.verrexHelperCalls.has(expr)
-
-/**
- * The self-tracking helper a binding refers to (by its IMPORTED name, so an
- * alias resolves correctly), or `null`. Only a NAMED import from
- * `@verrex/core` qualifies — a default/namespace import isn't one of these
- * helpers, and a local binding (const/function/param) is the user's own.
- */
-const importedHelperName = (path: NodePath): string | null => {
-  if (!path.isImportSpecifier()) return null
-  const decl = path.parentPath
-  if (!decl.isImportDeclaration() || decl.node.source.value !== "@verrex/core")
-    return null
-  const imported = path.node.imported
-  const name = t.isIdentifier(imported) ? imported.name : imported.value
-  return SELF_TRACKING_HELPERS.has(name) ? name : null
-}
-
-/**
- * Collect the exact `Async`/`Catch`/`list` call NODES that resolve to the
- * `@verrex/core` helper, resolving each callee's binding in its own scope
- * (`path.scope.getBinding`) — so a `list` param inside one arrow never
- * disables the real verrex `list` elsewhere in the same file. A call is the
- * helper when its callee binds to a `@verrex/core` import of a helper name
- * (by IMPORTED name — `import { Async as A }` ⇒ `A(...)` qualifies), OR is
- * UNRESOLVED with a helper name (the compiler-injected `list` from the
- * `.value.map` rewrite, or a name the user forgot to import — a TS error
- * regardless, so skip-vs-wrap is moot). A LOCAL binding, or an import of the
- * name from elsewhere, is the user's own function: not a helper.
- */
-const resolveHelperCalls = (ast: t.Node): Set<t.Node> => {
-  const helpers = new Set<t.Node>()
-  traverse(ast, {
-    CallExpression(path: NodePath<t.CallExpression>) {
-      const callee = path.node.callee
-      if (!t.isIdentifier(callee)) return
-      const binding = path.scope.getBinding(callee.name)
-      if (
-        binding
-          ? importedHelperName(binding.path) !== null
-          : SELF_TRACKING_HELPERS.has(callee.name)
-      ) {
-        helpers.add(path.node)
-      }
-    },
-  })
-  return helpers
-}
-
-/**
- * Wrap a JSX-expression's value in a `h.track(() => expr)` call **only when
- * a `.value` read was found**. Static expressions like `{item}` or `{"hello"}`
- * pass through unchanged so their TypeScript type is preserved — h.track's
- * return is `unknown`, which would otherwise destroy the typing of component
- * props (`<Row item={item} />`, the prop's `item` type).
+ * A JSX expression — an intrinsic/component child, or an attribute that is
+ * not an `on*` handler — that calls a FREE `get(...)` at its top level is
+ * lowered to `h.reader((get) => expr)`: `Atom.readable` under the hood, so
+ * `{get(count) * 2}` / `class={get(open) ? "a" : ""}` re-run per dep change
+ * with one word (`get`) shared with atom bodies (Solid's mechanism — wrap the
+ * expression in a thunk — with effect-atom's vocabulary). No `get` → the
+ * expression passes through untouched (static; its TypeScript type survives,
+ * purely syntactically). `get` needs no import: after the rewrite it is the
+ * reader's parameter, so tsc never sees a free `get`.
  *
- * Three rewrites are deliberately NOT wrapped, because the wrap buys no
- * reactivity they don't already have (and re-invokes them per dep change):
- *   - `.value.map(arrow → JSX)` → `list(...)` (flips `state.wroteList` for the
- *     `list` auto-import) AND manual `list(coll, row)` calls — list
- *     self-subscribes inside `mount`, and its return carries the folded row
- *     channels (#72).
- *   - `Async(() => …, arms)` and `Catch(child, …)` calls — these
- *     self-track (see `isSelfTrackingCall` / `resolveHelperCalls`).
- *   - a whole-expression function value (`onclick={() => count.value + 1}`,
- *     a `render={…}` callback) — evaluating a function expression executes
- *     no reads, so the tracker's dep set is provably always empty and the
- *     wrap is a runtime no-op; but its `unknown` would erase the handler's
- *     `E`/`R` from the props fold (#72). The inner `h.read` rewrites are
- *     kept: they run at call time, where no tracker is active, as plain
- *     `.value` reads.
- * Both skip checks look through type-only wrappers (`as` / `satisfies` / `!`,
- * see `peelTypeWrappers`) — `{Async(…) satisfies X}` /
- * `onclick={(arrow) as EventHandler<…>}` evaluate to the bare call/function
- * at runtime, and wrapping them would erase exactly the channels (or the
- * annotation) the assertion was written to pin.
- *
- * A `.value` read that sits in a skipped call's ARGUMENT position rather than
- * inside its thunk/row/handler function (`{list(showDone.value ? a : b, …)}`)
- * runs ONCE at construction and never re-evaluates — the same one-time
- * eager-read semantics a statement read has (Solid/Svelte/Vue; see pass-3).
- * We don't special-case it: a reactive *source* selection belongs inside the
- * function (`Async(() => http.get(id.value), …)`); manual-`list` source
- * reactivity is tracked separately (#128).
+ * "Free" = not bound in scope at the JSX expression (an `atom((get) => …)`
+ * param, a user `const get`, or an ALREADY-INJECTED reader param — nested JSX
+ * is lowered later, so an inner reader's `get` is bound by the time an outer
+ * expression is examined). Nested JSX elements/fragments inside the
+ * expression are opaque to this walk (they get their own reader when the
+ * traversal reaches them). A free `get(...)` INSIDE a nested function within
+ * the expression (`{items.map((i) => get(i).name)}`, `onclick={() =>
+ * get(x)}`) is a COMPILE ERROR — it would run outside any reader and read
+ * silently untracked; the fix is to move the `get` to the reader level or
+ * into the row's own JSX. Type-only wrappers (`as` / `satisfies` / `!`) are
+ * transparent to the walk.
  */
-const wrapTracked = (expr: t.Expression, state: RewriteState): t.Expression => {
-  const { expr: rewritten, rewroteRead } = rewriteTrackedExpression(expr, state)
-  if (!rewroteRead) return rewritten
-  state.usedH = true // the rewrite emitted h.read (and below, possibly h.track)
-  const peeled = peelTypeWrappers(rewritten)
-  // Async / Catch / manual list self-track (or self-subscribe); the
-  // `.value`→`h.read` rewrite inside them is kept, but the outer `h.track`
-  // wrap is skipped so their channels survive the fold.
-  if (isSelfTrackingCall(peeled, state)) return rewritten
-  // A top-level function value can't read deps while being tracked — skip the
-  // dead wrap so the function's type (an event handler's channels) survives.
-  if (t.isFunction(peeled)) return rewritten
-  return t.callExpression(
-    t.memberExpression(t.identifier("h"), t.identifier("track")),
-    [t.arrowFunctionExpression([], rewritten)],
+const wrapReader = (
+  expr: t.Expression,
+  scope: Scope,
+  state: RewriteState,
+): t.Expression => {
+  const found = findFreeGetCalls(expr, scope)
+  if (found === "none") return expr
+  state.usedH = true
+  const param = t.identifier("get")
+  injectedGetParams.add(param)
+  return copyLoc(
+    t.callExpression(
+      t.memberExpression(t.identifier("h"), t.identifier("reader")),
+      [t.arrowFunctionExpression([param], expr)],
+    ),
+    expr,
   )
 }
 
-const hRead = (): t.MemberExpression =>
-  t.memberExpression(t.identifier("h"), t.identifier("read"))
+/**
+ * The `get` params THIS pass injected. Nested JSX is lowered after its
+ * enclosing expression (top-down), so an inner `{get(name)}` sits inside an
+ * outer reader's arrow and `scope.hasBinding("get")` sees that param — but
+ * the inner expression must get its OWN reader (fine-grained: only the inner
+ * text node re-renders), so an injected binding does not count as shadowing.
+ * A user-written `get` binding (an `atom((get) => …)` param, a local) does.
+ */
+const injectedGetParams = new WeakSet<t.Identifier>()
 
 /**
- * True when an `obj.value` member sits in a write / binding-target position, so
- * it must be left bare. Rewriting a write target to `h.read(obj)` would emit
- * invalid JS (`[h.read(obj)] = …` — assignment to a call) or, for
- * `for (obj.value of …)`, crash Babel's AST validator (`ForOfStatement.left`
- * rejects a `CallExpression`). Covers every LVal shape:
- *
- *   obj.value = …      obj.value++ / --obj.value     delete obj.value
- *   [obj.value] = …    ({ k: obj.value } = …)        for (obj.value of/in …)
- *   [obj.value = d] = …    [...obj.value] = …
- *
- * The set of LVal positions is closed, so this is exhaustive. It climbs through
- * destructuring connectors (`RestElement`, `AssignmentPattern.left`,
- * `ObjectProperty.value`), and reaching an `ArrayPattern`/`ObjectPattern` — node
- * types that exist *only* in target positions — confirms a write. Read
- * sub-positions are distinguished: a computed pattern key (`{[obj.value]: x}`),
- * an `AssignmentPattern` default (`[a = obj.value]`), the `.right` of an
- * assignment, and the iterable of a `for…of` (`for (x of obj.value)`) all read.
- * Any ordinary expression parent means it's a read.
+ * A handler attribute is a listener, not a reactive expression: a free
+ * `get(...)` anywhere in it (`onclick={() => get(x)}`, `onclick={get(h)}`)
+ * would never be tracked, so it is the same compile error as a nested
+ * function. Returns the expression untouched otherwise.
  */
-const isWriteTarget = (path: NodePath<t.MemberExpression>): boolean => {
-  let cur: NodePath = path
-  let parent: NodePath | null = path.parentPath
-  while (parent) {
-    const pn = parent.node
-    const cn = cur.node
-    if (t.isAssignmentExpression(pn)) return pn.left === cn
-    if (t.isUpdateExpression(pn)) return pn.argument === cn
-    if (t.isUnaryExpression(pn) && pn.operator === "delete")
-      return pn.argument === cn
-    if (t.isForOfStatement(pn) || t.isForInStatement(pn)) return pn.left === cn
-    if (t.isArrayPattern(pn) || t.isObjectPattern(pn)) return true
-    // Connectors — climb only via their target sub-position.
-    if (t.isRestElement(pn) && pn.argument === cn) {
-      cur = parent
-      parent = parent.parentPath
-      continue
-    }
-    if (t.isAssignmentPattern(pn) && pn.left === cn) {
-      cur = parent
-      parent = parent.parentPath
-      continue
-    }
-    if (t.isObjectProperty(pn) && pn.value === cn) {
-      cur = parent
-      parent = parent.parentPath
-      continue
-    }
-    return false
+const rejectGetInHandler = (expr: t.Expression, scope: Scope): t.Expression => {
+  if (findFreeGetCalls(expr, scope) === "top")
+    throw new GetInNestedFunctionError(expr)
+  return expr
+}
+
+class GetInNestedFunctionError extends Error {
+  constructor(node: t.Node) {
+    const loc = node.loc?.start
+    super(
+      `get(...) inside a nested function is not reactive — it would run outside the reader ` +
+        `(${loc ? `${loc.line}:${loc.column + 1}` : "unknown position"}). ` +
+        `Move the get(...) to the JSX expression level, or into the nested JSX it renders.`,
+    )
+    this.name = "GetInNestedFunctionError"
   }
+}
+
+/**
+ * Walk `expr` for free `get(...)` calls. Returns "top" when at least one sits
+ * at the expression's top level (→ wrap), "none" otherwise; throws
+ * `GetInNestedFunctionError` on one inside a nested function. Shadowing
+ * introduced INSIDE the expression (a nested function's `get` param, a
+ * `const get` in a block) is tracked; shadowing from the enclosing scope is
+ * `scope.hasBinding("get")`.
+ */
+const findFreeGetCalls = (expr: t.Expression, scope: Scope): "top" | "none" => {
+  const binding = scope.getBinding("get")
+  if (binding && !injectedGetParams.has(binding.identifier)) return "none"
+  let top = false
+  const walk = (
+    node: t.Node | null | undefined,
+    depth: number,
+    shadowed: boolean,
+  ): void => {
+    if (node == null || shadowed) return
+    // Nested JSX gets its own reader later — opaque here.
+    if (t.isJSXElement(node) || t.isJSXFragment(node)) return
+    if (
+      t.isCallExpression(node) &&
+      t.isIdentifier(node.callee, { name: "get" })
+    ) {
+      if (depth > 0) throw new GetInNestedFunctionError(node)
+      top = true
+      // Still walk the arguments (`get(get(a))` — inner is also top-level).
+    }
+    if (t.isFunction(node)) {
+      const shadows = node.params.some((p) => bindsName(p, "get"))
+      walk(node.body, depth + 1, shadows)
+      return
+    }
+    // Generic child walk over Babel's VISITOR_KEYS.
+    const keys = t.VISITOR_KEYS[node.type] ?? []
+    for (const key of keys) {
+      const child = (node as unknown as Record<string, unknown>)[key]
+      if (Array.isArray(child)) {
+        for (const c of child) walk(c as t.Node, depth, shadowed)
+      } else if (child && typeof (child as t.Node).type === "string") {
+        walk(child as t.Node, depth, shadowed)
+      }
+    }
+  }
+  walk(expr, 0, false)
+  return top ? "top" : "none"
+}
+
+/** Does a function parameter pattern bind `name`? (identifier, default, rest, destructuring) */
+const bindsName = (p: t.Node, name: string): boolean => {
+  if (t.isIdentifier(p)) return p.name === name
+  if (t.isAssignmentPattern(p)) return bindsName(p.left, name)
+  if (t.isRestElement(p)) return bindsName(p.argument, name)
+  if (t.isArrayPattern(p))
+    return p.elements.some((e) => e != null && bindsName(e, name))
+  if (t.isObjectPattern(p))
+    return p.properties.some((pr) =>
+      t.isRestElement(pr)
+        ? bindsName(pr.argument, name)
+        : bindsName(pr.value, name),
+    )
   return false
 }
 
 /**
- * Rewrite a single `obj.value` member *read* to `h.read(obj)`, returning whether
- * it rewrote. Shared by the JSX-expression rewrite (`rewriteTrackedExpression`)
- * and the whole-body pass (`transformVerrex` pass 3) so both apply identical rules:
- *
- *   - Only non-computed `.value` reads. `obj["value"]` and other properties pass.
- *   - Writes/binding targets are left bare (see `isWriteTarget`). For an AtomRef
- *     the bare write also surfaces TypeScript's own `ts(2540) Cannot assign to
- *     'value' … read-only` at the right column — no custom diagnostic needed.
- *   - Optional chaining (`obj?.value`) is a different node type
- *     (`OptionalMemberExpression`), so it is never matched here — left as-is.
- *
- * Detection of *what actually tracks* is deferred to runtime: `h.read` is a
- * faithful passthrough that records a dependency only for branded AtomRefs under
- * an active tracker (see `readImpl` in `verrex`). So this rewrite needs no
- * compile-time "is this an AtomRef?" analysis — it routes every `.value` read
- * through the one exact gate. `copyLoc` keeps the emitted call mapped to the
- * original `.value` span (matters for statement reads, which no `jsxRange`
- * covers).
- */
-const rewriteValueRead = (path: NodePath<t.MemberExpression>): boolean => {
-  const n = path.node
-  if (n.computed) return false
-  if (!t.isIdentifier(n.property)) return false
-  if (n.property.name !== "value") return false
-  if (isWriteTarget(path)) return false
-  path.replaceWith(
-    copyLoc(t.callExpression(hRead(), [n.object as t.Expression]), n),
-  )
-  return true
-}
-
-/**
- * Match `Component.make(<single arg>)` — the one call-site shape the
- * component-name injection rewrites. Matched purely by callee shape (the
- * compiler has no types), so `import { Component as C }` defeats it — which
- * fails soft: the wrapped component loses its named span (anonymous
- * `Effect.fn` adds no span, only stack frames). A call that
- * already carries a second argument (an explicit name) is left alone.
+ * Match `Component.make(fn)` — one argument, member callee `Component.make`
+ * — so the name-injection pass can append the declared name. Anything else
+ * (already-named, aliased import, computed access) is left alone.
  */
 const matchNamelessComponentMake = (node: t.Node): t.CallExpression | null =>
   t.isCallExpression(node) &&
@@ -385,89 +278,10 @@ const matchNamelessComponentMake = (node: t.Node): t.CallExpression | null =>
     ? node
     : null
 
-/**
- * True when an arrow body is a JSX expression — either directly
- * (`item => <Row/>`) or via a block whose only statement is `return <JSX/>`
- * (`item => { return <Row/> }`).
- */
-const isJsxArrowBody = (body: t.BlockStatement | t.Expression): boolean => {
-  if (t.isJSXElement(body) || t.isJSXFragment(body)) return true
-  if (t.isBlockStatement(body) && body.body.length === 1) {
-    const stmt = body.body[0]
-    if (t.isReturnStatement(stmt) && stmt.argument) {
-      return t.isJSXElement(stmt.argument) || t.isJSXFragment(stmt.argument)
-    }
-  }
-  return false
-}
-
-/**
- * Match `<expr>.value.map(<arrow>)` exactly. The arrow's JSX-ness is checked
- * separately by `isJsxArrowBody` — this just confirms the call shape.
- */
-const matchValueMapCall = (
-  node: t.CallExpression,
-): { source: t.Expression; arrow: t.ArrowFunctionExpression } | null => {
-  if (!t.isMemberExpression(node.callee) || node.callee.computed) return null
-  if (!t.isIdentifier(node.callee.property, { name: "map" })) return null
-  const valueAccess = node.callee.object
-  if (!t.isMemberExpression(valueAccess) || valueAccess.computed) return null
-  if (!t.isIdentifier(valueAccess.property, { name: "value" })) return null
-  if (node.arguments.length !== 1) return null
-  const arg = node.arguments[0]
-  if (!t.isArrowFunctionExpression(arg)) return null
-  if (!isJsxArrowBody(arg.body)) return null
-  if (t.isSuper(valueAccess.object)) return null
-  return { source: valueAccess.object, arrow: arg }
-}
-
-/**
- * In-place AST rewrites inside a tracked JSX expression:
- *
- *   - `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)` — keyed
- *     reactive iteration. Caught before the bare `.value` rewrite so the
- *     `.value` doesn't get turned into an `h.read` we'd then have to undo.
- *     Flips `state.wroteList` so `transformVerrex` adds the import, then
- *     `path.skip()`s the new list's children: any `.value` reads inside the
- *     arrow body belong to inner JSX expressions and will get their own
- *     `h.track` wrap when the outer JSX traversal reaches them. Descending
- *     here would (a) wrap this `list(...)` in a redundant `h.track`, and
- *     (b) strand the inner `h.read` calls outside any active tracking scope.
- *   - `x.value` (read) → `h.read(x)` — tracks AtomRef reads via `.value`.
- *     Sets local `rewroteRead`, which triggers the surrounding `h.track`
- *     wrap in `wrapTracked`.
- */
-const rewriteTrackedExpression = (
-  expr: t.Expression,
-  state: RewriteState,
-): { expr: t.Expression; rewroteRead: boolean } => {
-  const file = t.file(t.program([t.expressionStatement(expr)]))
-  let rewroteRead = false
-  traverse(file, {
-    CallExpression(path) {
-      const matched = matchValueMapCall(path.node)
-      if (!matched) return
-      const newCall = t.callExpression(t.identifier("list"), [
-        matched.source,
-        matched.arrow,
-      ])
-      path.replaceWith(copyLoc(newCall, path.node))
-      state.wroteList = true
-      path.skip()
-    },
-    MemberExpression(path) {
-      if (rewriteValueRead(path)) rewroteRead = true
-    },
-  })
-  return {
-    expr: (file.program.body[0] as t.ExpressionStatement).expression,
-    rewroteRead,
-  }
-}
-
 /** Build the props object from JSX attributes. */
 const buildProps = (
   attrs: ReadonlyArray<t.JSXAttribute | t.JSXSpreadAttribute>,
+  scope: Scope,
   state: RewriteState,
 ): t.Expression => {
   const properties: Array<t.ObjectProperty | t.SpreadElement> = []
@@ -485,11 +299,17 @@ const buildProps = (
     } else if (t.isJSXExpressionContainer(attr.value)) {
       value = t.isJSXEmptyExpression(attr.value.expression)
         ? t.booleanLiteral(true)
-        : wrapTracked(attr.value.expression, state)
+        : // Handler props are functions; a `get` inside one is the nested-
+          // function error, but a bare `onclick={handler}` must never be
+          // wrapped — it isn't reactive, it's a listener.
+          isHandlerAttr(key)
+          ? rejectGetInHandler(attr.value.expression, scope)
+          : wrapReader(attr.value.expression, scope, state)
     } else {
       // JSXElement/JSXFragment values are exotic — fall back to recursive transform
       value = transformJsxNode(
         attr.value as t.JSXElement | t.JSXFragment,
+        scope,
         state,
       )
     }
@@ -585,6 +405,7 @@ const cleanJsxText = (value: string): string => {
 /** Transform a single JSX child node into an expression. */
 const transformChild = (
   child: t.JSXElement["children"][number],
+  scope: Scope,
   state: RewriteState,
 ): t.Expression | t.SpreadElement | null => {
   if (t.isJSXText(child)) {
@@ -595,7 +416,7 @@ const transformChild = (
   if (t.isJSXExpressionContainer(child)) {
     return t.isJSXEmptyExpression(child.expression)
       ? null
-      : wrapTracked(child.expression, state)
+      : wrapReader(child.expression, scope, state)
   }
   if (t.isJSXSpreadChild(child)) {
     // `{...items}` expands as individual children (JSX semantics): emit a
@@ -605,7 +426,7 @@ const transformChild = (
     // from coerceAsync's array peel.
     return copyLoc(t.spreadElement(child.expression), child)
   }
-  return transformJsxNode(child, state)
+  return transformJsxNode(child, scope, state)
 }
 
 const RUNTIME_PKG = "@verrex/core"
@@ -727,11 +548,12 @@ const isComponentTag = (
  */
 const transformJsxNode = (
   node: t.JSXElement | t.JSXFragment,
+  scope: Scope,
   state: RewriteState,
 ): t.CallExpression => {
   const childArgs: Array<t.Expression | t.SpreadElement> = []
   for (const child of node.children) {
-    const transformed = transformChild(child, state)
+    const transformed = transformChild(child, scope, state)
     if (transformed) childArgs.push(transformed)
   }
 
@@ -746,6 +568,7 @@ const transformJsxNode = (
       ? t.objectExpression([])
       : (buildProps(
           node.openingElement.attributes,
+          scope,
           state,
         ) as t.ObjectExpression)
     if (childArgs.length > 0) {
@@ -772,7 +595,7 @@ const transformJsxNode = (
 
   state.usedH = true
   const tag = tagExpression(node.openingElement.name)
-  const props = buildProps(node.openingElement.attributes, state)
+  const props = buildProps(node.openingElement.attributes, scope, state)
   // Preserve location on the h() call for source map accuracy
   const hCall = t.callExpression(t.identifier("h"), [tag, props, ...childArgs])
   return copyLoc(hCall, node)
@@ -825,49 +648,26 @@ export const transformVerrex = (
   })
 
   const state: RewriteState = {
-    wroteList: false,
     usedH: false,
     usedFragment: false,
-    verrexHelperCalls: resolveHelperCalls(ast),
   }
 
   traverse(ast, {
     JSXElement(path: NodePath<t.JSXElement>) {
-      path.replaceWith(transformJsxNode(path.node, state))
+      path.replaceWith(transformJsxNode(path.node, path.scope, state))
     },
     JSXFragment(path: NodePath<t.JSXFragment>) {
-      path.replaceWith(transformJsxNode(path.node, state))
+      path.replaceWith(transformJsxNode(path.node, path.scope, state))
     },
   })
 
-  // Pass 3 — whole-body `.value` reads. The JSX pass above only rewrites
-  // `.value` inside JSX expressions; a `.value` read in a *statement* (an
-  // extracted `Async` thunk, a helper, a local `const`) was left bare and so
-  // never tracked. Rewrite those surviving reads too, so an AtomRef tracks
-  // anywhere in a component body, not just in JSX.
-  //
-  // Runs on the LIVE AST *after* the JSX pass, so every JSX `.value` is already
-  // an `h.read(...)` call (property name "read", not "value") and can't be
-  // double-rewritten. There is NO compile-time atom detection: `h.read` is a
-  // faithful passthrough (identical to `.value` for non-AtomRefs), so emitting
-  // it for every `.value` read is safe; the runtime brand check is the exact
-  // gate. And NO `h.track` wrap here — eager statement reads stay one-time
-  // reads (Solid/Svelte/Vue semantics); tracking only activates when the read
-  // executes under a tracker (an `Async` thunk, or a JSX `h.track` scope).
-  //
-  // The same traversal also performs the Component-name injection (see the
-  // VariableDeclarator visitor) — an independent, additive rewrite that rides
-  // along to avoid a fourth pass.
-  let usedHRead = false
+  // Pass 3 — Component-name injection: `const Counter = Component.make(fn)`
+  // gains the declared name as a second argument — `Component.make(fn,
+  // "Counter")` — so the span is named without the user repeating the export
+  // name. Purely additive, single call-site shape (see
+  // `matchNamelessComponentMake`); anything that doesn't match fails soft (no
+  // named span). Runs on the LIVE AST after the JSX pass.
   traverse(ast, {
-    MemberExpression(path: NodePath<t.MemberExpression>) {
-      if (rewriteValueRead(path)) usedHRead = true
-    },
-    // Component-name injection: `const Counter = Component.make(fn)` gains the
-    // declared name as a second argument — `Component.make(fn, "Counter")` —
-    // so the span is named without the user repeating the export name. Purely
-    // additive, single call-site shape (see `matchNamelessComponentMake`);
-    // anything that doesn't match fails soft (no named span).
     VariableDeclarator(path: NodePath<t.VariableDeclarator>) {
       if (!t.isIdentifier(path.node.id) || path.node.init == null) return
       const call = matchNamelessComponentMake(path.node.init)
@@ -879,11 +679,10 @@ export const transformVerrex = (
   // Looks for an existing `import … from "@verrex/core"` and adds the
   // missing names there; otherwise prepends a new import. Keeps the user's
   // imports untouched and avoids duplicate specifiers. `h` is needed if the
-  // JSX pass emitted `h(...)` OR pass 3 emitted any `h.read(...)`.
+  // JSX pass emitted `h(...)` or an `h.reader(...)` wrap.
   const wanted = new Set<string>()
-  if (state.usedH || usedHRead) wanted.add("h")
+  if (state.usedH) wanted.add("h")
   if (state.usedFragment) wanted.add("Fragment")
-  if (state.wroteList) wanted.add("list")
   if (wanted.size > 0) ensureRuntimeImports(ast.program, wanted)
 
   const result = generate(

@@ -100,7 +100,7 @@ the component down before you could drive it.
 
 ## Shared fixtures (`fixtures.ts`)
 
-Test-only scaffolds for the Async/asyncRef suites (#98) — **not** exported
+Test-only scaffolds for the async / boundary suites (#98) — **not** exported
 from the package and excluded in `tsconfig.build.json`, so it never reaches
 `dist`. `makeUsersFixture(tagPrefix)` returns a fresh `Users` service per
 suite — a factory, not module constants, because suites customize the getter

@@ -22,7 +22,7 @@ type GenR<Eff> = [Eff] extends [never]
  *     (fine-grained model), so the span costs per-mount, not per-update — and
  *     buys component stack traces in a failure `Cause`
  *     (`App > ProfilePage > UserCard`) plus OTel spans that join UI to backend
- *     (the `asyncRef` supervisor forked during construction inherits the span
+ *     (an `atom` body captures the construction context, so it inherits the span
  *     context, so refetches nest under the component). Opt out by writing a
  *     plain `Effect.fnUntraced` function — components are just functions;
  *     `make` is a seam, not a gate.

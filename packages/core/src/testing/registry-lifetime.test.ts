@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { h, mount, VerrexLive } from "@verrex/core"
+import { h, mount } from "@verrex/core"
 
 // Regression pins for #167: `mount` owns its AtomRegistry.
 //
@@ -19,7 +19,7 @@ const trackedSpan = (dep: AtomRef.AtomRef<string>) =>
     return yield* h(
       "span",
       {},
-      h.track(() => h.read(dep)),
+      h.reader((get) => get(dep)),
     )
   })
 
@@ -40,20 +40,6 @@ describe("mount owns the AtomRegistry (#167)", () => {
     const dep = AtomRef.make("a")
     const el = document.createElement("div")
     const close = await mountHeld(mount(trackedSpan(dep), el))
-    expect(el.querySelector("span")!.textContent).toBe("a")
-    dep.set("b")
-    expect(el.querySelector("span")!.textContent).toBe("b")
-    await close()
-  })
-
-  it("the old footgun shape — Effect.provide(VerrexLive) around mount — is now a no-op", async () => {
-    const dep = AtomRef.make("a")
-    const el = document.createElement("div")
-    // The provided registry dies when the mount effect completes; the UI
-    // must keep reacting because it lives on mount's OWN registry.
-    const close = await mountHeld(
-      mount(trackedSpan(dep), el).pipe(Effect.provide(VerrexLive)),
-    )
     expect(el.querySelector("span")!.textContent).toBe("a")
     dep.set("b")
     expect(el.querySelector("span")!.textContent).toBe("b")
@@ -92,7 +78,7 @@ describe("mount owns the AtomRegistry (#167)", () => {
           return yield* h(
             "span",
             {},
-            h.track(() => h.read(dep)),
+            h.reader((get) => get(dep)),
           )
         }),
         el,

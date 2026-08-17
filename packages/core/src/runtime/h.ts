@@ -1,14 +1,6 @@
 import { Effect, Option } from "effect"
 import { Atom, type AtomRef } from "effect/unstable/reactivity"
-import {
-  bridgeAtom,
-  coerceAsync,
-  isAtomRef,
-  isHandlerKey,
-  recordDep,
-  trackDeps,
-  trackDepsSettled,
-} from "./coerce.ts"
+import { bridgeAtom, coerceAsync, isAtomRef, isHandlerKey } from "./coerce.ts"
 import type {
   FoldE,
   FoldLiveE,
@@ -19,99 +11,53 @@ import type {
 import type { IntrinsicProps } from "./types/Html.ts"
 import { type Props, View } from "./View.ts"
 
-// ─── Tracking scope for h.track / h.read ─────────────────────────────────
+// ─── h.reader — the `get(...)` reader ────────────────────────────────────
 //
-// When the compiler wraps a JSX expression in `h.track(() => ...)`, that
-// scope intercepts every `h.read(ref)` call inside and records the ref as
-// a dependency. If any reads occurred, h.track returns a demand-driven
-// derived `Atom` that re-runs the thunk on dep changes; otherwise it returns
-// the value directly (no reactivity overhead for static expressions). The
-// collector itself lives in coerce.ts (`trackDeps`/`recordDep`) so `Async`
-// can share it.
-//
-// The return type is the HONEST union of those two paths — `T` when nothing
-// was read, `Atom<T>` when something was. It used to be `unknown`, which
-// erased every channel the thunk's value carried: for an `on*` prop that
-// silently dropped a handler's `E`/`R` while the runtime still ran it
-// (#159). Both members of the union fold: `HandlerChannels` reads a function
-// directly and recurses through `Atom`, and `ChildE`/`ChildLiveE`/`ChildR`
-// peel `Atom` the same way — so a tracked expression carries its channels
-// wherever it lands, instead of laundering them into `unknown`.
-const trackImpl = <T>(thunk: () => T): T | Atom.Atom<T> => {
-  // Creation-time run decides static vs reactive only; its result is
-  // deliberately NOT reused as the Atom's first value — refs can change
-  // between component construction and mount, and a lazy node must compute
-  // from live state when the registry first reads it.
-  const { deps, result } = trackDeps(thunk)
-  if (deps.size === 0) return result
+// The compiler lowers a JSX expression containing a free `get(...)` call to
+// `h.reader((get) => expr)` (docs/reactivity-migration.md "One dialect";
+// compiler AGENTS.md). Under the hood it is `Atom.readable`: a demand-driven
+// derived that re-runs `expr` per dep change, whose lifecycle the registry
+// owns by refcount (never mounted → never subscribes; unmount → released).
+// `get` accepts an `Atom` or an `AtomRef` — a ref is bridged INSIDE the
+// reader's own read (`bridgeAtom`: subscribe → `setSelf`, unsubscribed in the
+// node finalizer), which is the one place verrex still bridges refs into the
+// registry graph. Static expressions never reach here (no `get` → no wrap),
+// so their TypeScript type survives untouched.
 
-  // At least one ref was read — a derived Atom whose read re-runs the thunk
-  // and declares each ref it read (via its bridge) as a graph dependency.
-  // The registry owns the whole lifecycle by refcount: deps switching between
-  // runs (a ternary's other branch) drop the unused bridge, unmounting the
-  // subtree drops everything, and a derived that is never mounted never
-  // subscribes to anything.
-  return Atom.readable((get) => {
-    // `trackDepsSettled`, not `trackDeps`: a throw here must NOT escape the
-    // registry read. It would abort the whole notify cascade — every sibling
-    // node on the same ref would miss that update and stay dead — and leave
-    // this node without deps, so nothing could ever wake it again. Instead
-    // hold the last good value, stay subscribed to whatever the failed run
-    // did read, and report. The next dep change re-runs and recovers, which
-    // is the node-local, self-healing behaviour a transient
-    // (`h.read(user)!.name` while `user` is briefly null) had before deriveds
-    // moved into the shared registry graph.
-    const settled = trackDepsSettled(thunk)
-    for (const dep of settled.deps) get(bridgeAtom(dep))
-    if (settled.ok) return settled.value as T
-    reportTrackThrow(settled.error)
-    // `get.self()` is this node's previous value IN THIS REGISTRY — not a
-    // closure cache, so a derived mounted in two registries holds each one's
-    // own last value. `None` only on a first read that throws (construction
-    // already ran the thunk once, so that means state changed under us);
-    // `undefined` coerces to an empty node, which beats a torn subtree.
-    return Option.getOrUndefined(get.self<T>()) as T
+/** What a reader's `get` accepts: an atom or a local ref. */
+export type Get = <A>(source: Atom.Atom<A> | AtomRef.ReadonlyRef<A>) => A
+
+const readerImpl = <A>(read: (get: Get) => A): Atom.Atom<A> =>
+  Atom.readable((ctx) => {
+    const get: Get = (source) =>
+      isAtomRef(source)
+        ? ctx(bridgeAtom(source))
+        : ctx(source as Atom.Atom<any>)
+    // A throw must NOT escape the registry read: `AtomRegistry` has no
+    // try/catch around a node's read, so an escaping exception aborts the
+    // notify cascade — the parent's REMAINING dependents are dropped from
+    // its children set for good (siblings freeze silently) and the throw
+    // lands in the writer (a handler → its sink). One transient bad frame
+    // (`get(user)!.name` while `user` is briefly null) is common in JSX, so
+    // the reader stays node-local: keep the last good value, stay
+    // subscribed to whatever the failed run did read, report, and recover on
+    // the next dep change. A FIRST-read throw has no last value and rethrows
+    // (fail loud at first paint). This is a verrex-owned readable, so the
+    // guard is ours to keep; user-written `Atom.readable`s get Effect's
+    // behaviour (upstream issue).
+    try {
+      return read(get)
+    } catch (error) {
+      const previous = ctx.self<A>()
+      if (Option.isNone(previous)) throw error
+      console.error(
+        "[verrex] a reader threw while re-rendering; " +
+          "the node kept its last value and will retry on the next dep change.",
+        error,
+      )
+      return previous.value
+    }
   })
-}
-
-/**
- * A tracked thunk threw on a RE-RUN (dep change), where there is no
- * construction `E` channel left to ride and no boundary reachable from here —
- * `h.track` is a bare sync call in a compiled component body, with no `ctx`,
- * no `Scope`, and so no `ErrorSink`. Log it, matching what `mount`'s root sink
- * does with an unattributable runtime failure. Deliberately NOT rethrown, even
- * asynchronously: the whole point is that this node's failure stays this
- * node's. Wiring these into the nearest `Catch` is the real fix and wants the
- * typed-live-error work, not a global.
- */
-const reportTrackThrow = (error: unknown): void => {
-  console.error(
-    "[verrex] a tracked expression threw while re-rendering; " +
-      "the node kept its last value and will retry on the next dep change.",
-    error,
-  )
-}
-
-type HasValue = { readonly value: unknown }
-
-function readImpl<T>(obj: AtomRef.ReadonlyRef<T>): T
-function readImpl<T extends HasValue>(obj: T): T["value"]
-function readImpl(obj: unknown): unknown {
-  if (isAtomRef(obj)) {
-    recordDep(obj)
-    return obj.value
-  }
-  // Faithful, transparent passthrough: `h.read(x)` is byte-for-byte `x.value`
-  // for any non-AtomRef — including throwing on `null`/`undefined` exactly as
-  // `.value` would (NO `?.` swallow). This is what lets the compiler rewrite
-  // *every* `.value` read in a component body to `h.read` without any
-  // compile-time "is this an AtomRef?" analysis: the brand check above is the
-  // only gate, and it's exact. A non-AtomRef read records no dependency and
-  // returns its `.value` unchanged; an AtomRef read records a dep iff a tracker
-  // is active. Reading `.value` on a possibly-null base is a type error in the
-  // source `.value` form too, so there is no nullable overload here.
-  return (obj as HasValue).value
-}
 
 /**
  * The view factory — **intrinsic elements only** since #71. Component tags
@@ -197,23 +143,10 @@ type HFn = <P extends IntrinsicProps, Cs extends readonly unknown[]>(
 >
 
 /**
- * The view factory, plus two helper methods the compiler calls into:
- *
- * - `h.track(thunk)` — runs `thunk` in a reactive tracking scope; returns
- *   the static value if no refs were read, or a derived `AtomRef` that
- *   re-runs the thunk when deps change.
- * - `h.read(obj)` — a faithful, transparent wrapper for `obj.value` that, when
- *   called inside an `h.track` (or `Async`) tracking scope, registers `obj` as a
- *   dependency if it's an AtomRef. On any non-AtomRef it is exactly `obj.value`.
- *
- * Inside any JSX expression `{…}` that contains a `.value` read, the
- * compiler rewrites each `x.value` to `h.read(x)` and wraps the whole
- * expression in `h.track(() => …)` — so `<div>{loading.value ? <X /> : <Y />}</div>`
- * becomes reactive without any explicit subscribe code. JSX expressions
- * with no `.value` read pass through unwrapped so their static type is
- * preserved.
+ * The view factory, plus the one helper the compiler calls into:
+ * `h.reader((get) => expr)` — the lowering of a JSX expression that reads
+ * atoms/refs via `get(...)`; returns an `Atom` the renderer subscribes to.
  */
 export const h: HFn & {
-  readonly track: typeof trackImpl
-  readonly read: typeof readImpl
-} = Object.assign(_h as HFn, { track: trackImpl, read: readImpl })
+  readonly reader: typeof readerImpl
+} = Object.assign(_h as HFn, { reader: readerImpl })

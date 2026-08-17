@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { Deferred, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { Catch, h, list } from "@verrex/core"
+import { Catch, For, h } from "@verrex/core"
 import { Step, stepClick, stepLayer } from "./fixtures.ts"
 import { render } from "./index.ts"
 
@@ -24,16 +24,24 @@ const makeRows = (
   h(
     "ul",
     {},
-    list(coll, (item) =>
-      Effect.gen(function* () {
-        yield* Step // construction-time read — must resolve in rows
-        return yield* h(
-          "li",
-          {},
-          h("button", { class: "row-btn", onClick: stepClick(count) }, item),
-        )
-      }),
-    ),
+    For({
+      each: coll,
+      children: [
+        (item) =>
+          Effect.gen(function* () {
+            yield* Step // construction-time read — must resolve in rows
+            return yield* h(
+              "li",
+              {},
+              h(
+                "button",
+                { class: "row-btn", onClick: stepClick(count) },
+                item,
+              ),
+            )
+          }),
+      ],
+    }),
     h("span", { class: "total" }, "total: ", count),
   )
 

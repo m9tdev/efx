@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { Cause, Data, Deferred, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { Catch, h, list } from "@verrex/core"
+import { Catch, For, h } from "@verrex/core"
 import { Step, stepLayer } from "./fixtures.ts"
 import { render, untracked } from "./index.ts"
 
@@ -473,28 +473,32 @@ describe("per-dispatch handler scope", () => {
       return yield* h(
         "ul",
         {},
-        list(coll, (item) =>
-          h(
-            "li",
-            {},
-            h(
-              "button",
-              {
-                class: "row-btn",
-                onClick: () =>
-                  Effect.gen(function* () {
-                    yield* Effect.acquireRelease(
-                      Effect.sync(() => log.push("acquire")),
-                      () => Effect.sync(() => log.push("release")),
-                    )
-                    yield* Deferred.await(gate)
-                    log.push("done") // must never run
-                  }),
-              },
-              item,
-            ),
-          ),
-        ),
+        For({
+          each: coll,
+          children: [
+            (item) =>
+              h(
+                "li",
+                {},
+                h(
+                  "button",
+                  {
+                    class: "row-btn",
+                    onClick: () =>
+                      Effect.gen(function* () {
+                        yield* Effect.acquireRelease(
+                          Effect.sync(() => log.push("acquire")),
+                          () => Effect.sync(() => log.push("release")),
+                        )
+                        yield* Deferred.await(gate)
+                        log.push("done") // must never run
+                      }),
+                  },
+                  item,
+                ),
+              ),
+          ],
+        }),
       )
     })
 

@@ -67,7 +67,7 @@ const withOwner = (ctx: BuildCtx, owner: Scope.Scope): BuildCtx =>
 // The deps a prop application consumes: the element's construction-captured
 // `context` (the runtime side of FoldPropsR — a mid-tree provide is honored at
 // dispatch), the `sink` a handler failure routes to, and the `registry` an
-// Atom-valued prop (a `h.track` derived) is read/subscribed through. They
+// Atom-valued prop (an `h.reader` or any Atom) is read/subscribed through. They
 // travel together through applyProps → applyProp → the recursive reactive
 // re-dispatch, so they ride as one value. Deliberately NOT the full
 // `BuildCtx`: the static-element path must not derive a node ctx +
@@ -91,7 +91,7 @@ interface HandlerDeps {
 //   also closes on interruption). `acquireRelease` inside a handler therefore
 //   releases per dispatch (#160), and rapid dispatches don't share a scope.
 //   Corollary: the handler's Scope is DISPATCH-lifetime — `forkScoped`, or an
-//   `asyncRef`/`streamRef` created inside a handler, dies when the dispatch
+//   `atom`/`fn` created inside a handler, dies when the dispatch
 //   settles. Work that must outlive the click forks INTO a scope captured at
 //   construction (`const s = yield* Effect.scope`) or `forkDaemon`s.
 // - INTERRUPTION: the fiber is `forkIn(deps.ownerScope)` — the scope of the
@@ -194,7 +194,7 @@ const subscribeAtomScoped = <A>(
 // deferred thunk re-reads the source THEN, so a write landing during the
 // children build isn't clobbered by a stale capture), and subscribe `apply`
 // for the rest of `scope`'s life. Dispatch on Atom (read/subscribe through
-// the registry — an `h.track` derived) vs AtomRef (direct). Both reactive
+// the registry — an `h.reader`) vs AtomRef (direct). Both reactive
 // consumers — `applyProp` and the Reactive child case — go through here; a
 // third source shape means extending this, not a new dispatch site. A value
 // that is neither is a no-op, matching what each call site did before the
@@ -247,7 +247,7 @@ const applyProp = (
   scope: Scope.Scope,
   deferred?: Array<() => void>,
 ): void => {
-  // Reactive prop: Atom (a `h.track` derived) or AtomRef → subscribe and
+  // Reactive prop: Atom (an `h.reader` or any Atom) or AtomRef → subscribe and
   // re-apply on changes. Same rolling child scope either way; only the
   // read/subscribe seam differs.
   if (Atom.isAtom(value) || isAtomRef(value)) {

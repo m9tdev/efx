@@ -96,625 +96,106 @@ describe("JSX → h() rewrites", () => {
   })
 })
 
-describe("tracking-scope rewrites (h.track / h.read)", () => {
-  it("`.value` reads become h.read(...) and the expression is wrapped in h.track", () => {
+describe("get(...) reader sugar (docs/reactivity-migration.md)", () => {
+  it("wraps a child expression that calls a free get(...) in h.reader((get) => …)", () => {
     const out = compile(`
-      const x = <div>{ref.value}</div>
+      const x = <div>{get(count) * 2}</div>
     `)
-    expect(out).toContain(`h.read(ref)`)
-    expect(out).toContain(`h.track(() =>`)
+    expect(out).toContain(`h("div", {}, h.reader(get => get(count) * 2))`)
   })
 
-  it("bare identifier in ternary test is NOT rewritten — user must write .value", () => {
-    // Removed: bare identifiers in test positions used to be wrapped in
-    // `h.peek(...)`. Users must now write `.value` explicitly so the type
-    // checker sees a `boolean` (or whatever the ref unwraps to).
+  it("wraps a non-handler attribute; leaves an on* attribute alone", () => {
     const out = compile(`
-      const x = <div>{loading ? <a /> : <b />}</div>
+      const x = <div class={get(open) ? "a" : "b"} onclick={handler} />
     `)
-    expect(out).not.toContain(`h.peek`)
-    expect(out).not.toContain(`h.track`)
+    expect(out).toContain(`class: h.reader(get => get(open) ? "a" : "b")`)
+    expect(out).toContain(`onclick: handler`)
+    expect(out).not.toMatch(/onclick: h\.reader/)
   })
 
-  it("bare identifier in `&&` is NOT rewritten", () => {
+  it("leaves an expression with no get(...) untouched (static; type survives)", () => {
     const out = compile(`
-      const x = <div>{show && <p />}</div>
+      const x = <div>{item}{"hi"}{count + 1}</div>
     `)
-    expect(out).not.toContain(`h.peek`)
-    expect(out).not.toContain(`h.track`)
+    expect(out).toContain(`h("div", {}, item, "hi", count + 1)`)
+    expect(out).not.toContain("h.reader")
   })
 
-  it("bare identifier under `!` is NOT rewritten", () => {
+  it("wraps component children and attrs the same way", () => {
     const out = compile(`
-      const x = <div>{!hidden ? <a /> : <b />}</div>
+      const x = <Row item={get(x)}>{get(y)}</Row>
     `)
-    expect(out).not.toContain(`h.peek`)
+    expect(out).toContain(
+      `Row({ item: h.reader(get => get(x)), children: [h.reader(get => get(y))] })`,
+    )
   })
 
-  it("static expressions DO NOT get wrapped in h.track", () => {
-    // `<Row item={item} />` — `item` is a bare identifier in attribute
-    // position; there's no .value read, so wrapping would only strip the
-    // static type to `unknown`.
+  it("nested JSX inside a wrapped expression gets its own reader (inner get is bound by then)", () => {
     const out = compile(`
-      const x = <Row item={item} />
+      const x = <div>{get(open) ? <p>{get(name)}</p> : null}</div>
     `)
-    expect(out).toContain(`Row({ item: item })`)
-    expect(out).not.toContain(`h.track`)
+    expect(out).toContain(
+      `h.reader(get => get(open) ? h("p", {}, h.reader(get => get(name))) : null)`,
+    )
   })
 
-  it("static literal attribute values are not wrapped", () => {
-    expect(
+  it("does not wrap when get is bound in scope (an atom body's param, a local)", () => {
+    const out = compile(`
+      const a = atom((get) => <div>{get(x)}</div>)
+      const get = () => 1
+      const y = <span>{get(z)}</span>
+    `)
+    expect(out).not.toContain("h.reader")
+    expect(out).toContain(`h("div", {}, get(x))`)
+    expect(out).toContain(`h("span", {}, get(z))`)
+  })
+
+  it("nested-function shadowing inside the expression is respected", () => {
+    const out = compile(`
+      const x = <div>{items.map((get) => get(1))}</div>
+    `)
+    expect(out).not.toContain("h.reader")
+  })
+
+  it("a free get(...) inside a nested function is a compile error", () => {
+    expect(() =>
       compile(`
-      const x = <Foo n={42} s={"hi"} />
-    `),
-    ).not.toContain(`h.track`)
-  })
-
-  it("function-valued attrs with `.value` reads keep h.read but are NOT h.track-wrapped", () => {
-    // Evaluating a function expression executes no reads, so the wrap's dep
-    // set is provably always empty — a runtime no-op whose `unknown` type
-    // would erase the handler's E/R from the props fold (#72). The inner
-    // h.read runs at call time (no tracker active → plain `.value`).
-    const out = compile(`
-      const x = <button onclick={() => count.set(count.value + 1)}>+</button>
-    `)
-    expect(out).toContain(`h.read(count)`)
-    expect(out).not.toContain(`h.track`)
-  })
-
-  it("classic function expressions in attrs are also left unwrapped", () => {
-    const out = compile(`
-      const x = <button onclick={function () { return count.value }}>+</button>
-    `)
-    expect(out).toContain(`h.read(count)`)
-    expect(out).not.toContain(`h.track`)
-  })
-
-  it("the skip is SCOPE-CORRECT — only a @verrex/core-bound call skips the wrap", () => {
-    // `list` is a common identifier. A call bound to the user's OWN function
-    // (a local const, an import from elsewhere) keeps its h.track wrap so its
-    // reactivity survives; only a call bound to the @verrex/core import skips.
-    const local = compile(`
-      const list = (xs) => xs.join(", ")
-      const x = <p>{list(tags.value)}</p>
-    `)
-    expect(local).toContain(`h.track(() =>`)
-    expect(local).toContain(`h.read(tags)`)
-
-    const imported = compile(`
-      import { list } from "rambda"
-      const x = <p>{list(tags.value)}</p>
-    `)
-    expect(imported).toContain(`h.track(() =>`)
-
-    // An import from @verrex/core IS the helper — the skip stays.
-    const verrex = compile(`
-      import { list } from "@verrex/core"
-      const x = <ul>{list(todos, (item) => <li>{item.value}</li>)}</ul>
-    `)
-    expect(verrex).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
-
-    // An ALIASED @verrex/core import resolves by the IMPORTED name → skips.
-    const aliased = compile(`
-      import { Async as A } from "@verrex/core"
-      const x = <div>{A(() => http.get(id.value), { success: (v) => <span>{v}</span> })}</div>
-    `)
-    expect(aliased).toContain(`h.read(id)`)
-    expect(aliased).not.toMatch(/h\.track\(\(\)\s*=>\s*A\(/)
-  })
-
-  it("an unrelated local `list` binding does NOT disable a real verrex list in the same file", () => {
-    // The round-4 file-level shadow over-approximated: a `.map(list => …)`
-    // param anywhere disabled the file's real verrex list. Scope-correct
-    // resolution keys on the CALL's binding, so the param (scoped to the
-    // arrow) never touches the module-scope verrex `list(...)`.
-    const out = compile(`
-      import { list } from "@verrex/core"
-      const labels = tags.map(list => list.label)
-      const x = <ul>{list(todos, (item) => <li>{item.value}</li>)}</ul>
-    `)
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(todos/)
-  })
-
-  it("an eager .value read in a skip-listed call's argument compiles as a one-time read", () => {
-    // No special-casing: `{list(showDone.value ? …)}` reads ONCE at
-    // construction — the same eager semantics a statement read has. It is not
-    // a compile error (round-4 threw here, which also rejected valid
-    // construction-time reads in Catch/Async children — see the test below).
-    const out = compile(`
-      import { list } from "@verrex/core"
-      const x = <ul>{list(showDone.value ? doneColl : todoColl, (item) => <li>{item}</li>)}</ul>
-    `)
-    expect(out).toContain(`h.read(showDone)`)
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
-  })
-
-  it("a construction-time .value read in a Catch/Async first-arg child compiles (snapshot)", () => {
-    // A boundary/async child is built once; a `.value` read in its props or
-    // text is a legitimate construction snapshot. Round-4's eager-read throw
-    // wrongly rejected these — they must compile.
-    const catchChild = compile(`
-      import { Catch } from "@verrex/core"
-      const x = <div>{Catch(<h1>{title.value}</h1>, (c) => <p>err</p>)}</div>
-    `)
-    expect(catchChild).toContain(`h.read(title)`)
-    expect(catchChild).not.toMatch(/h\.track\(\(\)\s*=>\s*Catch\(/)
-  })
-
-  it("MANUAL list() calls are not h.track-wrapped (self-subscribing, channel-carrying)", () => {
-    // The `.value.map → list` rewrite was always unwrapped; a hand-written
-    // list() with `.value` reads in its row arrow must get the same treatment
-    // — its return type carries the folded row channels since #72, and the
-    // wrap's `unknown` would erase them (rows with service-using handlers
-    // would compile without their Layer and die at runtime).
-    const out = compile(`
-      const x = <ul>{list(todos, (item) => <li>{item.value.title}</li>)}</ul>
-    `)
-    expect(out).toContain(`h.read(item)`)
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
-  })
-
-  it("cast-wrapped Async / Catch / list calls keep the skip (peel before the check)", () => {
-    // `{Async(…) satisfies Effect<View<E>, …>}` is exactly how a user pins a
-    // boundary's channel — the wrap would erase the channel being pinned.
-    const out = compile(`
-      const x = <div>{Async(() => http.get(id.value), { success: (u) => <p>{u}</p> }) as A}</div>
-    `)
-    expect(out).toContain(`h.read(id)`)
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Async\(/)
-
-    const sat = compile(`
-      const y = <div>{Catch(child, () => <p>{ref.value}</p>) satisfies C}</div>
-    `)
-    expect(sat).not.toMatch(/h\.track\(\(\)\s*=>\s*Catch\(/)
-  })
-
-  it("cast-wrapped function attrs are still recognized (as / satisfies / non-null)", () => {
-    // `(arrow) as EventHandler<…>` evaluates to the function unchanged — the
-    // wrap would be just as dead, and would erase exactly the annotation the
-    // docs recommend for extracted handlers.
-    const asOut = compile(`
-      const x = <button onclick={((e) => count.set(count.value + 1)) as EventHandler<MouseEvent>}>+</button>
-    `)
-    expect(asOut).toContain(`h.read(count)`)
-    expect(asOut).not.toContain(`h.track`)
-
-    const satisfiesOut = compile(`
-      const y = <button onclick={((e) => count.set(count.value + 1)) satisfies EventHandler<MouseEvent>}>+</button>
-    `)
-    expect(satisfiesOut).toContain(`h.read(count)`)
-    expect(satisfiesOut).not.toContain(`h.track`)
-  })
-
-  it("a `.value` read OUTSIDE the function value still wraps (untyped-JS reactive path)", () => {
-    // `cond.value ? a : b` reads during tracking, so the wrap is emitted and
-    // applyProp's AtomRef branch re-binds the listener when `cond` flips —
-    // but ONLY in untyped JS: the wrap's `unknown` fails h()'s IntrinsicProps
-    // constraint in checked .vx (it always did). The typed form selects
-    // INSIDE the handler: `onclick={(e) => (cond.value ? incr : decr)(e)}`
-    // (a function expression — wrap-skipped, channels intact).
-    const out = compile(`
-      const x = <button onclick={cond.value ? incr : decr}>+</button>
-    `)
-    expect(out).toContain(`h.read(cond)`)
-    expect(out).toContain(`h.track(() =>`)
-  })
-
-  it("`.value` assignment (LHS) is NOT rewritten as a read", () => {
-    // We only intercept reads — `obj.value = …` stays as a real assignment.
-    expect(
+        const x = <div>{items.map((i) => get(i).name)}</div>
+      `),
+    ).toThrow(/get\(\.\.\.\) inside a nested function is not reactive/)
+    expect(() =>
       compile(`
-      const x = <div>{(ref.value = 1, ref.value)}</div>
-    `),
-    ).toMatch(/ref\.value = 1/)
+        const x = <div onclick={() => get(count)} />
+      `),
+    ).toThrow(/nested function/)
   })
 
-  it("`.value++` / `--.value` are left bare — `h.read(obj)++` would be invalid JS, and TS's own `ts(2540)` already flags the read-only write at the right column", () => {
-    const post = compile(`
-      const v = <button onclick={() => count.value++}>+</button>
-    `)
-    expect(post).toContain(`count.value++`)
-    expect(post).not.toMatch(/h\.read\(count\)\+\+/)
-
-    const pre = compile(`
-      const v = <button onclick={() => --count.value}>-</button>
-    `)
-    expect(pre).toContain(`--count.value`)
-    expect(pre).not.toMatch(/--h\.read\(count\)/)
-  })
-
-  it("`.value += X` (compound assignment) is NOT rewritten — caught by the LHS escape hatch", () => {
-    // AssignmentExpression with operator `+=` still has .left === the
-    // MemberExpression, so the existing skip predicate covers it.
+  it("a row arrow rendering JSX is fine: the get lives in the row's own JSX", () => {
     const out = compile(`
-      const v = <button onclick={() => { count.value += 1 }}>+</button>
+      const x = <For each={items} key={(i) => i.id}>{(row) => <li>{get(row).name}</li>}</For>
     `)
-    expect(out).toContain(`count.value += 1`)
-    expect(out).not.toMatch(/h\.read\(count\) \+=/)
-  })
-})
-
-describe(".value.map(arrow → JSX) → list(...) rewrite", () => {
-  it("rewrites `<expr>.value.map(item => <JSX/>)` to a `list(<expr>, ...)` call", () => {
-    const out = compile(
-      `
-      const x = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>
-    `,
+    expect(out).toContain(
+      `children: [row => h("li", {}, h.reader(get => get(row).name))]`,
     )
-    expect(out).toContain(`list(coll, item =>`)
-    expect(out).toContain(`Row({ item: item })`)
   })
 
-  it("does NOT wrap the rewritten call in h.track (no redundant reactivity)", () => {
-    const out = compile(
-      `
-      const x = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>
-    `,
+  it("type-only wrappers are transparent to the walk", () => {
+    const out = compile(`
+      const x = <div>{(get(count) as number) satisfies number}</div>
+    `)
+    expect(out).toContain(
+      `h.reader(get => get(count) as number satisfies number)`,
     )
-    expect(out).not.toContain(`h.track`)
-    // And the `.value` is consumed by the rewrite — not turned into h.read.
-    expect(out).not.toContain(`h.read(coll)`)
   })
 
-  it("auto-imports `list` from verrex", () => {
-    const out = compile(
-      `
-      const x = <ul>{coll.value.map((item) => <Row item={item} />)}</ul>
-    `,
-    )
-    expect(out).toMatch(/import \{[^}]*\blist\b[^}]*\} from "@verrex\/core"/)
-  })
-
-  it("supports block-body arrow returning only a JSX node", () => {
-    const out = compile(
-      `
-      const x = <ul>{coll.value.map((item) => { return <Row item={item} /> })}</ul>
-    `,
-    )
-    expect(out).toContain(`list(coll,`)
-    expect(out).toContain(`Row({ item: item })`)
-  })
-
-  it("supports JSX fragment as arrow body (direct and via block)", () => {
-    // `isJsxArrowBody` accepts both JSXElement and JSXFragment — make sure
-    // both shapes flow through the rewrite. Otherwise users hitting the
-    // fragment idiom (`item => <>…</>` for multi-child rows without a wrapper
-    // element) would get a silent no-rewrite.
-    const direct = compile(
-      `
-      const x = <ul>{coll.value.map((item) => <>{item}</>)}</ul>
-    `,
-    )
-    expect(direct).toContain(`list(coll,`)
-    expect(direct).toContain(`Fragment({ children:`)
-
-    const block = compile(
-      `
-      const x = <ul>{coll.value.map((item) => { return <>{item}</> })}</ul>
-    `,
-    )
-    expect(block).toContain(`list(coll,`)
-    expect(block).toContain(`Fragment({ children:`)
-  })
-
-  it("does NOT rewrite when the arrow body is not JSX (preserves Array.map / Collection.map)", () => {
-    // Whole-collection derivation pattern (Collection.map((items) => derived))
-    // must NOT be touched.
-    const out = compile(
-      `
-      const x = <span>{coll.value.map((items) => items.length)}</span>
-    `,
-    )
-    expect(out).not.toContain(`list(`)
-    // The outer `.value` is a normal reactive read; should be rewritten to h.read.
-    expect(out).toContain(`h.read(coll)`)
-  })
-
-  it("does NOT rewrite plain `.map` (no `.value`) — leaves as-is", () => {
-    const out = compile(
-      `
-      const x = <ul>{xs.map((x) => <li>{x}</li>)}</ul>
-    `,
-    )
-    expect(out).not.toContain(`list(`)
-    expect(out).toContain(`h("li", {}, x)`)
-  })
-
-  it("does NOT rewrite when callee is not a function reference", () => {
-    // `.value.map(SomeFn)` — argument is an identifier, not an arrow.
-    // Conservative: the rewrite only fires when the body is unambiguously JSX.
-    // The outer `.value` still gets the normal `h.read` rewrite + h.track wrap.
+  it("does not rewrite `.value` reads or `.map` calls (no h.read / h.track / list sugar)", () => {
     const out = compile(`
-      const x = <ul>{coll.value.map(SomeRow)}</ul>
+      const x = <ul>{todos.value.map((t) => <li>{t.value.title}</li>)}</ul>
     `)
-    expect(out).not.toContain(`list(`)
-    expect(out).toContain(`h.read(coll)`)
-    expect(out).toContain(`h.track(() =>`)
-  })
-
-  it("rewrites the innermost `.value.map → list` in nested map chains", () => {
-    // The outer arrow's body is a CallExpression, not JSX, so the outer
-    // `.value.map` stays as Array.prototype.map. The inner arrow's body IS
-    // JSX, so the inner `.value.map` becomes list(group.items, ...). The
-    // outer `.value` falls back to h.read; the whole expression wraps in
-    // h.track because that read happened.
-    const out = compile(
-      `
-      const x = <ul>{outer.value.map((group) => group.items.value.map((item) => <li>{item}</li>))}</ul>
-    `,
-    )
-    expect(out).toContain(`h.read(outer)`)
-    expect(out).toContain(`list(group.items,`)
-    expect(out).toContain(`h.track(() =>`)
-    // Inner `.value` was consumed by the rewrite — never turned into h.read.
-    expect(out).not.toContain(`h.read(group.items)`)
-  })
-
-  it("does NOT pre-emptively rewrite `.value` reads inside the list arrow body", () => {
-    // `ref.value` inside the arrow body is its own JSX expression
-    // (`<Row badge={ref.value}/>`). It gets its OWN h.track wrap when the
-    // outer JSX traversal reaches that inner `<Row>`. If the outer rewrite
-    // descended into the new list's children, it would (a) wrap the whole
-    // list(...) in a redundant h.track and (b) strand the inner h.read
-    // outside any active tracking scope.
-    const out = compile(
-      `
-      const x = <ul>{coll.value.map((item) => <Row badge={ref.value} />)}</ul>
-    `,
-    )
-    // The list(...) call is NOT wrapped in h.track.
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*list\(/)
-    // The inner ref.value gets its own h.track wrap around the h.read.
-    expect(out).toMatch(/h\.track\(\(\)\s*=>\s*h\.read\(ref\)\)/)
-  })
-})
-
-describe("Async calls are not h.track-wrapped", () => {
-  // The Async boundary self-tracks (it runs its thunk under the same dep
-  // tracker), so wrapping it in h.track is redundant AND erases its channels
-  // (h.track returns `unknown`). The `.value`→h.read rewrite inside is kept.
-  it("leaves a `.value`-reading Async(...) bare, keeping h.read", () => {
-    const out = compile(`
-      const x = <div>{Async(() => client.get(id.value), { success: (v) => <span>{v}</span> })}</div>
-    `)
-    expect(out).toContain(`h.read(id)`) // dep rewrite kept (Async needs it)
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Async\(/) // not wrapped
-  })
-
-  it("does not introduce h.track when Async is the only `.value` reader", () => {
-    const out = compile(`
-      const x = <div>{Async(() => client.get(id.value), { success: (v) => <span>{v}</span> })}</div>
-    `)
-    expect(out).not.toContain(`h.track`)
-  })
-})
-
-describe("Catch calls are not h.track-wrapped", () => {
-  // Same reason as Async: Catch returns Effect<View, never, R | Scope> that must
-  // reach the h() fold; h.track would erase it to `unknown`. A `.value` read
-  // inside the fallback is still rewritten to h.read, but the outer call is bare.
-  it("leaves a `.value`-reading catch-all Catch(...) bare, keeping h.read", () => {
-    const out = compile(`
-      const x = <div>{Catch(<Child />, (cause, reset) => <span>{label.value}</span>)}</div>
-    `)
-    expect(out).toContain(`h.read(label)`) // dep rewrite kept inside the fallback
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*Catch\(/) // not wrapped
-  })
-
-  it("does not introduce h.track when Catch is the only `.value` reader", () => {
-    const out = compile(`
-      const x = <div>{Catch(<Child />, (cause) => <span>{label.value}</span>)}</div>
-    `)
-    expect(out).not.toContain(`h.track`)
-  })
-
-  it("leaves the tag-map Catch form bare too", () => {
-    const out = compile(`
-      const x = <div>{Catch(<Child />, { HttpError: (e) => <span>{label.value}</span> })}</div>
-    `)
-    expect(out).toContain(`h.read(label)`)
-    expect(out).not.toContain(`h.track`)
-  })
-})
-
-describe("asyncRef / streamRef calls are not h.track-wrapped", () => {
-  // Both return an Effect whose channels must reach the h() fold; h.track would
-  // erase them — and re-running the expression on a dep change would mint a
-  // fresh handle / spawn a fresh stream per change (each also self-tracks its
-  // thunk internally). The `.value`→h.read rewrite inside is kept.
-  it("leaves a `.value`-reading streamRef(...) bare, keeping h.read", () => {
-    const out = compile(`
-      const x = <div>{streamRef(makeStream(id.value), 0)}</div>
-    `)
-    expect(out).toContain(`h.read(id)`)
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*streamRef\(/)
-  })
-
-  it("leaves atom(...) / fn(...) bare (their get-based bodies are self-tracking)", () => {
-    const out = compile(`
-      import { atom, fn } from "@verrex/core"
-      const x = <div>{atom((get) => client.get(get(id)))}{fn((n) => save(n))}</div>
-    `)
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*atom\(/)
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*fn\(/)
-  })
-
-  it("leaves a `.value`-reading asyncRef(...) bare, keeping h.read", () => {
-    const out = compile(`
-      const x = <div>{asyncRef(() => client.get(id.value))}</div>
-    `)
-    expect(out).toContain(`h.read(id)`)
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*asyncRef\(/)
-  })
-})
-
-describe("whole-body `.value` reads (tracking outside JSX)", () => {
-  // The JSX pass only rewrites `.value` inside JSX expressions. A third pass
-  // rewrites `.value` reads that survive in *statements* — extracted Async
-  // thunks, helpers, locals — so an AtomRef tracks anywhere in a component
-  // body. Detection is the runtime brand inside `h.read` (faithful for
-  // non-AtomRefs); there is no compile-time atom analysis and no `h.track`
-  // wrap in this pass (eager reads stay one-time).
-
-  it("rewrites a `.value` read in an extracted thunk (the motivating gap)", () => {
-    const out = compile(`
-      const get = () => client.getUser(userId.value)
-      const x = <div>{Async(get, { success: (u) => <span>{u}</span> })}</div>
-    `)
-    expect(out).toContain(`h.read(userId)`)
-    // No h.track wrap around the thunk read — Async runs it under its own tracker.
-    expect(out).not.toMatch(/h\.track\(\(\)\s*=>\s*client\.getUser/)
-  })
-
-  it("rewrites a plain statement-level `.value` read", () => {
-    const out = compile(`
-      const n = count.value + 1
-    `)
-    expect(out).toContain(`h.read(count)`)
-    expect(out).not.toContain(`h.track`)
-  })
-
-  it("rewrites `.value` inside a non-thunk function body", () => {
-    const out = compile(`
-      function label() { return count.value }
-    `)
-    expect(out).toContain(`h.read(count)`)
-  })
-
-  it("auto-imports `h` when the only rewrite is a body read (no JSX)", () => {
-    const out = compile(`
-      const get = () => ref.value
-    `)
-    expect(out).toContain(`h.read(ref)`)
-    expect(out).toMatch(/import \{[^}]*\bh\b[^}]*\} from "@verrex\/core"/)
-  })
-
-  it("leaves a body `.value` *write* bare (assignment + update)", () => {
-    const assign = compile(`
-      const f = () => { ref.value = 1 }
-    `)
-    expect(assign).toContain(`ref.value = 1`)
-    expect(assign).not.toContain(`h.read(ref)`)
-
-    const update = compile(`
-      const f = () => { count.value++ }
-    `)
-    expect(update).toContain(`count.value++`)
-    expect(update).not.toMatch(/h\.read\(count\)\+\+/)
-  })
-
-  it("leaves destructuring-assignment targets bare (array + object patterns)", () => {
-    const arr = compile(`
-      const f = () => { [obj.value] = arr }
-    `)
-    expect(arr).toContain(`[obj.value] = arr`)
-    expect(arr).not.toContain(`h.read(obj)`)
-
-    const objPat = compile(`
-      const f = () => { ({ x: obj.value } = o) }
-    `)
-    expect(objPat).toContain(`x: obj.value`)
-    expect(objPat).not.toContain(`h.read(obj)`)
-
-    const dflt = compile(`
-      const f = () => { [obj.value = 1] = arr }
-    `)
-    expect(dflt).toContain(`obj.value = 1`)
-    expect(dflt).not.toContain(`h.read(obj)`)
-
-    const rest = compile(`
-      const f = () => { [...obj.value] = arr }
-    `)
-    expect(rest).toContain(`...obj.value`)
-    expect(rest).not.toContain(`h.read(obj)`)
-  })
-
-  it("leaves a `for (obj.value of …)` target bare (and does not crash)", () => {
-    // The unguarded form crashed Babel: ForOfStatement.left rejects a
-    // CallExpression. Must stay bare.
-    const of = compile(`
-      const f = () => { for (el.value of xs) {} }
-    `)
-    expect(of).toContain(`for (el.value of xs)`)
-    expect(of).not.toContain(`h.read(el)`)
-
-    const inn = compile(`
-      const f = () => { for (el.value in xs) {} }
-    `)
-    expect(inn).toContain(`for (el.value in xs)`)
-    expect(inn).not.toContain(`h.read(el)`)
-  })
-
-  it("still rewrites a `.value` READ on the for-of iterable (right side)", () => {
-    const out = compile(`
-      const f = () => { for (const x of coll.value) {} }
-    `)
-    expect(out).toContain(`for (const x of h.read(coll))`)
-  })
-
-  it("leaves `delete obj.value` bare", () => {
-    const out = compile(`
-      const f = () => delete obj.value
-    `)
-    expect(out).toContain(`delete obj.value`)
-    expect(out).not.toContain(`h.read(obj)`)
-  })
-
-  it("rewrites reads that only LOOK write-adjacent (RHS, default value, unary)", () => {
-    // x = obj.value (RHS), [a = obj.value] (pattern default), !obj.value (unary)
-    // are all reads and must be rewritten.
-    expect(
-      compile(`
-      const f = () => { x = obj.value }
-    `),
-    ).toContain(`h.read(obj)`)
-    expect(
-      compile(`
-      const f = () => { [a = obj.value] = arr }
-    `),
-    ).toContain(`h.read(obj)`)
-    expect(
-      compile(`
-      const f = () => !obj.value
-    `),
-    ).toContain(`!h.read(obj)`)
-  })
-
-  it("leaves optional-chained `obj?.value` alone (different node type)", () => {
-    const out = compile(`
-      const v = maybe?.value
-    `)
-    expect(out).toContain(`maybe?.value`)
-    expect(out).not.toContain(`h.read(maybe)`)
-  })
-
-  it("does NOT double-rewrite JSX `.value` reads (no h.read(h.read(...)))", () => {
-    const out = compile(`
-      const x = <div>{ref.value}</div>
-    `)
-    expect(out).toContain(`h.read(ref)`)
-    expect(out).not.toContain(`h.read(h.read`)
-  })
-
-  it("rewrites both a JSX read and a body read with a single `h` import", () => {
-    const out = compile(`
-      const dbl = () => count.value * 2
-      const x = <div>{count.value}</div>
-    `)
-    // body read + JSX read both go through h.read
-    expect(out.match(/h\.read\(count\)/g)?.length).toBe(2)
-    const importLines = out
-      .split(";")
-      .filter((s) => s.includes(`from "@verrex/core"`))
-    expect(importLines.length).toBe(1)
-  })
-
-  it("does NOT rewrite a non-`value` property read", () => {
-    const out = compile(`
-      const u = props.userId
-    `)
-    expect(out).not.toContain(`h.read`)
-    expect(out).not.toContain(`verrex`)
+    expect(out).toContain(`todos.value.map(t => h("li", {}, t.value.title))`)
+    expect(out).not.toContain("h.read")
+    expect(out).not.toContain("h.track")
+    expect(out).not.toContain("list(")
   })
 })
 

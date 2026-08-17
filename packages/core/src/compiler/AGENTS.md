@@ -40,168 +40,55 @@ to plain `CallExpression`s before `generate()` produces output.
 swc was rejected for weaker plugin ergonomics on this kind of
 local AST rewrite.
 
-## The three rewrites
+## The one reactive rewrite: `get(...)` → `h.reader`
 
-Every JSX expression `{...}` triggers up to three local rewrites:
+(docs/reactivity-migration.md "One dialect"; `wrapReader` /
+`findFreeGetCalls` in `transform.ts`.) A JSX expression `{…}` — an
+intrinsic or component child, or an attribute that is not an `on*`
+handler — that calls a FREE `get(...)` at its top level is lowered to
+`h.reader((get) => expr)`. That is `Atom.readable` under the hood: the
+expression re-runs per dep change and the renderer subscribes.
 
-1. **Wrap in `h.track(() => ...)`** — _only if a `.value` read got
-   rewritten_. See `wrapTracked` + `rewroteRead` flag in `transform.ts`.
-   This is load-bearing: `h.track` returns `T | ReadonlyRef<T>`, and the
-   ref member would destroy the typing of static expressions like
-   `<Row item={item} />` (where `item` is a generic `T`). Static
-   passes through with no wrap. The `.value.map → list(...)` rewrite
-   (#3) also does **not** trigger a wrap — `list()` subscribes inside
-   `mount`, so wrapping in `h.track` would be a redundant layer. Same
-   for `Async(...)`, `asyncRef(...)`, `Catch(...)`, `streamRef(...)`, and
-   MANUAL `list(...)` calls (`SELF_TRACKING_HELPERS`): they
-   self-track/self-subscribe and must reach the `h()` fold un-erased (for
-   `asyncRef`/`streamRef` a tracked re-run would additionally mint a fresh
-   handle / spawn a fresh stream per dep change). **Which calls skip is decided
-   scope-correctly** by `resolveHelperCalls` — only a call whose callee
-   binds to the `@verrex/core` import (or is unresolved: the injected
-   `list`, or a forgotten import that's a TS error anyway) skips; a call
-   bound to the user's own `list`/`Async`/`Catch` (a local const, a
-   `.map(list => …)` param, an import from elsewhere) keeps its wrap, so
-   its reactivity survives. A `.value` read sitting in a skipped call's
-   _argument_ (rather than inside its thunk/row/handler function) reads
-   ONCE at construction — the same eager one-time semantics a statement
-   read has (#3 below); not special-cased (reactive source selection
-   belongs inside the function; manual-`list` source reactivity is #128).
-   And same
-   for a **whole-expression function value**
-   (`onclick={() => count.value + 1}`): evaluating a function expression
-   executes no reads, so the wrap's dep set is provably always empty — a
-   runtime no-op whose `unknown` would erase the handler's `E`/`R` from
-   the props fold (#72). The inner `h.read` rewrites are kept; they run
-   at call time with no tracker active, i.e. as plain `.value` reads. A
-   `.value` read _outside_ the function (`onclick={cond.value ? a : b}`)
-   still wraps — and for a handler key DECLARED in `HtmlEventHandlers`
-   that pattern does NOT pass the type gate: `h.track` returns
-   `T | ReadonlyRef<T>`, whose ref member fails the declared
-   `HandlerSlot<Ev>`, so reactive handler _selection_ is unsupported in
-   checked `.vx`. It is a LOUD rejection on every key now: before #159
-   `h.track` returned `unknown`, which an UNLISTED `on*` key
-   (`ontimeupdate`, a custom-element event) swallowed via the
-   `Record<string, unknown>` half of the intersection — erasing both
-   channels while the runtime still attached the listener. The typed form is selecting _inside_ the handler —
-   `onclick={(e) => (cond.value ? incr : decr)(e)}` — a function
-   expression (wrap-skipped, channels intact) that reads the ref at
-   click time. The wrap is still emitted for the untyped-JS path, where
-   `applyProp`'s AtomRef branch re-binds the listener reactively.
+```tsx
+<span>{get(count) * 2}</span>            → h("span", {}, h.reader(get => get(count) * 2))
+<div class={get(open) ? "a" : ""} />     → h("div", { class: h.reader(get => get(open) ? "a" : "") })
+<Row item={get(x)} />                    → Row({ item: h.reader(get => get(x)) })
+```
 
-2. **`x.value` → `h.read(x)`** inside the wrapped expression. Tracks
-   AtomRef reads. (The _same_ read rewrite also runs over the whole
-   component body in a separate pass — see "Whole-body `.value` reads"
-   below — so reads in statements/extracted thunks track too. Both
-   share `rewriteValueRead` in `transform.ts`.) Left bare on any **write
-   or binding target** — see `isWriteTarget`, which covers the closed set
-   of LVal positions: assignment LHS (`x.value = …`, `x.value += …`),
-   update (`x.value++`, `--x.value`), `delete x.value`, destructuring
-   targets (`[x.value] = …`, `({k: x.value} = …)`, `[...x.value] = …`),
-   and `for (x.value of/in …)`. The bare fallback exists so the emitted
-   JS stays well-formed: `h.read(x)++` / `[h.read(x)] = …` would be
-   invalid, and `for (h.read(x) of …)` would even crash Babel's AST
-   validator (`ForOfStatement.left` rejects a `CallExpression`). Read
-   sub-positions that only _look_ write-adjacent are still rewritten — an
-   assignment's RHS, an `AssignmentPattern` default (`[a = x.value]`), a
-   computed pattern key, and the iterable of a `for…of`
-   (`for (a of x.value)`). The compiler intentionally does not raise its
-   own diagnostic for `.value++` on an AtomRef: TypeScript already
-   surfaces `ts(2540) Cannot assign to 'value' because it is a
-read-only property` at the right column for `=`, `+=`, `++`, and
-   `--`, which is the familiar idiomatic error. The right idiom is
-   `ref.update(v => v + 1)`.
+Rules, all name-based (no types, no atom analysis):
 
-   **Destructuring blind spot.** The rewrite matches `MemberExpression`
-   shapes only, so `const { value } = ref` inside a JSX expression is
-   _not_ rewritten — `value` is a bare identifier coming out of a
-   `VariableDeclarator`, the AtomRef read happens silently at
-   destructuring time, and reactivity tracking never sees it. The
-   user's render won't update on `ref` change. Document `.value`
-   reads as the idiom; don't extend the rewrite to destructuring
-   without thinking through the alias-tracking ramifications.
+- **No `get` → untouched.** `{item}`, `{count + 1}` pass through as they
+  are, so a static expression keeps its TypeScript type (the reason we
+  never wrap unconditionally: generics die).
+- **"Free"** = the callee `get` is not bound at the JSX expression's scope
+  (`scope.getBinding("get")`) — an `atom((get) => …)` param, a user
+  `const get`, or a param named `get` inside the expression shadow it —
+  EXCEPT a `get` param this pass itself injected (`injectedGetParams`).
+  Nested JSX is lowered top-down, so an inner `{get(name)}` sits inside an
+  outer reader's arrow by the time it is examined; it still gets its OWN
+  reader (fine-grained: only the inner node re-renders). Pinned in
+  `transform.test.ts` "nested JSX inside a wrapped expression".
+- **Nested JSX is opaque** to the walk (it gets its own reader later).
+  Type-only wrappers (`as` / `satisfies` / `!`) are walked through.
+- **A free `get(...)` inside a nested function within the expression is a
+  COMPILE ERROR** (`GetInNestedFunctionError`, position included):
+  `{items.map((i) => get(i).name)}` would run outside any reader and read
+  silently untracked. Same for handler attributes (`onclick={() =>
+get(x)}`, `onclick={get(h)}` — `rejectGetInHandler`): a listener is
+  not a reactive expression. The fix is always "move the `get` to the
+  expression level, or into the row's own JSX".
+- `get` needs no import: after the rewrite it is the reader's parameter.
+  Its type is `Get` from `@verrex/core` (`<A>(a: Atom<A> |
+AtomRef.ReadonlyRef<A>) => A`); `h.reader` provides the contextual type.
 
-3. **`<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`** —
-   keyed reactive iteration. Caught before the bare `.value` rewrite
-   so the `.value` doesn't get turned into an `h.read` we'd then have
-   to undo. The arrow body must syntactically be a JSX node (direct
-   `item => <Row/>` or `item => <></>`) or a block whose only statement
-   is `return <JSX/>` — anything else (`.value.map(item => item.text)`,
-   `.value.map(Component)`) is left as a plain `.map` and the outer
-   `.value` is rewritten normally.
-
-   The rewrite is purely structural; it fires whenever the shape
-   matches, without consulting types. If `<expr>` isn't actually a
-   `Collection<T>`, the emitted `list(<expr>, arrow)` call fails to
-   type-check with a diagnostic like
-   `Argument of type 'X[]' is not assignable to parameter of type 'Collection<...>'`,
-   pointing at the source `<expr>.value.map(...)` site. That's the
-   intended user-facing signal — there's no way to do a type-aware
-   Babel pass.
-
-   After the rewrite, `path.skip()` halts the inner traversal so it
-   doesn't descend into the new list's arrow body. `.value` reads
-   inside the arrow are part of inner JSX expressions and will get
-   their own `h.track` wrap when the outer `JSXElement` visitor in
-   `transformVerrex` reaches them. Pre-emptively rewriting them here
-   would (a) wrap this `list(...)` in a redundant `h.track`, and (b)
-   strand the resulting `h.read` outside any active tracking scope.
-
-**No test-position magic.** Bare identifiers in `cond ? A : B`,
-`a && b`, `!x` positions are **not** rewritten. Users must write
-`.value` explicitly — that keeps the types honest
-(`ref.value: boolean`, not `AtomRef<boolean>`) and avoids surprising
-reads where none looked syntactically present: an implicit unwrap would
-diverge from the type TS assigns at the source site.
-
-## Whole-body `.value` reads
-
-After the JSX pass, a third `traverse(ast, …)` over the **live** AST
-rewrites every _surviving_ `obj.value` read — the ones in statements,
-helpers, and **extracted `Async` thunks** — to `h.read(obj)` (via the
-same `rewriteValueRead` helper, so the write-guards are identical). This
-closes the gap where a thunk lifted out of an `Async(...)` call site
-(`const get = () => http.getUser(userId.value)`) silently stopped
-tracking: it now tracks identically to the inline form.
-
-Why this is safe **without** any compile-time "is `obj` an AtomRef?"
-analysis — the key design decision:
-
-- `h.read` is a **faithful, transparent wrapper** for `.value`: for any
-  non-AtomRef it is byte-for-byte `obj.value`; for a branded AtomRef it
-  _additionally_ records a dep iff a tracker is active (exact wrapper
-  semantics live in [runtime AGENTS.md](../runtime/AGENTS.md)).
-  So emitting `h.read` for _every_ `.value` read
-  is sound; the runtime `isAtomRef` brand check is the only gate, and
-  it's **exact** — it handles aliased imports, extracted refs,
-  service-returned refs, and dynamic indirection that no syntactic
-  binding analysis could. (This is the Vue model: the tracking lives in
-  the read primitive, not in a compile-time graph. verrex routes `.value`
-  through `h.read` only because Effect's `AtomRef.value` getter is inert
-  and can't self-track.)
-- **Ordering matters.** The body pass runs _after_ the JSX pass, so JSX
-  `.value` reads are already `h.read(...)` calls (callee property `read`,
-  not `value`) and cannot be double-rewritten. The body pass only ever
-  sees reads the JSX pass left behind.
-- **No `h.track` wrap in this pass.** Eager statement reads
-  (`const x = ref.value`) stay one-time reads — auto-deriving them would
-  be the implicit-infection model Vue retracted (Reactivity Transform)
-  and Svelte/Solid reject. Tracking activates only when the read
-  _executes_ under a tracker: an `Async` thunk (run under `trackDeps`) or
-  a JSX `h.track` scope. A statement read outside any tracker is just
-  `.value`.
-
-Opt-out of tracking has no dedicated helper yet: read outside a tracking
-scope, or (future) a small `untrack`-style wrapper. Optional chaining
-(`obj?.value`, an `OptionalMemberExpression`) is never matched, so it is
-left as-is and does not track.
-
-The same traversal carries the Component-name injection visitor (next
-section) — an independent rewrite riding along to avoid a fourth pass.
+Gone with this (docs/reactivity-migration.md steps 5/6): the `.value` →
+`h.read` rewrite, the `h.track` wrap, the whole-body `.value` pass, the
+`.value.map → list` sugar and its `isSelfTrackingCall` skip set. `.value`
+is now plain member access the compiler never touches.
 
 ## Component-name injection
 
-The whole-body pass also rewrites
+Pass 3 (after the JSX pass) rewrites
 `const Counter = Component.make(fn)` → `Component.make(fn, "Counter")`,
 injecting the _declared_ name as the span name so users don't repeat the
 export name (`matchNamelessComponentMake` + the `VariableDeclarator`
@@ -211,8 +98,7 @@ visitor in `transformVerrex`). Deliberately narrow and additive:
   argument, bound by a plain identifier declarator (`const X = …`,
   exported or not). A second argument already present (an explicit name)
   is left alone.
-- Matched by name on the `Component.make` member shape (unlike
-  `isSelfTrackingCall`, which is now scope-correct) — an aliased import
+- Matched by name on the `Component.make` member shape — an aliased import
   (`import { Component as C }`) defeats it, which **fails soft**: the
   component still works, its span is just anonymous. No diagnostic.
 - `Component` is NOT auto-imported (it only appears in this rewrite when
@@ -220,11 +106,10 @@ visitor in `transformVerrex`). Deliberately narrow and additive:
 
 ## Auto-injected imports
 
-If any JSX rewrote to an `h()` call **or** the whole-body pass emitted any
-`h.read(...)`, the transform ensures `import { h } from "@verrex/core"`
-exists (tracked via `usedH || usedHRead` in `transformVerrex`). `Fragment`
-is added when `<>...</>` is used. `list` is added when the
-`.value.map → list(...)` rewrite fires. `ensureRuntimeImports` finds an
+If any JSX rewrote to an `h()` call **or** an `h.reader(...)` wrap, the
+transform ensures `import { h } from "@verrex/core"` exists (tracked via
+`usedH` in `transformVerrex`). `Fragment` is added when `<>...</>` is
+used. `ensureRuntimeImports` finds an
 existing import from `verrex` and appends to it; otherwise it
 prepends a new declaration. Names already imported under their own
 identifier (no alias) are skipped to avoid duplicates.
@@ -251,7 +136,7 @@ into the surrounding `h()` as an ordinary child. Children pass RAW in the
 JSX children win over an explicit `children={...}` attr (React semantics
 — and a duplicate literal key would be a TS error in the emitted object).
 Consequence for imports: `h` is auto-imported per-emission (an intrinsic
-element, an `h.track` wrap, or an `h.read` rewrite) — a component-only
+element or an `h.reader` wrap) — a component-only
 file imports nothing.
 
 ## JSX text whitespace
@@ -345,7 +230,7 @@ in five steps:
    spans **can differ** because Babel transforms shift byte counts:
    - `(n) =>` → `n =>` (single-arg arrow paren strip): source `((`
      of 2 chars maps to generated `(` of 1 char.
-   - `x.value` → `h.read(x)`: source 7 chars → generated 9 chars.
+   - `{get(x) * 2}` → `h.reader(get => get(x) * 2)`: the reader wrap widens the span.
    - `<div>...</div>` → `h("div", ..., ...)`: source 5 chars
      (opening tag) → generated 8+ chars.
 5. Classify each mapping's `kind` via `jsxRanges` intersection:
@@ -368,16 +253,16 @@ once, here, in the compiler.
 
 ## Tests
 
-`transform.test.ts` — 28 cases via `vitest`. Coverage includes:
-each rewrite category, wrap-skip when nothing rewrote, import
-injection / dedup, JSX whitespace, tag dispatch shapes, spread
-attributes, source maps. Run with `pnpm --filter @verrex/core test`.
+`transform.test.ts` via `vitest`. Coverage includes: JSX → `h()`, the
+`get(...)` reader sugar (wrap / no-wrap / shadowing / nested JSX /
+nested-function error / handler error), import injection / dedup, JSX
+whitespace, tag dispatch shapes, spread attributes, source maps. Run with `pnpm --filter @verrex/core test`.
 
 ## What this package does NOT do
 
 - No type checking. That's tsc's job (post-transform).
-- No reactivity wiring. `h.track`/`read` live in `verrex`;
-  the compiler only emits _calls_ to them.
+- No reactivity wiring. `h.reader` lives in `@verrex/core`; the compiler
+  only emits _calls_ to it.
 - No `CodeInformation` profile assignment. The compiler classifies
   each span as `"user"` / `"h-call"` / `"punctuation"` (a
   Volar-free taxonomy); `@verrex/core/language` translates kind → Volar
@@ -410,12 +295,11 @@ shipping a recovered/garbage module.
 
 ## Anti-patterns
 
-- Don't add a rewrite that fires on composite expressions
-  (`x.length`, `arr[0].value`, etc.). The lossy-but-predictable
-  "rewrite only bare identifiers / `.value` reads" rule is what
-  keeps the system debuggable.
-- Don't emit `h.track(...)` unconditionally — generics die.
-- Don't auto-import anything except `h`, `Fragment`, and `list`.
+- Don't add a rewrite that fires on shapes other than a free
+  `get(...)` call. The name-based rule is what keeps the system
+  debuggable — no types, no atom analysis.
+- Don't emit `h.reader(...)` unconditionally — generics die.
+- Don't auto-import anything except `h` and `Fragment`.
   Users manage their own imports.
 - Don't depend on `@babel/preset-*`. We use parser + traverse +
   generate directly to keep the bundle small (the ts-plugin ships
