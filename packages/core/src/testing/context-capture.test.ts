@@ -178,9 +178,11 @@ describe("per-node context capture", () => {
     })
 
     const Provided = Effect.fn("ProvidedFallback")(function* (_props: {} = {}) {
-      const guarded = Catch(Failing(), (_cause, _reset) =>
-        h("button", { class: "retry", onClick: stepClick(count) }, "retry"),
-      )
+      const guarded = Catch({
+        children: [Failing()],
+        Failure: (_cause, _reset) =>
+          h("button", { class: "retry", onClick: stepClick(count) }, "retry"),
+      })
       return yield* h(
         "div",
         {},

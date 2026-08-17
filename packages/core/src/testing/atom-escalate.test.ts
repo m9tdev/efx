@@ -40,9 +40,12 @@ describe("atom → typed live escalation", () => {
       expectTypeOf(body).toMatchTypeOf<
         Effect.Effect<View<NotFound>, never, any>
       >()
-      return yield* Catch(body, {
-        NotFound: (e, _reset) =>
-          h("p", { class: "fallback" }, `no user ${e.id}`),
+      return yield* Catch({
+        children: [body],
+        Failure: {
+          NotFound: (e, _reset) =>
+            h("p", { class: "fallback" }, `no user ${e.id}`),
+        },
       })
     })
     const ui = await render(App())

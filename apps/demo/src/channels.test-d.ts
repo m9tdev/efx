@@ -252,10 +252,19 @@ mount(SaveButton, root)
 
 // A Catch discharges it — catch-all, or tag-selective with the unwrapped error.
 mount(
-  Catch(SaveButton, (_cause) => h("p", {}, "save failed")),
+  Catch({
+    children: [SaveButton],
+    Failure: (_cause) => h("p", {}, "save failed"),
+  }),
   root,
 )
-mount(Catch(SaveButton, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
+mount(
+  Catch({
+    children: [SaveButton],
+    Failure: { HttpError: (e) => h("p", {}, `${e.status}`) },
+  }),
+  root,
+)
 
 // The handler's R folds into the element's requirements, exactly like a
 // construction R — the root must provide Http or the app doesn't compile.
@@ -441,30 +450,41 @@ assertEquals<
 // Catch fallbacks fold too — both forms — while an arm needing only what the
 // runtime provides (Scope) or nothing adds nothing.
 declare const failingView: Effect.Effect<View, HttpError, never>
-const FallbackFoldsR = Catch(failingView, () => themedView)
+const FallbackFoldsR = Catch({
+  children: [failingView],
+  Failure: () => themedView,
+})
 assertEquals<
   typeof FallbackFoldsR,
   Effect.Effect<View, never, Theme | Scope.Scope>
 >()
 // An inline handler that reads `cause` and `reset` still infers under the
 // generic H, and folds what it uses.
-const InlineFallback = Catch(failingView, (cause, reset) =>
-  Effect.gen(function* () {
-    yield* themedLog
-    return yield* h("button", { onclick: reset }, Cause.pretty(cause))
-  }),
-)
+const InlineFallback = Catch({
+  children: [failingView],
+  Failure: (cause, reset) =>
+    Effect.gen(function* () {
+      yield* themedLog
+      return yield* h("button", { onclick: reset }, Cause.pretty(cause))
+    }),
+})
 assertEquals<
   typeof InlineFallback,
   Effect.Effect<View, never, Theme | Scope.Scope>
 >()
-const TagFallbackFoldsR = Catch(failingView, { HttpError: () => themedView })
+const TagFallbackFoldsR = Catch({
+  children: [failingView],
+  Failure: { HttpError: () => themedView },
+})
 assertEquals<
   typeof TagFallbackFoldsR,
   Effect.Effect<View, never, Theme | Scope.Scope>
 >()
 declare const scopedView: Effect.Effect<View, never, Scope.Scope>
-const ScopedArmAddsNothing = Catch(failingView, () => scopedView)
+const ScopedArmAddsNothing = Catch({
+  children: [failingView],
+  Failure: () => scopedView,
+})
 assertEquals<
   typeof ScopedArmAddsNothing,
   Effect.Effect<View, never, Scope.Scope>
@@ -475,11 +495,18 @@ assertEquals<
 // nested Catch compiles.
 declare const failing: Effect.Effect<View, HttpError, never>
 mount(
-  Catch(failing, (_cause, reset) =>
-    Catch(h("button", { onclick: () => failingSave, onblur: reset }, "retry"), {
-      HttpError: (e) => h("p", {}, `retry failed: ${e.status}`),
-    }),
-  ),
+  Catch({
+    children: [failing],
+    Failure: (_cause, reset) =>
+      Catch({
+        children: [
+          h("button", { onclick: () => failingSave, onblur: reset }, "retry"),
+        ],
+        Failure: {
+          HttpError: (e) => h("p", {}, `retry failed: ${e.status}`),
+        },
+      }),
+  }),
   root,
 )
 
@@ -520,6 +547,7 @@ declare const resEff: Result.Result<
   Effect.Effect<View, HttpError, Http>,
   unknown
 >
+
 const WithResult = h("div", {}, resEff)
 assertEquals<typeof WithResult, Effect.Effect<View, never, never>>()
 
@@ -541,11 +569,14 @@ declare const root: HTMLElement
 
 // Catch-all (function form) turns a failing subtree into a fully-discharged one.
 // The handler's cause is precisely typed — `Cause<HttpError>`, not `Cause<unknown>`.
-const Caught = Catch(UserPage({ userId: "42" }), (cause, reset) => {
-  const _typedCause: Cause.Cause<HttpError> = cause
-  void _typedCause
-  void reset
-  return h("div", {}, "failed")
+const Caught = Catch({
+  children: [UserPage({ userId: "42" })],
+  Failure: (cause, reset) => {
+    const _typedCause: Cause.Cause<HttpError> = cause
+    void _typedCause
+    void reset
+    return h("div", {}, "failed")
+  },
 })
 // E discharged to `never`; UserPage's `Http | Theme` fold through, plus `Scope`
 // from the boundary's fork.
@@ -610,12 +641,15 @@ declare const TwoErrors: Effect.Effect<View, HttpError | ParseError, Http>
 
 // Handle one tag → handler gets the unwrapped error; both channels narrow by
 // `Exclude<E, { _tag }>`.
-const CaughtHttp = Catch(TwoErrors, {
-  HttpError: (e, reset) => {
-    const _status: number = e.status
-    void _status
-    void reset
-    return h("p", {}, "http error")
+const CaughtHttp = Catch({
+  children: [TwoErrors],
+  Failure: {
+    HttpError: (e, reset) => {
+      const _status: number = e.status
+      void _status
+      void reset
+      return h("p", {}, "http error")
+    },
   },
 })
 assertEquals<
@@ -624,17 +658,20 @@ assertEquals<
 >()
 
 // @ts-expect-error — "Nope" is not one of the child's error tags
-Catch(TwoErrors, { Nope: () => h("p", {}, "x") })
+Catch({ children: [TwoErrors], Failure: { Nope: () => h("p", {}, "x") } })
 
 // @ts-expect-error — ParseError is still undischarged; mount rejects it, naming it
 mount(CaughtHttp, root)
 
 // Handle the remaining tag → fully discharged, mountable.
-const CaughtBoth = Catch(CaughtHttp, {
-  ParseError: (e) => {
-    const _msg: string = e.message
-    void _msg
-    return h("p", {}, "parse error")
+const CaughtBoth = Catch({
+  children: [CaughtHttp],
+  Failure: {
+    ParseError: (e) => {
+      const _msg: string = e.message
+      void _msg
+      return h("p", {}, "parse error")
+    },
   },
 })
 assertEquals<
@@ -644,9 +681,12 @@ assertEquals<
 mount(CaughtBoth, root)
 
 // Handle every tag at once → discharged, mountable.
-const AllTags = Catch(TwoErrors, {
-  HttpError: (e) => h("p", {}, `${e.status}`),
-  ParseError: (e) => h("p", {}, e.message),
+const AllTags = Catch({
+  children: [TwoErrors],
+  Failure: {
+    HttpError: (e) => h("p", {}, `${e.status}`),
+    ParseError: (e) => h("p", {}, e.message),
+  },
 })
 assertEquals<typeof AllTags, Effect.Effect<View, never, Http | Scope.Scope>>()
 mount(AllTags, root)
@@ -663,12 +703,21 @@ mount(liveOnly, root)
 
 // catch-all discharges the live error → mountable.
 mount(
-  Catch(liveOnly, (_cause) => h("p", {}, "live error")),
+  Catch({
+    children: [liveOnly],
+    Failure: (_cause) => h("p", {}, "live error"),
+  }),
   root,
 )
 
 // tag-map discharges it too, narrowing to View<never>.
-mount(Catch(liveOnly, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
+mount(
+  Catch({
+    children: [liveOnly],
+    Failure: { HttpError: (e) => h("p", {}, `${e.status}`) },
+  }),
+  root,
+)
 
 // ─── atom: On picks the error's home ─────────────────────────────
 //     `atom(effect)` exposes `Atom<AsyncResult<A, E>>`; per site `On`
@@ -727,12 +776,18 @@ mount(OpenInTree, root)
 
 // A page-level Catch discharges the live failure → mountable.
 mount(
-  Catch(OpenInTree, (_cause) => h("p", {}, "failed")),
+  Catch({ children: [OpenInTree], Failure: (_cause) => h("p", {}, "failed") }),
   root,
 )
 
 // Tag-map form discharges it too, narrowing to View<never>.
-mount(Catch(OpenInTree, { HttpError: (e) => h("p", {}, `${e.status}`) }), root)
+mount(
+  Catch({
+    children: [OpenInTree],
+    Failure: { HttpError: (e) => h("p", {}, `${e.status}`) },
+  }),
+  root,
+)
 
 // ─── Partial leaf handling: a `Failure` tag map handles a tag, the residual rides ─
 //     A tag-map `Failure` narrows `E` like `Effect.catchTag`; the residual
@@ -785,7 +840,13 @@ On({
 mount(TagMapAsync, root)
 
 // A boundary discharges the residual → mountable.
-mount(Catch(TagMapAsync, { ParseError: (e) => h("p", {}, e.message) }), root)
+mount(
+  Catch({
+    children: [TagMapAsync],
+    Failure: { ParseError: (e) => h("p", {}, e.message) },
+  }),
+  root,
+)
 
 // Handle every tag at the leaf → View<never>, mountable with no boundary.
 const TagMapAll = h(

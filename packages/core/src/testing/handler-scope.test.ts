@@ -108,9 +108,10 @@ describe("per-dispatch handler scope", () => {
       )
     })
     const App = Effect.fn("Bounded")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (_cause) =>
-        h("p", { class: "fallback" }, "save failed"),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (_cause) => h("p", { class: "fallback" }, "save failed"),
+      })
     })
 
     const ui = await render(App())
@@ -339,22 +340,24 @@ describe("per-dispatch handler scope", () => {
     const gate = Deferred.makeUnsafe<void>()
     const log: string[] = []
     const App = Effect.fn("CatchInterrupt")(function* (_props: {} = {}) {
-      return yield* Catch(
-        h(
-          "button",
-          {
-            class: "btn",
-            onClick: () =>
-              Effect.gen(function* () {
-                log.push("start")
-                yield* Deferred.await(gate)
-                log.push("done")
-              }),
-          },
-          "go",
-        ),
-        () => h("p", { class: "fallback" }, "failed"),
-      )
+      return yield* Catch({
+        children: [
+          h(
+            "button",
+            {
+              class: "btn",
+              onClick: () =>
+                Effect.gen(function* () {
+                  log.push("start")
+                  yield* Deferred.await(gate)
+                  log.push("done")
+                }),
+            },
+            "go",
+          ),
+        ],
+        Failure: () => h("p", { class: "fallback" }, "failed"),
+      })
     })
 
     const ui = await render(App())
@@ -561,9 +564,11 @@ describe("per-dispatch handler scope", () => {
       )
     })
     const App = Effect.fn("ResetBoundary")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (_cause, reset) =>
-        h("button", { class: "retry", onClick: reset }, "retry"),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (_cause, reset) =>
+          h("button", { class: "retry", onClick: reset }, "retry"),
+      })
     })
 
     const ui = await render(App())

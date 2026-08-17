@@ -132,7 +132,22 @@ export const AsyncEscalate = Component.make(function* () {
         </span>
       </div>
       <pre class="req-log">{reqLog}</pre>
-      {Catch(
+      <Catch
+        Failure={{
+          // The residual — View<RateLimited> — lands here, unwrapped + typed.
+          // Over an atom, reset alone re-renders the still-failed state:
+          // compose refresh + reset so retry re-fetches AND re-renders.
+          RateLimited: (e, reset) => (
+            <div class="boundary-fallback page-fallback">
+              <p class="caught">page boundary caught: RateLimited</p>
+              <p class="rate-msg">rate limited — retry in {e.retryAfterMs}ms</p>
+              <button class="retry" onclick={() => retry(tagUser, reset)}>
+                retry
+              </button>
+            </div>
+          ),
+        }}
+      >
         <section class="content">
           <On
             value={tagUser}
@@ -163,36 +178,14 @@ export const AsyncEscalate = Component.make(function* () {
               ),
             }}
           />
-        </section>,
-        {
-          // The residual — View<RateLimited> — lands here, unwrapped + typed.
-          // Over an atom, reset alone re-renders the still-failed state:
-          // compose refresh + reset so retry re-fetches AND re-renders.
-          RateLimited: (e, reset) => (
-            <div class="boundary-fallback page-fallback">
-              <p class="caught">page boundary caught: RateLimited</p>
-              <p class="rate-msg">rate limited — retry in {e.retryAfterMs}ms</p>
-              <button class="retry" onclick={() => retry(tagUser, reset)}>
-                retry
-              </button>
-            </div>
-          ),
-        },
-      )}
+        </section>
+      </Catch>
       <p class="contrast-label">
         same fetch, open form — nothing handled at the leaf, every failure
         escalates:
       </p>
-      {Catch(
-        <section class="contrast">
-          {/* No Failure arm at all: EVERY failure bubbles to the catch-all. */}
-          <On
-            value={openUser}
-            Waiting={() => <span class="loading">loading…</span>}
-            Success={(s) => <strong class="open-ok">{s.value.name}</strong>}
-          />
-        </section>,
-        (cause, reset) => (
+      <Catch
+        Failure={(cause, reset) => (
           <div class="boundary-fallback open-fallback">
             <p class="caught">catch-all caught:</p>
             <pre class="cause">{Cause.pretty(cause)}</pre>
@@ -200,8 +193,17 @@ export const AsyncEscalate = Component.make(function* () {
               retry
             </button>
           </div>
-        ),
-      )}
+        )}
+      >
+        <section class="contrast">
+          {/* No Failure arm at all: EVERY failure bubbles to the catch-all. */}
+          <On
+            value={openUser}
+            Waiting={() => <span class="loading">loading…</span>}
+            Success={(s) => <strong class="open-ok">{s.value.name}</strong>}
+          />
+        </section>
+      </Catch>
     </div>
   )
 })

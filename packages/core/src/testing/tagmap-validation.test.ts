@@ -37,25 +37,30 @@ class ProtoHandlers {
 
 describe("tag-map construction validation (#91)", () => {
   it("Catch rejects a prototype-keyed handler object at the call site", () => {
-    expect(() => Catch(child, new ProtoHandlers())).toThrow(
-      /Catch: a tag-map of handlers must be a plain object/,
-    )
+    expect(() =>
+      Catch({ children: [child], Failure: new ProtoHandlers() }),
+    ).toThrow(/Catch: a tag-map of handlers must be a plain object/)
   })
 
   it("Catch rejects a non-function handler slot, naming the key", () => {
     expect(() =>
-      Catch(child, {
-        NotFound: (e: NotFound) => h("p", {}, e.id),
-        Timeout: undefined,
-      } as never),
+      Catch({
+        children: [child],
+        Failure: {
+          NotFound: (e: NotFound) => h("p", {}, e.id),
+          Timeout: undefined,
+        } as never,
+      }),
     ).toThrow(/Catch: tag-map handler "Timeout" is not a function/)
   })
 
   it("plain literals (including empty and null-prototype maps) still construct", () => {
-    expect(() => Catch(child, {})).not.toThrow()
+    expect(() => Catch({ children: [child], Failure: {} })).not.toThrow()
     const bare = Object.assign(Object.create(null), {
       NotFound: (e: NotFound) => h("p", {}, e.id),
     })
-    expect(() => Catch(child, bare as never)).not.toThrow()
+    expect(() =>
+      Catch({ children: [child], Failure: bare as never }),
+    ).not.toThrow()
   })
 })

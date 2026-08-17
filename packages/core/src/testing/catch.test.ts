@@ -28,9 +28,12 @@ describe("Catch — catch-all (function)", () => {
       return yield* h("p", { class: "child" }, "hello")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) => {
-        calls++
-        return h("p", { class: "fallback" }, Cause.pretty(cause))
+      return yield* Catch({
+        children: [Child()],
+        Failure: (cause) => {
+          calls++
+          return h("p", { class: "fallback" }, Cause.pretty(cause))
+        },
       })
     })
     const ui = await render(App())
@@ -46,9 +49,11 @@ describe("Catch — catch-all (function)", () => {
       return yield* h("p", { class: "child" }, "unreachable")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) =>
-        h("div", { class: "fallback" }, Cause.pretty(cause)),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (cause) =>
+          h("div", { class: "fallback" }, Cause.pretty(cause)),
+      })
     })
     const ui = await render(App())
     expect(ui.query(".child")).toBeNull()
@@ -72,9 +77,11 @@ describe("Catch — catch-all (function)", () => {
       )
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) =>
-        h("div", { class: "fallback" }, Cause.pretty(cause)),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (cause) =>
+          h("div", { class: "fallback" }, Cause.pretty(cause)),
+      })
     })
     const ui = await render(App())
     ui.click(".boom")
@@ -96,9 +103,11 @@ describe("Catch — catch-all (function)", () => {
       )
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) =>
-        h("div", { class: "fallback" }, Cause.pretty(cause)),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (cause) =>
+          h("div", { class: "fallback" }, Cause.pretty(cause)),
+      })
     })
     const ui = await render(App())
     expect(ui.text(".child")).toBe("ok")
@@ -117,9 +126,11 @@ describe("Catch — catch-all (function)", () => {
       return yield* h("p", { class: "child" }, "recovered")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (_cause, reset) =>
-        h("button", { class: "retry", onClick: reset }, "retry"),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (_cause, reset) =>
+          h("button", { class: "retry", onClick: reset }, "retry"),
+      })
     })
     const ui = await render(App())
     expect(ui.query(".retry")).not.toBeNull()
@@ -145,9 +156,12 @@ describe("Catch — tag-selective (object)", () => {
   it("dispatches to the handler for the failing tag, unwrapped", async () => {
     const make = (fail: "http" | "parse") =>
       Effect.fn("App")(function* (_props: {} = {}) {
-        return yield* Catch(Child({ fail }), {
-          HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
-          ParseError: (e) => h("p", { class: "parse" }, `parse ${e.message}`),
+        return yield* Catch({
+          children: [Child({ fail })],
+          Failure: {
+            HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
+            ParseError: (e) => h("p", { class: "parse" }, `parse ${e.message}`),
+          },
         })
       })()
 
@@ -163,12 +177,17 @@ describe("Catch — tag-selective (object)", () => {
 
   it("passes an unhandled tag through to an outer catch-all", async () => {
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(
-        Catch(Child({ fail: "parse" }), {
-          HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
-        }),
-        (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
-      )
+      return yield* Catch({
+        children: [
+          Catch({
+            children: [Child({ fail: "parse" })],
+            Failure: {
+              HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
+            },
+          }),
+        ],
+        Failure: (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
+      })
     })
     const ui = await render(App())
     expect(ui.query(".http")).toBeNull()
@@ -192,9 +211,12 @@ describe("Catch — lifecycle correctness", () => {
       return yield* h("p", { class: "child" }, "unreachable")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(AlwaysFails(), (_cause, reset) => {
-        handlerCalls++
-        return h("button", { class: "retry", onClick: reset }, "retry")
+      return yield* Catch({
+        children: [AlwaysFails()],
+        Failure: (_cause, reset) => {
+          handlerCalls++
+          return h("button", { class: "retry", onClick: reset }, "retry")
+        },
       })
     })
     const ui = await render(App())
@@ -229,9 +251,11 @@ describe("Catch — lifecycle correctness", () => {
       return yield* h("p", { class: "child" }, "unreachable")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Leaky(), (_cause, reset) =>
-        h("button", { class: "retry", onClick: reset }, "retry"),
-      )
+      return yield* Catch({
+        children: [Leaky()],
+        Failure: (_cause, reset) =>
+          h("button", { class: "retry", onClick: reset }, "retry"),
+      })
     })
     const ui = await render(App())
     expect(acquired).toBe(1)
@@ -270,12 +294,17 @@ describe("Catch — lifecycle correctness", () => {
       )
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(
-        Catch(Child({ trip: false }), {
-          ParseError: () => h("p", { class: "inner" }, "parse"),
-        }),
-        (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
-      )
+      return yield* Catch({
+        children: [
+          Catch({
+            children: [Child({ trip: false })],
+            Failure: {
+              ParseError: () => h("p", { class: "inner" }, "parse"),
+            },
+          }),
+        ],
+        Failure: (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
+      })
     })
     const ui = await render(App())
     expect(ui.query(".child")).not.toBeNull()

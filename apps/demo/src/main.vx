@@ -305,24 +305,28 @@ const App = (
         step: "07",
         title: "Error boundary (catch the failure side)",
         concept:
-          "Catch mirrors Effect's catch*: recover the failure side of a view subtree, let success pass through. It catches BOTH a failed construction Effect and a post-mount failure inside the live subtree — here the crash button's Effect, which has no E channel to land on and is routed to the boundary instead of dropped. reset re-runs the child's construction. Scope is the boundary's own contribution (it forks its reset/report loop into the enclosing scope). A function handler is the catch-all (it gets the full Cause); an object of {Tag: handler} narrows the channel by the handled tags. mount requires every error discharged — a forgotten boundary is a compile error that names it.",
+          "Catch mirrors Effect's catch*: recover the failure side of a view subtree, let success pass through. It catches BOTH a failed construction Effect and a post-mount failure inside the live subtree — here the crash button's Effect, which has no E channel to land on and is routed to the boundary instead of dropped. reset re-runs the child's construction. Scope is the boundary's own contribution (it forks its reset/report loop into the enclosing scope). Failure is the fallback — the same prop shape as On: a function is the catch-all (it gets the full Cause); an object of {Tag: handler} narrows the channel by the handled tags. mount requires every error discharged — a forgotten boundary is a compile error that names it.",
         type: "Effect<View, never, Scope>",
         code: `export const CatchDemo = Component.make(function* () {
   return yield* (
     <section>
-      {/* catch-all: a function handler recovers any failure */}
-      {Catch(<Crasher />, (cause, reset) => (
+      {/* catch-all: a function Failure recovers any failure */}
+      <Catch Failure={(cause, reset) => (
         <div class="fallback">
           <pre>{Cause.pretty(cause)}</pre>
           <button onclick={reset}>reset</button>
         </div>
-      ))}
+      )}>
+        <Crasher />
+      </Catch>
 
       {/* tag-map: route by tag; handler gets the unwrapped error */}
-      {Catch(<BadRequest />, {
+      <Catch Failure={{
         HttpError: (e, reset) =>
           <p>HttpError {e.status} <button onclick={reset}>retry</button></p>,
-      })}
+      }}>
+        <BadRequest />
+      </Catch>
     </section>
   )
 })`,
@@ -345,7 +349,14 @@ const App = (
 const tagUser = yield* atom((get) => fetchUser(get(userId)))
 <button onclick={spam}>spam ×3</button>   // Atom.refresh(tagUser) ×3
 
-{Catch(
+<Catch Failure={{
+  // the residual: View<RateLimited> — unwrapped + typed here.
+  // reset re-renders CURRENT state; compose refresh + reset:
+  RateLimited: (e, reset) =>
+    <p>retry in {e.retryAfterMs}ms{" "}
+      <button onclick={() => Effect.andThen(Atom.refresh(tagUser), Effect.sync(reset))}>
+        retry</button></p>,
+}}>
   <section>
     <On value={tagUser}
       Waiting={() => <span>loading…</span>}
@@ -355,16 +366,8 @@ const tagUser = yield* atom((get) => fetchUser(get(userId)))
       Failure={{ HttpError: () =>
         <p>404 <button onclick={() => Atom.refresh(tagUser)}>retry</button></p> }}
     />
-  </section>,
-  {
-    // the residual: View<RateLimited> — unwrapped + typed here.
-    // reset re-renders CURRENT state; compose refresh + reset:
-    RateLimited: (e, reset) =>
-      <p>retry in {e.retryAfterMs}ms{" "}
-        <button onclick={() => Effect.andThen(Atom.refresh(tagUser), Effect.sync(reset))}>
-          retry</button></p>,
-  },
-)}`,
+  </section>
+</Catch>`,
         file: "AsyncEscalate.vx",
       })}
       {demoSlot("escalate")}
@@ -398,10 +401,12 @@ const tagUser = yield* atom((get) => fetchUser(get(userId)))
 // Loader: Effect<View<HttpError>, never, Http | AtomRegistry> — the
 // failing click must meet a Catch before mount, which names it otherwise:
 
-{Catch(<Loader />, {
+<Catch Failure={{
   HttpError: (e, reset) =>
     <p>HttpError {e.status} <button onclick={reset}>reset</button></p>,
-})}`,
+}}>
+  <Loader />
+</Catch>`,
         file: "TypedHandlers.vx",
       })}
       {demoSlot("handlers")}
@@ -526,12 +531,17 @@ const setupDemo = <E,>(
       Scope.provide(
         Effect.flatMap(Layer.build(APP_LAYER), (ctx) =>
           mount(
-            Catch(make(), (cause) => (
-              <div class="demo-error">
-                <strong>this demo failed:</strong>
-                <pre>{Cause.pretty(cause)}</pre>
-              </div>
-            )),
+            <Catch
+              Failure={(cause) => (
+                <div class="demo-error">
+                  <strong>this demo failed:</strong>
+                  <pre>{Cause.pretty(cause)}</pre>
+                </div>
+              )}
+            >
+              {make()}
+            </Catch>,
+
             container,
           ).pipe(
             Effect.catchCause((cause) =>

@@ -73,29 +73,37 @@ export const CatchDemo = Component.make(function* () {
   return yield* (
     <section class="catch-demo">
       {/* catch-all (function): one fallback for any failure */}
-      {Catch(<Crasher />, (cause, reset) => (
-        <div class="boundary-fallback">
-          <p class="caught">catch-all caught:</p>
-          <pre class="cause">{Cause.pretty(cause)}</pre>
-          <button class="reset" onclick={reset}>
-            reset
-          </button>
-        </div>
-      ))}
-
-      {/* tag-map (object): route by tag; handler gets the unwrapped error */}
-      {Catch(<BadRequest />, {
-        HttpError: (e, reset) => (
+      <Catch
+        Failure={(cause, reset) => (
           <div class="boundary-fallback">
-            <p class="caught">
-              caught HttpError {e.status}: {e.message}
-            </p>
-            <button class="retry" onclick={reset}>
-              retry
+            <p class="caught">catch-all caught:</p>
+            <pre class="cause">{Cause.pretty(cause)}</pre>
+            <button class="reset" onclick={reset}>
+              reset
             </button>
           </div>
-        ),
-      })}
+        )}
+      >
+        <Crasher />
+      </Catch>
+
+      {/* tag-map (object): route by tag; handler gets the unwrapped error */}
+      <Catch
+        Failure={{
+          HttpError: (e, reset) => (
+            <div class="boundary-fallback">
+              <p class="caught">
+                caught HttpError {e.status}: {e.message}
+              </p>
+              <button class="retry" onclick={reset}>
+                retry
+              </button>
+            </div>
+          ),
+        }}
+      >
+        <BadRequest />
+      </Catch>
     </section>
   )
 })

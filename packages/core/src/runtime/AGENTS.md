@@ -363,25 +363,28 @@ bypassing the typed channel). Pinned by `testing/atom-escalate.test.ts`.
 ## `Catch` — the view-level error boundary
 
 `Catch` mirrors Effect's `catch*`: recover the **failure** side of a view
-subtree, let success pass through (the child renders itself). Contrast `Async`,
-which matches a data `AsyncResult` and renders _every_ state — a boundary only
-supplies the failure fallback. **One overloaded helper, two forms** picked by the
-second argument:
+subtree, let success pass through (the children render themselves). Contrast
+`On`, which matches a tagged value and renders _every_ state — a boundary only
+supplies the failure fallback. **A JSX tag, same shape as `On`**: the subtree
+is the children, the handling is the `Failure` prop (a function or a tag map —
+exactly `On`'s `Failure` arm), and the compiler lowers it to the direct call
+`Catch({ Failure, children: [...] })`. Multiple children are wrapped in a
+`Fragment`. Two forms picked by `Failure`:
 
-- **catch-all** — `Catch(child, (cause, reset) => fallback)`. The handler gets the
-  _precise_ `Cause<EC | EV>` (both the construction `EC` and live `EV` of the
-  child — not `Cause<unknown>`) and discharges everything to
+- **catch-all** — `<Catch Failure={(cause, reset) => fallback}>…</Catch>`. The
+  handler gets the _precise_ `Cause<EC | EV>` (both the construction `EC` and
+  live `EV` of the children — not `Cause<unknown>`) and discharges everything to
   `Effect<View<never>, never, R | Scope>`.
-- **tag-selective** — `Catch(child, { Tag: (error, reset) => …, … })`. Handles a
-  subset of the child's error tags (each handler gets the unwrapped tagged error)
-  and **narrows** both channels by `Exclude<E, { _tag }>`. Keys are constrained to
-  the child's actual error tags — a typo'd key is a compile error _when it is the
-  only key_; mixed with ≥1 valid key it is silently accepted (the exactness guard
-  is omitted to preserve per-handler `error` inference). That is a safe
-  over-approximation, not a soundness hole: a bad key just yields a dead handler,
-  and the residual keeps its tag in `E`, so no error is ever wrongly discharged —
-  an ergonomic gap, not a soundness one. A leftover tag must still be discharged
-  before `mount`.
+- **tag-selective** — `<Catch Failure={{ Tag: (error, reset) => …, … }}>…</Catch>`.
+  Handles a subset of the children's error tags (each handler gets the unwrapped
+  tagged error) and **narrows** both channels by `Exclude<E, { _tag }>`. Keys
+  are constrained to the children's actual error tags — a typo'd key is a
+  compile error _when it is the only key_; mixed with ≥1 valid key it is
+  silently accepted (the exactness guard is omitted to preserve per-handler
+  `error` inference). That is a safe over-approximation, not a soundness hole: a
+  bad key just yields a dead handler, and the residual keeps its tag in `E`, so
+  no error is ever wrongly discharged — an ergonomic gap, not a soundness one. A
+  leftover tag must still be discharged before `mount`.
 
 Both run over the internal `makeBoundary(child, accepts, handler)` (builds the
 `Boundary` node, drives `state`); they differ only in `accepts` (catch-all = always;

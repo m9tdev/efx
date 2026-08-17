@@ -118,7 +118,7 @@ Removed: `asyncRef`, `streamRef`, `AsyncHandle`, `makeDepSubscription`,
 `list`, our `AtomRef` glue (`bridgeAtom`, tracker), `Async`, `VerrexLive`,
 `h.track`, `h.read`. `Fragment` STAYS: a
 fragment must be an Effect where an Effect is expected (`return yield* <>…</>`,
-`Catch(<>…</>, …)`, `For` rows) — an array child is not one. `isAtomRef`
+`<Catch>` children, `For` rows) — an array child is not one. `isAtomRef`
 stays as the subscribe-shape switch.
 Added: `atom`, `fn`, `For`.
 

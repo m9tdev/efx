@@ -93,8 +93,11 @@ describe("On — failures bubble by default", () => {
       expectTypeOf(body).toMatchTypeOf<
         Effect.Effect<View<RateLimited>, never, any>
       >()
-      return yield* Catch(body, {
-        RateLimited: (e) => h("p", { class: "fallback" }, `retry in ${e.ms}`),
+      return yield* Catch({
+        children: [body],
+        Failure: {
+          RateLimited: (e) => h("p", { class: "fallback" }, `retry in ${e.ms}`),
+        },
       })
     })
     const ui = await render(App())
@@ -121,8 +124,11 @@ describe("On — failures bubble by default", () => {
       expectTypeOf(body).toMatchTypeOf<
         Effect.Effect<View<NotFound>, never, any>
       >()
-      return yield* Catch(body, {
-        NotFound: (e) => h("p", { class: "fb" }, `nf ${e.id}`),
+      return yield* Catch({
+        children: [body],
+        Failure: {
+          NotFound: (e) => h("p", { class: "fb" }, `nf ${e.id}`),
+        },
       })
     })
     const ui = await render(App())
@@ -161,17 +167,19 @@ describe("On — failures bubble by default", () => {
       ),
     )
     const App2 = Effect.fn(function* () {
-      return yield* Catch(
-        h(
-          "p",
-          { class: "out2" },
-          On({
-            value: r2,
-            Success: (s) => String(s.value),
-          }),
-        ),
-        () => h("p", { class: "fb2" }, "escalated"),
-      )
+      return yield* Catch({
+        children: [
+          h(
+            "p",
+            { class: "out2" },
+            On({
+              value: r2,
+              Success: (s) => String(s.value),
+            }),
+          ),
+        ],
+        Failure: () => h("p", { class: "fb2" }, "escalated"),
+      })
     })
     const ui2 = await render(App2())
     await ui2.tick()
@@ -190,14 +198,16 @@ describe("On — waiting failure", () => {
       ),
     )
     const App = Effect.fn(function* () {
-      return yield* Catch(
-        h(
-          "p",
-          { class: "out" },
-          On({ value: r, Success: (s) => String(s.value) }),
-        ),
-        () => h("p", { class: "fb" }, "escalated"),
-      )
+      return yield* Catch({
+        children: [
+          h(
+            "p",
+            { class: "out" },
+            On({ value: r, Success: (s) => String(s.value) }),
+          ),
+        ],
+        Failure: () => h("p", { class: "fb" }, "escalated"),
+      })
     })
     const ui = await render(App())
     await ui.tick()

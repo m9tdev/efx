@@ -54,16 +54,23 @@ const Saver = Component.make(function* () {
 
 /** The discharged wrapper the demo mounts — mirrors step 09's Catch form. */
 export const SaveButton = Component.make(function* () {
-  return yield* Catch(<Saver />, {
-    HttpError: (e, reset) => (
-      <div class="boundary-fallback">
-        <p class="caught">
-          save failed after the re-render: HttpError {e.status} — {e.message}
-        </p>
-        <button class="reset" onclick={reset}>
-          reset
-        </button>
-      </div>
-    ),
-  })
+  return yield* (
+    <Catch
+      Failure={{
+        HttpError: (e, reset) => (
+          <div class="boundary-fallback">
+            <p class="caught">
+              save failed after the re-render: HttpError {e.status} —{" "}
+              {e.message}
+            </p>
+            <button class="reset" onclick={reset}>
+              reset
+            </button>
+          </div>
+        ),
+      }}
+    >
+      <Saver />
+    </Catch>
+  )
 })

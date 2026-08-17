@@ -361,76 +361,83 @@ const makeBoundary = <R>(
 
 /**
  * View-level error boundary — `Catch`. Mirrors Effect's `catch*`: recover the
- * FAILURE side of a view subtree, let success pass through (the child renders
- * itself). Contrast `Async`, which matches a data `AsyncResult` and renders
- * *every* state — a boundary supplies only the failure fallback. Two forms,
- * picked by the second argument:
+ * FAILURE side of a view subtree, let success pass through (the children
+ * render themselves). A JSX tag, like `On`: the subtree is the children, the
+ * handling is the `Failure` prop — the same shape as `On`'s `Failure` arm:
  *
- *  - **catch-all** — a function handler gets the precise `Cause<EC | EV>` and
+ *  - **catch-all** — a function gets the precise `Cause<EC | EV>` and
  *    discharges *every* error to `never` (mountable):
  *    ```tsx
- *    {Catch(<UserCard id={id} />, (cause, reset) =>
- *      <div class="err">{Cause.pretty(cause)}<button onclick={reset}>retry</button></div>)}
+ *    <Catch Failure={(cause, reset) =>
+ *      <div class="err">{Cause.pretty(cause)}<button onclick={reset}>retry</button></div>}>
+ *      <UserCard id={id} />
+ *    </Catch>
  *    ```
- *  - **tag-selective** — a map of `_tag → handler` for any subset of the child's
- *    error tags (each handler gets the unwrapped tagged error). The result
- *    **narrows** both channels by `Exclude<E, { _tag }>`, so a leftover tag must
- *    still be discharged before `mount`. A non-matching error escalates to the
- *    next boundary out.
+ *  - **tag-selective** — a map of `_tag → handler` for any subset of the
+ *    children's error tags (each handler gets the unwrapped tagged error). The
+ *    result **narrows** both channels by `Exclude<E, { _tag }>`, so a leftover
+ *    tag must still be discharged before `mount`. A non-matching error
+ *    escalates to the next boundary out.
  *    ```tsx
- *    {Catch(<UserCard id={id} />, {
+ *    <Catch Failure={{
  *      HttpError: (e, reset) => <Banner status={e.status} onRetry={reset} />,
  *      ParseError: (e) => <p>bad data: {e.message}</p>,
- *    })}
+ *    }}>
+ *      <UserCard id={id} />
+ *    </Catch>
  *    ```
  *
- * Catches both phases — **construction** (`child`'s build Effect fails) and
+ * Catches both phases — **construction** (a child's build Effect fails) and
  * **live** (a post-mount reactive re-render or event-handler Effect). `reset()`
- * re-runs construction. `child`'s `R` folds (construction + every reset run on
- * the mount fiber); the fallback's `R` folds too (#120 — it renders on the
- * captured context, so its services must be provided at `mount`), while its
- * own `E` is not: the fallback must produce `View<never>` — like `Async`'s
- * arms. Tag-selective only catches errors in the *type*;
- * an untyped event-handler or reactive error needs the catch-all form.
+ * re-runs construction. The children's `R` folds (construction + every reset
+ * run on the mount fiber); the fallback's `R` folds too (#120 — it renders on
+ * the captured context, so its services must be provided at `mount`), while
+ * its own `E` is not: the fallback must produce `View<never>` — like `On`'s
+ * arms. Tag-selective only catches errors in the *type*; an untyped
+ * event-handler or reactive error needs the catch-all form.
+ *
+ * Multiple children are wrapped in a `Fragment`; from plain TS call it as
+ * `Catch({ Failure, children: [child] })`.
  */
 export function Catch<
-  EV,
-  EC,
-  R,
+  const Cs extends ReadonlyArray<unknown>,
   H extends (
-    cause: Cause.Cause<EC | EV>,
+    cause: Cause.Cause<FoldE<Cs> | FoldLiveE<Cs>>,
     reset: () => void,
   ) => View | Effect.Effect<View, any, any>,
->(
-  child: Effect.Effect<View<EV>, EC, R>,
-  handler: H,
-): Effect.Effect<View<never>, never, R | Scope.Scope | ArmR<H>>
+>(props: {
+  readonly children: Cs
+  readonly Failure: H
+}): Effect.Effect<View<never>, never, FoldR<Cs> | Scope.Scope | ArmR<H>>
 export function Catch<
-  EV,
-  EC,
-  R,
-  Handlers extends TagHandlers<EC | EV, [reset: () => void]>,
->(
-  child: Effect.Effect<View<EV>, EC, R>,
-  handlers: Handlers,
-): Effect.Effect<
-  View<Types.ExcludeTag<EV, keyof Handlers & string>>,
-  Types.ExcludeTag<EC, keyof Handlers & string>,
-  R | Scope.Scope | FoldArmsR<Handlers>
+  const Cs extends ReadonlyArray<unknown>,
+  Handlers extends TagHandlers<FoldE<Cs> | FoldLiveE<Cs>, [reset: () => void]>,
+>(props: {
+  readonly children: Cs
+  readonly Failure: Handlers
+}): Effect.Effect<
+  View<Types.ExcludeTag<FoldLiveE<Cs>, keyof Handlers & string>>,
+  Types.ExcludeTag<FoldE<Cs>, keyof Handlers & string>,
+  FoldR<Cs> | Scope.Scope | FoldArmsR<Handlers>
 >
-export function Catch(
-  child: Effect.Effect<View<any>, any, any>,
-  handlerOrMap:
+export function Catch(props: {
+  readonly children: ReadonlyArray<unknown>
+  readonly Failure:
     | ((cause: Cause.Cause<unknown>, reset: () => void) => unknown)
-    | Record<string, (error: any, reset: () => void) => unknown>,
-): Effect.Effect<View<never>, unknown, unknown> {
+    | Record<string, (error: any, reset: () => void) => unknown>
+}): Effect.Effect<View<never>, unknown, unknown> {
+  const child: Effect.Effect<View<any>, any, any> = props.children.length ===
+    1 && Effect.isEffect(props.children[0])
+    ? (props.children[0] as Effect.Effect<View<any>, any, any>)
+    : Fragment({ children: props.children })
+  const handlerOrMap = props.Failure
   if (typeof handlerOrMap === "function") {
     return makeBoundary(child, () => true, handlerOrMap)
   }
   const handlers = handlerOrMap
   assertHandlerMap(handlers, "Catch")
   // Dispatch rules (own function-valued key, first-error routing) live in
-  // `taggedMatch`, shared with Async's tag-map `failure` arm.
+  // `taggedMatch`, shared with On's tag-map `Failure` arm.
   return makeBoundary(
     child,
     (cause) => taggedMatch(handlers, cause) !== undefined,
