@@ -1,6 +1,6 @@
 # Reactivity migration: effect-atom API, caller-owned `R`/`E`
 
-Status: plan (2026-08-17), revised after adversarial review (types / runtime / DX). Not started.
+Status: implemented on branch `white-porcupine` (2026-08-17); steps 1–7 landed. Deviations from the plan as written: `Fragment`, `Component.make` and `bridgeAtom` stay (see the sections); `h.reader` keeps a node-local throw guard; the JSX reader is compiler-emitted only (no function-child reader in `h`).
 
 ## Decision
 

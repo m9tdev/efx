@@ -26,25 +26,33 @@ the running component (with a reset button) on the right.
   root through every intervening `<div>`, `<Fragment>`, conditional, list,
   and component. The root must provide a `Layer` covering the entire `R`, or
   it fails to compile.
-- **Reactive values in JSX expressions.** `{loading.value ? <Spinner /> : <Content />}`
-  works against `loading: AtomRef<boolean>` — you write `.value` explicitly and
-  the compiler rewrites that read into a tracked one, wrapping the surrounding
-  expression in a tracking scope so it re-renders when `loading` changes.
-- **Effect-native async boundary.** `Async(() => http.getUser(id), { initial, failure, success })`
-  runs an effect and renders initial → success/failure, folding the effect's `R`
-  into the component (a forgotten `Layer` is still a compile error). The thunk
-  auto-tracks any `.value` it reads, so it refetches when they change.
+- **effect-atom's API, with `R`/`E` owned by the caller.** State is
+  `Atom.make(x)`; async data is `yield* atom((get) => http.getUser(get(id)))`,
+  the state of a function call is `yield* fn((u) => http.save(u))` — the
+  same `Atom.make` / `Atom.fn` / `AsyncResult` you know from effect-atom,
+  minus `Atom.runtime`: the component's own services ride to `mount`, so a
+  forgotten `Layer` is a compile error at the root.
+- **Reactive values in JSX.** An atom IS a value: `{count}`, `value={prompt}`.
+  Expressions read with `get(...)`: `{get(loading) ? <Spinner /> : <Content />}`
+  — the compiler lowers it to `h.reader((get) => …)` (an `Atom.readable`), one
+  word shared with atom bodies. No `get` → the expression stays static.
+- **Errors escalate as values.** `Atom.map(user, (r) => AsyncResult.builder(r)
+.onSuccess(render).onFailure(Effect.failCause).exhaustive())` — the emitted
+  Effect's `E` rides `View<E>` to the nearest `Catch`; handle some tags at the
+  leaf with `.onErrorTag`, the residual still rides.
 - **Effect-native error boundary.** `Catch(child, (cause, reset) => fallback)` (or
   `Catch(child, { HttpError: … })` for tag-selective) recovers the failure side of
   a view subtree, mirroring Effect's `catch*`. `mount` requires every error
   discharged, so a forgotten boundary is a compile error that names the unhandled
   error — the runtime counterpart of a forgotten `Layer`.
-- **Effect v4 primitives all the way down.** `AtomRef`/`Atom`/`AtomRegistry`
+- **Effect v4 primitives all the way down.** `Atom`/`AtomRef`/`AtomRegistry`
   from `effect/unstable/reactivity` are the reactivity layer; we don't build
   our own. `AsyncResult` is the loading/success/failure shape.
-- **Keyed reactive lists.** `{todos.value.map(item => <Row item={item} />)}`
-  is compiled to a keyed list that reconciles by `AtomRef` identity — adding,
-  removing, or toggling one item never tears down the others.
+- **Keyed reactive lists.** `<For each={todos}>{(todo) => <Row item={todo} />}</For>`
+  over an `AtomRef.Collection` (rows are refs, keyed by identity) or
+  `<For each={users} key={(u) => u.id}>` over any array atom (rows are
+  per-key atoms) — adding, removing, or toggling one item never tears down
+  the others.
 - **Custom file extension.** `.vx` files are compiled by Babel to plain
   TypeScript before `tsc` ever sees them, so TypeScript's JSX type checker
   is never engaged — that's how channels survive instead of collapsing to
@@ -61,7 +69,7 @@ pnpm dev
 ```
 
 The demo is a guided tour that exercises every primitive — reactive counter,
-blocking and `Async`-boundary data fetches, auto-tracking refetch, keyed
+blocking and `atom`-driven data fetches, dependency-driven refetch, keyed
 reactive list, and per-component lifecycle — each with a reset button. It's
 also deployed at [m9tdev.github.io/verrex](https://m9tdev.github.io/verrex/).
 
@@ -125,7 +133,7 @@ together, so the UI and its reactivity always die at the same moment.
 ```
 packages/
   core/               one package (`@verrex/core`), subpath exports:
-    src/runtime/        export `@verrex/core`     — View IR, h(), mount(), Async(), list()
+    src/runtime/        export `@verrex/core`     — View IR, h(), mount(), atom(), fn(), For, Catch
     src/compiler/       export `@verrex/core/compiler` — .vx → plain TypeScript (Babel)
     src/language/       export `@verrex/core/language` — Volar language plugin
     src/check/          export `@verrex/core/check`, bin `verrex-check`
@@ -138,16 +146,16 @@ apps/
 
 ## The primitives
 
-| You import from              | What you get                                                                                                     |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `@verrex/core`               | `h`, `mount`, `Component`, `Async`, `asyncRef`, `AsyncHandle`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive` |
-| `effect`                     | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …                         |
-| `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                                                 |
+| You import from              | What you get                                                                             |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| `@verrex/core`               | `h`, `mount`, `Component`, `atom`, `fn`, `For`, `Catch`, `Fragment`, `View`, `Get`       |
+| `effect`                     | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, … |
+| `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                         |
 
-`h.track` / `h.read` are compiler-emitted; you generally never write them
-by hand. Reactive reads are always explicit through `.value` — the compiler
-rewrites those calls into tracked reads under the hood, and the surrounding
-JSX expression is automatically wrapped in a tracking scope.
+`h.reader` is compiler-emitted; you never write it by hand. Reactive reads
+in JSX are always explicit through `get(...)` — the compiler wraps the
+surrounding expression in a reader (an `Atom.readable`) — or by passing the
+atom itself as a child/prop.
 
 ## Workflow
 
@@ -189,7 +197,7 @@ contributes single-digit kB), plus all eight demo components (`Counter`,
 `AsyncEscalate`), the guided-tour
 shell (a small dependency-free TSX highlighter + reactivity-flash visualizer),
 and their mock services. Verified interactive after build — Counter increments,
-the `Async` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's
+the async demos load then resolve, Todos add/remove/toggle, Lifecycle's
 per-row scope fires releases on row removal.
 
 Vite serves `.vx` files directly through `@verrex/core/vite` at dev time;
