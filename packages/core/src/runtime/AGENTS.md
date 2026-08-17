@@ -111,6 +111,16 @@ THROUGH to the inner function (applyProp's AtomRef branch unwraps and
 re-applies it live). Extracted handlers should be annotated with the
 exported `EventHandler<Ev, E, R>` — a wider hand annotation erases the
 channels (see Html.ts).
+**Phase switch at the Atom/AtomRef boundary** (docs/reactivity-migration.md
+step 4): whatever an `Atom`/`AtomRef` EMITS runs after construction — mount
+re-coerces each emission and executes an emitted Effect at render time via
+`coerceSync` — so `ChildE<Atom<T>> = never` and `ChildLiveE<Atom<T>> =
+ChildE<T> | ChildLiveE<T>`. An `Atom<Effect<View, E>>` child is a `View<E>`.
+This is what makes `Atom.map(result, r => AsyncResult.builder(r)…
+.onFailure(Effect.failCause).exhaustive())` escalate a typed failure to the
+nearest `Catch` with no `Async`-style boundary — and what closes the old
+"reactive re-render whose Effect fails is caught only at runtime" hole.
+Pinned by Fold.test-d §6/§28 and `testing/atom-escalate.test.ts`.
 `mount` requires both error channels `never`;
 `Catch` discharges them. A forgotten boundary is a compile error that
 names the error — the runtime counterpart of a forgotten Layer naming a

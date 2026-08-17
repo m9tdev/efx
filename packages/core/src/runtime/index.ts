@@ -512,6 +512,12 @@ type NoExcess<Arms, Base> = Arms & {
  * success-waiting does). Call `retry` from event handlers only — calling it
  * during render (`failure: (c, retry) => { retry(); … }`) refetches in an
  * infinite loop.
+ *
+ * @deprecated Use {@link atom} + `Atom.map(result, r => AsyncResult.builder(r)
+ * .onSuccess(render).onFailure(Effect.failCause).exhaustive())` — the fold's
+ * phase switch puts the emitted Effect's `E` on `View<E>`, so the residual
+ * escalates to the nearest `Catch` exactly as an `Async` failure arm did
+ * (docs/reactivity-migration.md step 4). Removed once the demo has migrated.
  */
 export function Async<
   A,

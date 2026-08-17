@@ -60,10 +60,14 @@ export type ChildE<C> =
           ? ChildE<A>
           : C extends Chunk.Chunk<infer T>
             ? ChildE<T>
-            : C extends Atom.Atom<infer T>
-              ? ChildE<T>
-              : C extends AtomRef.ReadonlyRef<infer T>
-                ? ChildE<T>
+            : // PHASE SWITCH: whatever an Atom/AtomRef EMITS runs after
+              // construction (mount re-coerces each emission — an emitted
+              // Effect is executed at render time via `coerceSync`), so none of
+              // it is a construction error. Its channels move to `ChildLiveE`.
+              C extends Atom.Atom<any>
+              ? never
+              : C extends AtomRef.ReadonlyRef<any>
+                ? never
                 : C extends ReadonlyArray<infer T>
                   ? ChildE<T>
                   : never
@@ -92,10 +96,15 @@ export type ChildLiveE<C> =
           ? ChildLiveE<A>
           : C extends Chunk.Chunk<infer T>
             ? ChildLiveE<T>
-            : C extends Atom.Atom<infer T>
-              ? ChildLiveE<T>
+            : // PHASE SWITCH (see ChildE): an emitted Effect's OWN `E` is live
+              // here — `Atom<Effect<View, E>>` → `View<E>`. This is how
+              // `.onFailure(Effect.failCause)` inside `Atom.map(result, …)`
+              // escalates a typed failure to the nearest `Catch`
+              // (docs/reactivity-migration.md "Errors").
+              C extends Atom.Atom<infer T>
+              ? ChildE<T> | ChildLiveE<T>
               : C extends AtomRef.ReadonlyRef<infer T>
-                ? ChildLiveE<T>
+                ? ChildE<T> | ChildLiveE<T>
                 : C extends ReadonlyArray<infer T>
                   ? ChildLiveE<T>
                   : never

@@ -72,10 +72,26 @@ assertEquals<FoldR<readonly [string, Eff1, number]>, HttpService>()
 assertEquals<FoldE<readonly [ReadonlyArray<Eff1>]>, HttpError>()
 assertEquals<FoldR<readonly [ReadonlyArray<Eff2>]>, DbService>()
 
-// 6) AtomRef of an Effect peels the ref and surfaces the effect's channels
+// 6) AtomRef/Atom of an Effect: PHASE SWITCH (docs/reactivity-migration.md
+//    "Errors"). An emitted Effect runs at render time (mount re-coerces each
+//    emission), so its `E` is LIVE — `View<E>`, discharged by `Catch` — and
+//    construction `E` stays `never`. `R` still folds. This is how
+//    `.onFailure(Effect.failCause)` inside `Atom.map(result, …)` escalates.
 type Ref = AtomRef.ReadonlyRef<Eff1>
-assertEquals<FoldE<readonly [Ref]>, HttpError>()
+assertEquals<FoldE<readonly [Ref]>, never>()
+assertEquals<FoldLiveE<readonly [Ref]>, HttpError>()
 assertEquals<FoldR<readonly [Ref]>, HttpService>()
+type AtomEff = Atom.Atom<Eff1>
+assertEquals<FoldE<readonly [AtomEff]>, never>()
+assertEquals<FoldLiveE<readonly [AtomEff]>, HttpError>()
+assertEquals<FoldR<readonly [AtomEff]>, HttpService>()
+// An emitted `View<E>` and an emitted failing Effect both land live; a plain
+// value emits nothing.
+type AtomMixed = Atom.Atom<
+  View<NotFound> | Effect.Effect<never, HttpError> | string
+>
+assertEquals<FoldE<readonly [AtomMixed]>, never>()
+assertEquals<FoldLiveE<readonly [AtomMixed]>, NotFound | HttpError>()
 
 // 7) Atom of a View contributes nothing (View has no channels)
 type AtomView = Atom.Atom<View>
@@ -298,12 +314,14 @@ assertEquals<FoldPropsR<{ ontimeupdate: WritableAtomHandler }>, HttpService>()
 
 // 28) …and the same union in CHILD position folds too — a tracked child that
 //     resolves to a failing / service-needing Effect is the children-side
-//     sibling of the same hole.
+//     sibling of the same hole. The bare `Eff1` member is construction; the
+//     `Atom<Eff1>` member is live (phase switch, §6).
 type TrackedChild = Eff1 | Atom.Atom<Eff1>
 assertEquals<FoldE<readonly [TrackedChild]>, HttpError>()
+assertEquals<FoldLiveE<readonly [TrackedChild]>, HttpError>()
 assertEquals<FoldR<readonly [TrackedChild]>, HttpService>()
 
-// 28) Reactive HANDLER SLOTS (docs/reactivity-migration.md step 3): a typed
+// 29) Reactive HANDLER SLOTS (docs/reactivity-migration.md step 3): a typed
 //     lowercase `on*` key accepts an `Atom`/`AtomRef` holding the handler, the
 //     event stays contextually typed inside a plain function, and the wrapped
 //     handler's channels fold through `h`. Before this, only `Record<string,
