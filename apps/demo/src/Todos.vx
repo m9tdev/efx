@@ -20,7 +20,7 @@ const TodoRow = Component.make(function* (props: {
   const toggle = () => ref.update((t) => ({ ...t, done: !t.done }))
 
   // A JSX expression that reads a ref/atom uses `get(...)`: the compiler
-  // lowers the expression to `h.reader((get) => …)`, a derived the renderer
+  // lowers the expression to `h.reader(() => …)`, a derived the renderer
   // subscribes to. `ref.prop("text")` is a per-field `ReadonlyRef`, dropped
   // straight in as a child.
   return yield* (

@@ -19,6 +19,7 @@ import {
   fn,
   type Fn,
   For,
+  get,
   h,
   mount,
   type View,
@@ -344,7 +345,7 @@ const KeyedRows = For({
       h(
         "li",
         {},
-        h.reader((get) => get(u).name),
+        h.reader(() => get(u).name),
       ),
   ],
 })
@@ -865,7 +866,7 @@ assertEquals<typeof SaveState, Effect.Effect<View<HttpError>, never, never>>()
 // JSX call sites, and that a forgotten error boundary fails to compile.
 
 // ─── #159: a reactive handler on an UNLISTED `on*` key keeps its channels ──
-//     A handler chosen reactively (`h.reader((get) => get(flag) ? saveA :
+//     A handler chosen reactively (`h.reader(() => get(flag) ? saveA :
 //     saveB)`) is an `Atom<handler>`. That used to return `unknown`, which
 //     the `Record<string, unknown>` half of IntrinsicProps swallowed silently
 //     — so the handler ran at runtime with its `E`/`R` erased, past mount's
@@ -879,7 +880,7 @@ declare const saveA: (e: Event) => Effect.Effect<void, HttpError, Http>
 declare const saveB: (e: Event) => Effect.Effect<void, HttpError, Http>
 
 const TrackedUnlisted = h("video", {
-  ontimeupdate: h.reader((get) => (get(flagRef) ? saveA : saveB)),
+  ontimeupdate: h.reader(() => (get(flagRef) ? saveA : saveB)),
 })
 assertEquals<
   typeof TrackedUnlisted,
@@ -888,6 +889,6 @@ assertEquals<
 
 // A reactive attr that is NOT a handler stays inert — no channels invented.
 const TrackedAttr = h("div", {
-  class: h.reader((get) => (get(flagRef) ? "a" : "b")),
+  class: h.reader(() => (get(flagRef) ? "a" : "b")),
 })
 assertEquals<typeof TrackedAttr, Effect.Effect<View<never>, never, never>>()

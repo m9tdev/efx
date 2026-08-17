@@ -11,25 +11,60 @@ import type {
 import type { IntrinsicProps } from "./types/Html.ts"
 import { type Props, View } from "./View.ts"
 
-// ─── h.reader — the `get(...)` reader ────────────────────────────────────
+// ─── h.reader + get — the reactive expression ────────────────────────────
 //
-// The compiler lowers a JSX expression containing a free `get(...)` call to
-// `h.reader((get) => expr)` (docs/reactivity-migration.md "One dialect";
-// compiler AGENTS.md). Under the hood it is `Atom.readable`: a demand-driven
-// derived that re-runs `expr` per dep change, whose lifecycle the registry
-// owns by refcount (never mounted → never subscribes; unmount → released).
+// The compiler lowers a JSX expression containing a call to verrex's `get`
+// to `h.reader(() => expr)` (docs/reactivity-migration.md "One dialect";
+// compiler AGENTS.md). `h.reader` is `Atom.readable` under the hood: a
+// demand-driven derived that re-runs `expr` per dep change, whose lifecycle
+// the registry owns by refcount (never mounted → never subscribes; unmount →
+// released). `get` is a REAL exported function (auto-imported like `h`) — so
+// hover / go-to-def / rename work through tsc with no injected identifiers —
+// that reads through the AMBIENT reader: `h.reader` pushes the node's read
+// context for the synchronous duration of `read()`, and `get` reads via the
+// top of that stack. Outside a reader (a handler, after an `await`, a plain
+// function) it throws with a clear message. Inside an `atom((get) => …)`
+// body effect-atom's explicit param shadows the import, so both coexist.
 // `get` accepts an `Atom` or an `AtomRef` — a ref is bridged INSIDE the
-// reader's own read (`bridgeAtom`: subscribe → `setSelf`, unsubscribed in the
-// node finalizer), which is the one place verrex still bridges refs into the
-// registry graph. Static expressions never reach here (no `get` → no wrap),
-// so their TypeScript type survives untouched.
+// reader's own read (`bridgeAtom`), the one place verrex still bridges refs
+// into the registry graph. Static expressions never reach here (no `get` →
+// no wrap), so their TypeScript type survives untouched.
 
-/** What a reader's `get` accepts: an atom or a local ref. */
+/** What `get` accepts: an atom or a local ref. */
 export type Get = <A>(source: Atom.Atom<A> | AtomRef.ReadonlyRef<A>) => A
 
-const readerImpl = <A>(_read: (get: Get) => A): Atom.Atom<A> =>
+// The ambient reader stack. A reader's `read` runs synchronously inside the
+// registry read; a nested reader CREATED during it is only evaluated later
+// (by the registry), so the stack is almost always depth 1 — it is a stack
+// only so a reader that synchronously reads another reader's atom (nested
+// registry reads re-enter this function) stays correct.
+const readers: Array<Get> = []
+
+/**
+ * Read an atom or ref inside a reactive JSX expression. The compiler wraps
+ * the containing expression in `h.reader(() => …)`, so this only ever runs
+ * with an ambient reader; calling it anywhere else throws.
+ *
+ * ```tsx
+ * <span>{get(count) * 2}</span>
+ * ```
+ */
+export const get: Get = (source) => {
+  const active = readers[readers.length - 1]
+  if (active === undefined) {
+    throw new Error(
+      "[verrex] get() called outside a reactive expression. `get` only tracks inside a JSX " +
+        "expression (which the compiler wraps in h.reader) — not in an event handler, after an " +
+        "await, or in a plain function. Read the atom via `Atom.get`/`registry.get`, or move the " +
+        "get(...) into the JSX.",
+    )
+  }
+  return active(source)
+}
+
+const readerImpl = <A>(_read: () => A): Atom.Atom<A> =>
   Atom.readable((ctx) => {
-    const get: Get = (source) =>
+    const ambient: Get = (source) =>
       isAtomRef(source)
         ? ctx(bridgeAtom(source))
         : ctx(source as Atom.Atom<any>)
@@ -45,8 +80,9 @@ const readerImpl = <A>(_read: (get: Get) => A): Atom.Atom<A> =>
     // (fail loud at first paint). This is a verrex-owned readable, so the
     // guard is ours to keep; user-written `Atom.readable`s get Effect's
     // behaviour (upstream issue).
+    readers.push(ambient)
     try {
-      return _read(get)
+      return _read()
     } catch (error) {
       const previous = ctx.self<A>()
       if (Option.isNone(previous)) throw error
@@ -56,6 +92,8 @@ const readerImpl = <A>(_read: (get: Get) => A): Atom.Atom<A> =>
         error,
       )
       return previous.value
+    } finally {
+      readers.pop()
     }
   })
 
@@ -144,7 +182,7 @@ type HFn = <P extends IntrinsicProps, Cs extends readonly unknown[]>(
 
 /**
  * The view factory, plus the one helper the compiler calls into:
- * `h.reader((get) => expr)` — the lowering of a JSX expression that reads
+ * `h.reader(() => expr)` — the lowering of a JSX expression that reads
  * atoms/refs via `get(...)`; returns an `Atom` the renderer subscribes to.
  */
 export const h: HFn & {

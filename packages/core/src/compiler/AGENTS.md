@@ -42,44 +42,45 @@ local AST rewrite.
 
 ## The one reactive rewrite: `get(...)` → `h.reader`
 
-(docs/reactivity-migration.md "One dialect"; `wrapReader` /
-`findFreeGetCalls` in `transform.ts`.) A JSX expression `{…}` — an
-intrinsic or component child, or an attribute that is not an `on*`
-handler — that calls a FREE `get(...)` at its top level is lowered to
-`h.reader((get) => expr)`. That is `Atom.readable` under the hood: the
-expression re-runs per dep change and the renderer subscribes.
+(docs/reactivity-migration.md "One dialect"; `wrapReader` / `hasVerrexGet`
+in `transform.ts`.) A JSX expression `{…}` — an intrinsic or component
+child, or an attribute that is not an `on*` handler — that calls VERREX'S
+`get(...)` at its top level is lowered to `h.reader(() => expr)`. That is
+`Atom.readable` under the hood with an ambient reader: the expression
+re-runs per dep change and the renderer subscribes. NOTHING is injected
+into the expression: `get` stays the real imported identifier (auto-imported
+like `h`), so hover / go-to-def / rename / highlights are plain tsc — no
+source-map games.
 
 ```tsx
-<span>{get(count) * 2}</span>            → h("span", {}, h.reader(get => get(count) * 2))
-<div class={get(open) ? "a" : ""} />     → h("div", { class: h.reader(get => get(open) ? "a" : "") })
-<Row item={get(x)} />                    → Row({ item: h.reader(get => get(x)) })
+<span>{get(count) * 2}</span>            → h("span", {}, h.reader(() => get(count) * 2))
+<div class={get(open) ? "a" : ""} />     → h("div", { class: h.reader(() => get(open) ? "a" : "") })
+<Row item={get(x)} />                    → Row({ item: h.reader(() => get(x)) })
 ```
 
-Rules, all name-based (no types, no atom analysis):
+Rules, all name/scope-based (no types, no atom analysis):
 
 - **No `get` → untouched.** `{item}`, `{count + 1}` pass through as they
   are, so a static expression keeps its TypeScript type (the reason we
   never wrap unconditionally: generics die).
-- **"Free"** = the callee `get` is not bound at the JSX expression's scope
-  (`scope.getBinding("get")`) — an `atom((get) => …)` param, a user
-  `const get`, or a param named `get` inside the expression shadow it —
-  EXCEPT a `get` param this pass itself injected (`injectedGetParams`).
-  Nested JSX is lowered top-down, so an inner `{get(name)}` sits inside an
-  outer reader's arrow by the time it is examined; it still gets its OWN
-  reader (fine-grained: only the inner node re-renders). Pinned in
-  `transform.test.ts` "nested JSX inside a wrapped expression".
-- **Nested JSX is opaque** to the walk (it gets its own reader later).
-  Type-only wrappers (`as` / `satisfies` / `!`) are walked through.
-- **A free `get(...)` inside a nested function within the expression is a
+- **"Verrex's `get`"** = the callee `get` binds to the `@verrex/core` `get`
+  import, or is unbound (auto-import case) — `getIsVerrex(scope)`. Bound to
+  anything else (an `atom((get) => …)` param — effect-atom's explicit `get`
+  simply shadows the import there — a user `const get`, an import from
+  elsewhere, a param named `get` inside the expression) → not ours, no wrap.
+  An ALIASED verrex import (`import { get as g }`) is not recognised (the
+  walk keys on the identifier `get`); documented limitation.
+- **Nested JSX is opaque** to the walk (it gets its own reader when the
+  traversal reaches it; same import, so nothing changes). Type-only wrappers
+  (`as` / `satisfies` / `!`) are walked through.
+- **A verrex `get(...)` inside a nested function within the expression is a
   COMPILE ERROR** (`GetInNestedFunctionError`, position included):
-  `{items.map((i) => get(i).name)}` would run outside any reader and read
-  silently untracked. Same for handler attributes (`onclick={() =>
-get(x)}`, `onclick={get(h)}` — `rejectGetInHandler`): a listener is
-  not a reactive expression. The fix is always "move the `get` to the
-  expression level, or into the row's own JSX".
-- `get` needs no import: after the rewrite it is the reader's parameter.
-  Its type is `Get` from `@verrex/core` (`<A>(a: Atom<A> |
-AtomRef.ReadonlyRef<A>) => A`); `h.reader` provides the contextual type.
+  `{items.map((i) => get(i).name)}` would run outside any reader (and throw
+  at runtime). Same for handler attributes (`onclick={() => get(x)}`,
+  `onclick={get(h)}` — `rejectGetInHandler`): a listener is not a reactive
+  expression. The fix is always "move the `get` to the expression level, or
+  into the row's own JSX".
+- `get` is auto-imported (`state.usedGet`) alongside `h`.
 
 Gone with this (docs/reactivity-migration.md steps 5/6): the `.value` →
 `h.read` rewrite, the `h.track` wrap, the whole-body `.value` pass, the
@@ -108,8 +109,8 @@ visitor in `transformVerrex`). Deliberately narrow and additive:
 
 If any JSX rewrote to an `h()` call **or** an `h.reader(...)` wrap, the
 transform ensures `import { h } from "@verrex/core"` exists (tracked via
-`usedH` in `transformVerrex`). `Fragment` is added when `<>...</>` is
-used. `ensureRuntimeImports` finds an
+`usedH` in `transformVerrex`); `get` is added when a reader was emitted
+(`usedGet`). `Fragment` is added when `<>...</>` is used. `ensureRuntimeImports` finds an
 existing import from `verrex` and appends to it; otherwise it
 prepends a new declaration. Names already imported under their own
 identifier (no alias) are skipped to avoid duplicates.
@@ -230,7 +231,7 @@ in five steps:
    spans **can differ** because Babel transforms shift byte counts:
    - `(n) =>` → `n =>` (single-arg arrow paren strip): source `((`
      of 2 chars maps to generated `(` of 1 char.
-   - `{get(x) * 2}` → `h.reader(get => get(x) * 2)`: the reader wrap widens the span.
+   - `{get(x) * 2}` → `h.reader(() => get(x) * 2)`: the reader wrap widens the span (the wrapper text has no source loc; `get` maps onto `get`).
    - `<div>...</div>` → `h("div", ..., ...)`: source 5 chars
      (opening tag) → generated 8+ chars.
 5. Classify each mapping's `kind` via `jsxRanges` intersection:
@@ -299,7 +300,7 @@ shipping a recovered/garbage module.
   `get(...)` call. The name-based rule is what keeps the system
   debuggable — no types, no atom analysis.
 - Don't emit `h.reader(...)` unconditionally — generics die.
-- Don't auto-import anything except `h` and `Fragment`.
+- Don't auto-import anything except `h`, `get` and `Fragment`.
   Users manage their own imports.
 - Don't depend on `@babel/preset-*`. We use parser + traverse +
   generate directly to keep the bundle small (the ts-plugin ships

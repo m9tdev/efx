@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { h, mount } from "@verrex/core"
+import { get, h, mount } from "@verrex/core"
 
 // Regression pins for #167: `mount` owns its AtomRegistry.
 //
@@ -19,7 +19,7 @@ const trackedSpan = (dep: AtomRef.AtomRef<string>) =>
     return yield* h(
       "span",
       {},
-      h.reader((get) => get(dep)),
+      h.reader(() => get(dep)),
     )
   })
 
@@ -78,7 +78,7 @@ describe("mount owns the AtomRegistry (#167)", () => {
           return yield* h(
             "span",
             {},
-            h.reader((get) => get(dep)),
+            h.reader(() => get(dep)),
           )
         }),
         el,

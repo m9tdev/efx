@@ -11,7 +11,7 @@ import {
   dedupeRefs,
   sortClassifiedRefs,
 } from "./classify-references.ts"
-import { hintText, READER_TYPE_HINT_RE, SUPPRESS_RE } from "./hint-text.ts"
+import { hintText, SUPPRESS_RE } from "./hint-text.ts"
 
 // tsserver identifies scripts by file path strings — asFileName is identity.
 const verrexLanguagePlugin = createVerrexLanguagePlugin<string>(
@@ -249,12 +249,9 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
               // Drop the h() parameter labels (_tag/_props/_children). Text
               // extraction + the suppression regex live in hint-text.ts so
               // they're unit-testable without a tsserver.
-              return hints.filter((hint: ts.InlayHint) => {
-                const text = hintText(hint)
-                return (
-                  !SUPPRESS_RE.test(text) && !READER_TYPE_HINT_RE.test(text)
-                )
-              })
+              return hints.filter(
+                (hint: ts.InlayHint) => !SUPPRESS_RE.test(hintText(hint)),
+              )
             })
           }
 

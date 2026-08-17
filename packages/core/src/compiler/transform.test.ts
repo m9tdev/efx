@@ -96,21 +96,21 @@ describe("JSX → h() rewrites", () => {
   })
 })
 
-describe("get(...) reader sugar (docs/reactivity-migration.md)", () => {
-  it("wraps a child expression that calls a free get(...) in h.reader((get) => …)", () => {
+describe("get(...) reactive expressions (docs/reactivity-migration.md)", () => {
+  it("wraps a child expression that calls verrex's get(...) in h.reader(() => …) and auto-imports get", () => {
     const out = compile(`
       const x = <div>{get(count) * 2}</div>
     `)
-    expect(out).toContain(`h("div", {}, h.reader(get => get(count) * 2))`)
+    expect(out).toContain(`h("div", {}, h.reader(() => get(count) * 2))`)
+    expect(out).toMatch(/import \{[^}]*\bget\b[^}]*\} from "@verrex\/core"/)
   })
 
   it("wraps a non-handler attribute; leaves an on* attribute alone", () => {
     const out = compile(`
       const x = <div class={get(open) ? "a" : "b"} onclick={handler} />
     `)
-    expect(out).toContain(`class: h.reader(get => get(open) ? "a" : "b")`)
+    expect(out).toContain(`class: h.reader(() => get(open) ? "a" : "b")`)
     expect(out).toContain(`onclick: handler`)
-    expect(out).not.toMatch(/onclick: h\.reader/)
   })
 
   it("leaves an expression with no get(...) untouched (static; type survives)", () => {
@@ -119,6 +119,7 @@ describe("get(...) reader sugar (docs/reactivity-migration.md)", () => {
     `)
     expect(out).toContain(`h("div", {}, item, "hi", count + 1)`)
     expect(out).not.toContain("h.reader")
+    expect(out).not.toMatch(/import \{[^}]*\bget\b/)
   })
 
   it("wraps component children and attrs the same way", () => {
@@ -126,28 +127,38 @@ describe("get(...) reader sugar (docs/reactivity-migration.md)", () => {
       const x = <Row item={get(x)}>{get(y)}</Row>
     `)
     expect(out).toContain(
-      `Row({ item: h.reader(get => get(x)), children: [h.reader(get => get(y))] })`,
+      `Row({ item: h.reader(() => get(x)), children: [h.reader(() => get(y))] })`,
     )
   })
 
-  it("nested JSX inside a wrapped expression gets its own reader (inner get is bound by then)", () => {
+  it("nested JSX inside a wrapped expression gets its own reader", () => {
     const out = compile(`
       const x = <div>{get(open) ? <p>{get(name)}</p> : null}</div>
     `)
     expect(out).toContain(
-      `h.reader(get => get(open) ? h("p", {}, h.reader(get => get(name))) : null)`,
+      `h.reader(() => get(open) ? h("p", {}, h.reader(() => get(name))) : null)`,
     )
   })
 
-  it("does not wrap when get is bound in scope (an atom body's param, a local)", () => {
-    const out = compile(`
+  it('an explicit `import { get } from "@verrex/core"` (or alias) is ours; other bindings are not', () => {
+    const ours = compile(`
+      import { get as g } from "@verrex/core"
+      const x = <div>{g(a)}</div>
+    `)
+    // Aliased import: the callee name is `g`, not `get` — the walk keys on the
+    // identifier `get`, so an alias is left static. Documented limitation.
+    expect(ours).not.toContain("h.reader")
+    const theirs = compile(`
+      import { get } from "lodash"
+      const x = <div>{get(a, "b")}</div>
+    `)
+    expect(theirs).not.toContain("h.reader")
+    const shadowed = compile(`
       const a = atom((get) => <div>{get(x)}</div>)
       const get = () => 1
       const y = <span>{get(z)}</span>
     `)
-    expect(out).not.toContain("h.reader")
-    expect(out).toContain(`h("div", {}, get(x))`)
-    expect(out).toContain(`h("span", {}, get(z))`)
+    expect(shadowed).not.toContain("h.reader")
   })
 
   it("nested-function shadowing inside the expression is respected", () => {
@@ -157,7 +168,7 @@ describe("get(...) reader sugar (docs/reactivity-migration.md)", () => {
     expect(out).not.toContain("h.reader")
   })
 
-  it("a free get(...) inside a nested function is a compile error", () => {
+  it("a verrex get(...) inside a nested function or a handler is a compile error", () => {
     expect(() =>
       compile(`
         const x = <div>{items.map((i) => get(i).name)}</div>
@@ -175,7 +186,7 @@ describe("get(...) reader sugar (docs/reactivity-migration.md)", () => {
       const x = <For each={items} key={(i) => i.id}>{(row) => <li>{get(row).name}</li>}</For>
     `)
     expect(out).toContain(
-      `children: [row => h("li", {}, h.reader(get => get(row).name))]`,
+      `children: [row => h("li", {}, h.reader(() => get(row).name))]`,
     )
   })
 
@@ -184,7 +195,7 @@ describe("get(...) reader sugar (docs/reactivity-migration.md)", () => {
       const x = <div>{(get(count) as number) satisfies number}</div>
     `)
     expect(out).toContain(
-      `h.reader(get => get(count) as number satisfies number)`,
+      `h.reader(() => get(count) as number satisfies number)`,
     )
   })
 

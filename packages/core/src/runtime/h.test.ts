@@ -1,5 +1,5 @@
 /**
- * `h.reader((get) => expr)` — the compiler's lowering of a JSX expression
+ * `h.reader(() => expr)` — the compiler's lowering of a JSX expression
  * that reads atoms/refs via `get(...)`. An `Atom.readable` under the hood:
  * `get` accepts an `Atom` (registry read) or an `AtomRef` (bridged inside
  * the reader's own read); a re-run that throws keeps the last value and
@@ -8,14 +8,14 @@
 import { describe, expect, it, vi } from "@effect/vitest"
 import { AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { Atom } from "effect/unstable/reactivity"
-import { h } from "./h.ts"
+import { get, h } from "./h.ts"
 
 describe("h.reader", () => {
   it("reads atoms and refs and re-runs on change", () => {
     const registry = AtomRegistry.make()
     const a = Atom.make(1)
     const r = AtomRef.make(10)
-    const sum = h.reader((get) => get(a) + get(r))
+    const sum = h.reader(() => get(a) + get(r))
     const seen: Array<number> = []
     registry.subscribe(sum, (v) => seen.push(v), { immediate: true })
     registry.set(a, 2)
@@ -26,7 +26,7 @@ describe("h.reader", () => {
   it("a re-run that throws keeps the last value, stays subscribed, recovers", () => {
     const registry = AtomRegistry.make()
     const user = AtomRef.make<{ name: string } | null>({ name: "ada" })
-    const name = h.reader((get) => get(user)!.name)
+    const name = h.reader(() => get(user)!.name)
     const seen: Array<string> = []
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
     registry.subscribe(name, (v) => seen.push(v), { immediate: true })
@@ -37,10 +37,15 @@ describe("h.reader", () => {
     err.mockRestore()
   })
 
+  it("get() outside a reader throws with a clear message", () => {
+    const a = Atom.make(1)
+    expect(() => get(a)).toThrow(/outside a reactive expression/)
+  })
+
   it("a FIRST-run throw rethrows (fail loud at first paint)", () => {
     const registry = AtomRegistry.make()
     const user = AtomRef.make<{ name: string } | null>(null)
-    const name = h.reader((get) => get(user)!.name)
+    const name = h.reader(() => get(user)!.name)
     expect(() => registry.get(name)).toThrow()
   })
 })

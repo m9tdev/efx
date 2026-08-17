@@ -9,17 +9,7 @@
  * `service-proxy.ts`. Coupled by name to `verrex`'s `h` / `Component.make`
  * parameter names — documented in both packages' AGENTS.md.
  */
-export const SUPPRESS_RE = /^(?:_?(?:tag|props|children)|_name|_read):?$/i
-
-/**
- * The compiler's `get(...)` reader wrap injects `h.reader(get => …)` around a
- * JSX expression. The injected `get` parameter has no source location, so
- * TypeScript's parameter-TYPE hint for it (`: Get`) maps to an arbitrary
- * source offset inside the expression (`{AsyncResult : Get.builder(get(x))`).
- * Drop it: the type is fixed and never user-facing. Coupled to the `Get`
- * type name in `@verrex/core` (`h.ts`).
- */
-export const READER_TYPE_HINT_RE = /^:\s*Get$/
+export const SUPPRESS_RE = /^(?:_?(?:tag|props|children)|_name):?$/i
 
 /** The subset of an inlay hint we read a label string from. */
 export interface HintTextShape {

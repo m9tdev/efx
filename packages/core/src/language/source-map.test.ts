@@ -67,18 +67,19 @@ describe("convertSourceMap — span lengths", () => {
     expect(m!.generatedLengths![0], "generated span covers only `(`").toBe(1)
   })
 
-  it("get(...) reader wrap: source `{get(x) * 2}` becomes h.reader(get => get(x) * 2)", () => {
-    // A JSX expression with a free `get(...)` is wrapped in `h.reader((get) =>
-    // …)`. The compiler copies the source loc of the original expression onto
-    // the emitted call, so mappings around the expression stay well-formed and
-    // the source `get(x)` region maps into the generated reader body.
+  it("get(...) reader wrap: source `{get(x) * 2}` becomes h.reader(() => get(x) * 2), get maps to get", () => {
+    // A JSX expression calling verrex's `get(...)` is wrapped in
+    // `h.reader(() => …)`. Nothing is injected INTO the expression: `get`
+    // stays the imported identifier, so the source `get` maps onto the
+    // generated `get` (hover / go-to-def / highlight are plain tsc) and the
+    // wrapper text (`h.reader(() => `) carries no source loc of its own.
     const src = `
       import { Atom } from "effect/unstable/reactivity"
       const x = Atom.make(0)
       const view = <div>{get(x) * 2}</div>
     `
     const { code, mappings } = buildMappings(src)
-    expect(code).toContain("h.reader(get => get(x) * 2)")
+    expect(code).toContain("h.reader(() => get(x) * 2)")
     const exprSrc = src.indexOf("{get(x) * 2}") + 1
     const generatedBody = code.indexOf("get(x) * 2")
     const exprMappings = mappings.filter(
@@ -99,6 +100,14 @@ describe("convertSourceMap — span lengths", () => {
         m.generatedOffsets[0]! <= generatedBody + 10,
     )
     expect(intersecting.length).toBeGreaterThan(0)
+    // The source `get` identifier maps exactly onto the generated `get`
+    // identifier (same length) — the pin for "hover on get highlights get,
+    // not the neighbouring token".
+    const getSrc = src.indexOf("get(x)")
+    const getGen = code.indexOf("get(x)")
+    const m = findBySourceOffset(mappings, getSrc)
+    expect(m).toBeDefined()
+    expect(m!.generatedOffsets[0]).toBe(getGen)
   })
 
   it("For row arrow body: the inner `<Row>` tag-name position still maps for go-to-def", () => {

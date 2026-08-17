@@ -200,7 +200,7 @@ Compiler rule (name-based, the same size as today's `.value` pass):
 
 Three layers, each valid alone: `{get(x) * 2}` (sugar) → `{(get) => get(x) * 2}`
 (explicit inline reader; ALSO supported by `h`, function child/prop → reader)
-→ `Atom.readable((get) => …)` (plain effect-atom).
+→ `Atom.readable((get) => …)` (plain effect-atom). Implemented as: `get` is a real export read through an ambient reader; the compiler only wraps `h.reader(() => expr)`.
 
 Deleted with this: the compiler's `.value → h.read` rewrite, the `h.track`
 wrap (replaced by the `get(…)` → reader wrap), `isSelfTrackingCall`,

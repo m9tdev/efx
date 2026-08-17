@@ -34,7 +34,7 @@ the running component (with a reset button) on the right.
   forgotten `Layer` is a compile error at the root.
 - **Reactive values in JSX.** An atom IS a value: `{count}`, `value={prompt}`.
   Expressions read with `get(...)`: `{get(loading) ? <Spinner /> : <Content />}`
-  — the compiler lowers it to `h.reader((get) => …)` (an `Atom.readable`), one
+  — the compiler lowers it to `h.reader(() => …)` (an `Atom.readable`), one
   word shared with atom bodies. No `get` → the expression stays static.
 - **Errors escalate as values.** `Atom.map(user, (r) => AsyncResult.builder(r)
 .onSuccess(render).onFailure(Effect.failCause).exhaustive())` — the emitted

@@ -118,72 +118,59 @@ const attrName = (
  */
 interface RewriteState {
   usedH: boolean
+  usedGet: boolean
   usedFragment: boolean
 }
 
 /**
- * The `get(...)` reader sugar (docs/reactivity-migration.md "One dialect").
+ * The `get(...)` reactive expression (docs/reactivity-migration.md "One
+ * dialect").
  *
  * A JSX expression — an intrinsic/component child, or an attribute that is
- * not an `on*` handler — that calls a FREE `get(...)` at its top level is
- * lowered to `h.reader((get) => expr)`: `Atom.readable` under the hood, so
- * `{get(count) * 2}` / `class={get(open) ? "a" : ""}` re-run per dep change
- * with one word (`get`) shared with atom bodies (Solid's mechanism — wrap the
- * expression in a thunk — with effect-atom's vocabulary). No `get` → the
- * expression passes through untouched (static; its TypeScript type survives,
- * purely syntactically). `get` needs no import: after the rewrite it is the
- * reader's parameter, so tsc never sees a free `get`.
+ * not an `on*` handler — that calls VERREX'S `get(...)` at its top level is
+ * lowered to `h.reader(() => expr)`: `Atom.readable` under the hood with an
+ * ambient reader, so `{get(count) * 2}` / `class={get(open) ? "a" : ""}`
+ * re-run per dep change with one word (`get`) shared with atom bodies. No
+ * `get` → the expression passes through untouched (static; its TypeScript
+ * type survives, purely syntactically). NOTHING is injected into the
+ * expression itself — `get` stays the real imported identifier (auto-
+ * imported like `h`), so hover / go-to-def / rename are plain tsc.
  *
- * "Free" = not bound in scope at the JSX expression (an `atom((get) => …)`
- * param, a user `const get`, or an ALREADY-INJECTED reader param — nested JSX
- * is lowered later, so an inner reader's `get` is bound by the time an outer
- * expression is examined). Nested JSX elements/fragments inside the
- * expression are opaque to this walk (they get their own reader when the
- * traversal reaches them). A free `get(...)` INSIDE a nested function within
- * the expression (`{items.map((i) => get(i).name)}`, `onclick={() =>
- * get(x)}`) is a COMPILE ERROR — it would run outside any reader and read
- * silently untracked; the fix is to move the `get` to the reader level or
- * into the row's own JSX. Type-only wrappers (`as` / `satisfies` / `!`) are
- * transparent to the walk.
+ * "Verrex's `get`" = the callee binds to the `@verrex/core` `get` import
+ * (by IMPORTED name — an alias resolves), or is UNBOUND (the auto-import
+ * case). A `get` bound to anything else — an `atom((get) => …)` param, a user
+ * `const get`, a param named `get` inside the expression — is not ours: no
+ * wrap. Nested JSX elements/fragments inside the expression are opaque to
+ * this walk (they get their own reader when the traversal reaches them; a
+ * nested reader's `get` is the same import, so nothing changes for it). A
+ * verrex `get(...)` INSIDE a nested function within the expression
+ * (`{items.map((i) => get(i).name)}`, `onclick={() => get(x)}`) is a
+ * COMPILE ERROR — it would run outside any reader (and throw at runtime);
+ * the fix is to move the `get` to the reader level or into the row's own
+ * JSX. Type-only wrappers (`as` / `satisfies` / `!`) are transparent.
  */
 const wrapReader = (
   expr: t.Expression,
   scope: Scope,
   state: RewriteState,
 ): t.Expression => {
-  const found = findFreeGetCalls(expr, scope)
-  if (found === "none") return expr
+  if (!hasVerrexGet(expr, scope)) return expr
   state.usedH = true
-  const param = t.identifier("get")
-  injectedGetParams.add(param)
-  return copyLoc(
-    t.callExpression(
-      t.memberExpression(t.identifier("h"), t.identifier("reader")),
-      [t.arrowFunctionExpression([param], expr)],
-    ),
-    expr,
+  state.usedGet = true
+  return t.callExpression(
+    t.memberExpression(t.identifier("h"), t.identifier("reader")),
+    [t.arrowFunctionExpression([], expr)],
   )
 }
 
 /**
- * The `get` params THIS pass injected. Nested JSX is lowered after its
- * enclosing expression (top-down), so an inner `{get(name)}` sits inside an
- * outer reader's arrow and `scope.hasBinding("get")` sees that param — but
- * the inner expression must get its OWN reader (fine-grained: only the inner
- * text node re-renders), so an injected binding does not count as shadowing.
- * A user-written `get` binding (an `atom((get) => …)` param, a local) does.
- */
-const injectedGetParams = new WeakSet<t.Identifier>()
-
-/**
- * A handler attribute is a listener, not a reactive expression: a free
+ * A handler attribute is a listener, not a reactive expression: a verrex
  * `get(...)` anywhere in it (`onclick={() => get(x)}`, `onclick={get(h)}`)
  * would never be tracked, so it is the same compile error as a nested
  * function. Returns the expression untouched otherwise.
  */
 const rejectGetInHandler = (expr: t.Expression, scope: Scope): t.Expression => {
-  if (findFreeGetCalls(expr, scope) === "top")
-    throw new GetInNestedFunctionError(expr)
+  if (hasVerrexGet(expr, scope)) throw new GetInNestedFunctionError(expr)
   return expr
 }
 
@@ -199,17 +186,28 @@ class GetInNestedFunctionError extends Error {
   }
 }
 
-/**
- * Walk `expr` for free `get(...)` calls. Returns "top" when at least one sits
- * at the expression's top level (→ wrap), "none" otherwise; throws
- * `GetInNestedFunctionError` on one inside a nested function. Shadowing
- * introduced INSIDE the expression (a nested function's `get` param, a
- * `const get` in a block) is tracked; shadowing from the enclosing scope is
- * `scope.hasBinding("get")`.
- */
-const findFreeGetCalls = (expr: t.Expression, scope: Scope): "top" | "none" => {
+/** Is `get` at this scope verrex's (`@verrex/core` import or unbound)? */
+const getIsVerrex = (scope: Scope): boolean => {
   const binding = scope.getBinding("get")
-  if (binding && !injectedGetParams.has(binding.identifier)) return "none"
+  if (!binding) return true
+  const path = binding.path
+  if (!path.isImportSpecifier()) return false
+  const decl = path.parentPath
+  if (!decl.isImportDeclaration() || decl.node.source.value !== RUNTIME_PKG)
+    return false
+  const imported = path.node.imported
+  return (t.isIdentifier(imported) ? imported.name : imported.value) === "get"
+}
+
+/**
+ * Walk `expr` for verrex `get(...)` calls. True when at least one sits at
+ * the expression's top level (→ wrap); throws `GetInNestedFunctionError` on
+ * one inside a nested function. Shadowing introduced INSIDE the expression
+ * (a nested function's `get` param, a `const get` in a block) is tracked;
+ * shadowing from the enclosing scope is `getIsVerrex(scope)`.
+ */
+const hasVerrexGet = (expr: t.Expression, scope: Scope): boolean => {
+  if (!getIsVerrex(scope)) return false
   let top = false
   const walk = (
     node: t.Node | null | undefined,
@@ -244,7 +242,7 @@ const findFreeGetCalls = (expr: t.Expression, scope: Scope): "top" | "none" => {
     }
   }
   walk(expr, 0, false)
-  return top ? "top" : "none"
+  return top
 }
 
 /** Does a function parameter pattern bind `name`? (identifier, default, rest, destructuring) */
@@ -649,6 +647,7 @@ export const transformVerrex = (
 
   const state: RewriteState = {
     usedH: false,
+    usedGet: false,
     usedFragment: false,
   }
 
@@ -682,6 +681,7 @@ export const transformVerrex = (
   // JSX pass emitted `h(...)` or an `h.reader(...)` wrap.
   const wanted = new Set<string>()
   if (state.usedH) wanted.add("h")
+  if (state.usedGet) wanted.add("get")
   if (state.usedFragment) wanted.add("Fragment")
   if (wanted.size > 0) ensureRuntimeImports(ast.program, wanted)
 

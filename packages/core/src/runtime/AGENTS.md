@@ -99,11 +99,11 @@ service. See [`types/Fold.ts`](./types/Fold.ts).
 ### Compiler-slot parameter naming — coupled to the TS plugin
 
 The `HFn` type's parameters are `_tag`, `_props`, `_children` (in
-`h.ts`), `h.reader`'s function slot is `_read`, and `Component.make`'s name slot is `_name` (in `Component.ts`)
+`h.ts`) and `Component.make`'s name slot is `_name` (in `Component.ts`)
 — underscore prefix marks a compiler-filled slot. This is **coupled to
 [`@verrex/ts-plugin`](../../../ts-plugin/AGENTS.md)** — the plugin's
 inlay-hint filter drops any hint matching
-`/^(?:_?(?:tag|props|children)|_name|_read):?$/i` (plus `READER_TYPE_HINT_RE` for the injected reader param's `: Get` type hint, which has no source loc), so these labels never
+`/^(?:_?(?:tag|props|children)|_name):?$/i`, so these labels never
 appear in the editor margin (without the filter, the injected name
 argument's `_name:` hint would render after the call's `})`). `_name`
 is matched underscore-only — bare `name:` is a common user parameter
@@ -183,24 +183,32 @@ see docs/reactivity-migration.md for the full rationale.
 - In JSX, an `Atom`/`AtomRef` IS a value: `{label}`, `value={prompt}` —
   the renderer subscribes (`Reactive` node / `applyProp`). Expressions use
   `get(...)`: `{get(count) * 2}` — the compiler lowers it to
-  `h.reader((get) => …)` (see below).
+  `h.reader(() => …)` (see below).
 
 `mount` owns its `AtomRegistry` — it creates one per mount, provides it
 to the app effect (discharging `AtomRegistry` from the app's `R`), and
 disposes it on scope close. Nothing needs to provide a registry.
 
-## `h.reader` — the `get(...)` reader
+## `h.reader` + `get` — the reactive expression
 
-`h.reader((get) => expr)` is what the compiler emits for a JSX expression
-containing a free `get(...)` (compiler AGENTS.md "The one reactive
+`h.reader(() => expr)` is what the compiler emits for a JSX expression
+calling verrex's `get(...)` (compiler AGENTS.md "The one reactive
 rewrite"). It is `Atom.readable` under the hood — a demand-driven derived
 the registry owns by refcount (never mounted → never subscribes; unmount →
 released; the old "created-but-unmounted leaks" class does not exist).
-`get` accepts an `Atom` (registry read) or an `AtomRef` — a ref is bridged
-INSIDE the reader's own read (`bridgeAtom` in coerce.ts: an Atom that
-subscribes to the ref, pushes via `setSelf`, unsubscribes in its node
-finalizer; memoized per ref because the graph keys deps by atom identity).
-This is the ONE place verrex still bridges refs into the registry graph.
+`get` is a REAL exported function (auto-imported like `h`; hover /
+go-to-def / rename are plain tsc, nothing is injected into the expression)
+that reads through the AMBIENT reader: `h.reader` pushes the node's read
+context on a small stack for the synchronous duration of `read()`, `get`
+reads via the top of it, and throws with a clear message when no reader is
+active (a handler, after an `await`, a plain function). Inside an
+`atom((get) => …)` body effect-atom's explicit param shadows the import —
+both coexist. `get` accepts an `Atom` (registry read) or an `AtomRef` — a
+ref is bridged INSIDE the reader's own read (`bridgeAtom` in coerce.ts: an
+Atom that subscribes to the ref, pushes via `setSelf`, unsubscribes in its
+node finalizer; memoized per ref because the graph keys deps by atom
+identity). This is the ONE place verrex still bridges refs into the
+registry graph. Pinned by `h.test.ts` (incl. "get outside a reader throws").
 
 **Invariant: a throwing reader stays node-local.** `AtomRegistry` has no
 try/catch around a node's read; an escaping exception aborts the notify
@@ -735,7 +743,7 @@ the call site. `<For>` is the keyed reconciliation primitive only —
 not a generics workaround.
 
 The caveat: a **reader attr** is an `Atom`. An attr value containing a
-free `get(...)` is lowered to `h.reader((get) => …)`, whose type is
+free `get(...)` is lowered to `h.reader(() => …)`, whose type is
 `Atom<T>` — so `<Row item={get(ref)}/>` passes `item: Atom<string>`
 rather than a `string`. That is honest (it IS reactive) and it folds; a
 component wanting the value takes `Atom<T>` (or the ref itself:
