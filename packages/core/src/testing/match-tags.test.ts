@@ -5,8 +5,8 @@ import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity"
 import { atom, Catch, h, MatchTags, type View } from "@verrex/core"
 import { render } from "./index.ts"
 
-// `<MatchTags on={x}>{{ … }}</MatchTags>` — after compile:
-// `MatchTags({ on: x, children: [{ … }] })`. Pins: per-tag dispatch (missing
+// `<MatchTags on={x} Tag={…} />` — after compile:
+// `MatchTags({ on: x, …})`. Pins: per-tag dispatch (missing
 // tag → nothing), failure bubbling by default (typed residual to Catch),
 // failure tag-map narrowing, function Failure = handled, interrupt-only
 // dropped, plain values and atoms/refs as `on`, generic over Option/Result/
@@ -31,7 +31,7 @@ describe("MatchTags — dispatch", () => {
           { class: "out" },
           MatchTags({
             on: sel,
-            children: [{ Some: (o) => h("b", {}, o.value) }],
+            Some: (o) => h("b", {}, o.value),
           }),
         ),
         h(
@@ -59,7 +59,7 @@ describe("MatchTags — dispatch", () => {
       return yield* h(
         "p",
         { class: "out" },
-        MatchTags({ on: s, children: [{ Busy: (b) => `busy ${b.n}` }] }),
+        MatchTags({ on: s, Busy: (b) => `busy ${b.n}` }),
       )
     })
     const ui = await render(App())
@@ -82,15 +82,11 @@ describe("MatchTags — failures bubble by default", () => {
         {},
         MatchTags({
           on: user,
-          children: [
-            {
-              Initial: () => h("p", { class: "loading" }, "loading"),
-              Success: (s) => h("b", {}, s.value),
-              Failure: {
-                NotFound: (e) => h("p", { class: "leaf" }, `no ${e.id}`),
-              },
-            },
-          ],
+          Initial: () => h("p", { class: "loading" }, "loading"),
+          Success: (s) => h("b", {}, s.value),
+          Failure: {
+            NotFound: (e) => h("p", { class: "leaf" }, `no ${e.id}`),
+          },
         }),
       )
       // Type pin: only RateLimited is left to bubble.
@@ -119,7 +115,7 @@ describe("MatchTags — failures bubble by default", () => {
         {},
         MatchTags({
           on: r,
-          children: [{ Success: (s) => h("b", {}, String(s.success)) }],
+          Success: (s) => h("b", {}, String(s.success)),
         }),
       )
       expectTypeOf(body).toMatchTypeOf<
@@ -147,12 +143,8 @@ describe("MatchTags — failures bubble by default", () => {
         { class: "out" },
         MatchTags({
           on: r,
-          children: [
-            {
-              Success: (s) => String(s.value),
-              Failure: (f) => `failed ${Cause.pretty(f.cause)}`,
-            },
-          ],
+          Success: (s) => String(s.value),
+          Failure: (f) => `failed ${Cause.pretty(f.cause)}`,
         }),
       )
       expectTypeOf(body).toMatchTypeOf<Effect.Effect<View<never>, never, any>>()
@@ -175,7 +167,7 @@ describe("MatchTags — failures bubble by default", () => {
           { class: "out2" },
           MatchTags({
             on: r2,
-            children: [{ Success: (s) => String(s.value) }],
+            Success: (s) => String(s.value),
           }),
         ),
         () => h("p", { class: "fb2" }, "escalated"),
@@ -202,7 +194,7 @@ describe("MatchTags — waiting failure", () => {
         h(
           "p",
           { class: "out" },
-          MatchTags({ on: r, children: [{ Success: (s) => String(s.value) }] }),
+          MatchTags({ on: r, Success: (s) => String(s.value) }),
         ),
         () => h("p", { class: "fb" }, "escalated"),
       )
@@ -215,43 +207,96 @@ describe("MatchTags — waiting failure", () => {
   })
 })
 
+describe("MatchTags — Waiting arm", () => {
+  it("Waiting wins over the tag arms while waiting (initial fetch and retry alike)", async () => {
+    const r = Atom.make<AsyncResult.AsyncResult<number, NotFound>>(
+      AsyncResult.initial(true),
+    )
+    const App = Effect.fn(function* () {
+      const registry = yield* AtomRegistry.AtomRegistry
+      return yield* h(
+        "div",
+        {},
+        h(
+          "p",
+          { class: "out" },
+          MatchTags({
+            on: r,
+            Waiting: () => "…",
+            Success: (s) => String(s.value),
+            Failure: () => "failed",
+          }),
+        ),
+        h(
+          "button",
+          {
+            class: "retry",
+            onclick: () =>
+              registry.set(
+                r,
+                AsyncResult.failure<number, NotFound>(
+                  Cause.fail(new NotFound({ id: "1" })),
+                  { waiting: true },
+                ),
+              ),
+          },
+          "retry",
+        ),
+        h(
+          "button",
+          {
+            class: "ok",
+            onclick: () => registry.set(r, AsyncResult.success(7)),
+          },
+          "ok",
+        ),
+      )
+    })
+    const ui = await render(App())
+    expect(ui.text(".out")).toBe("…")
+    ui.click(".ok")
+    await ui.tick()
+    expect(ui.text(".out")).toBe("7")
+    ui.click(".retry")
+    await ui.tick()
+    expect(ui.text(".out")).toBe("…")
+    await ui.unmount()
+  })
+})
+
 describe("MatchTags — types", () => {
   it("handlers are optional, Failure is a fn or a tag map, residual narrows, extra keys rejected", () => {
     const user = Atom.make<AsyncResult.AsyncResult<string, Err>>(
       AsyncResult.initial(),
     )
-    const all = MatchTags({ on: user, children: [{}] })
+    const all = MatchTags({ on: user })
     expectTypeOf(all).toEqualTypeOf<Effect.Effect<View<Err>, never, never>>()
     const part = MatchTags({
       on: user,
-      children: [{ Failure: { NotFound: () => null } }],
+      Failure: { NotFound: () => null },
     })
     expectTypeOf(part).toEqualTypeOf<
       Effect.Effect<View<RateLimited>, never, never>
     >()
-    const none = MatchTags({ on: user, children: [{ Failure: () => null }] })
+    const none = MatchTags({ on: user, Failure: () => null })
     expectTypeOf(none).toEqualTypeOf<Effect.Effect<View<never>, never, never>>()
     // Option: no failure variant → nothing bubbles
     const opt = MatchTags({
       on: Option.some(1),
-      children: [{ Some: (o) => o.value }],
+      Some: (o) => o.value,
     })
     expectTypeOf(opt).toEqualTypeOf<Effect.Effect<View<never>, never, never>>()
     // @ts-expect-error unknown tag
-    MatchTags({ on: user, children: [{ Nope: () => 1 }] })
+    MatchTags({ on: user, Nope: () => 1 })
     // handler R/E fold: an Effect-returning handler's E is live, R folds
     class Svc extends Context.Service<Svc, { readonly x: number }>()(
       "test/mt/Svc",
     ) {}
     const eff = MatchTags({
       on: user,
-      children: [
-        {
-          Success: () =>
-            Effect.andThen(Svc, () => Effect.fail(new NotFound({ id: "x" }))),
-          Failure: () => null,
-        },
-      ],
+      Success: () =>
+        Effect.andThen(Svc, () => Effect.fail(new NotFound({ id: "x" }))),
+      Failure: () => null,
     })
     expectTypeOf(eff).toEqualTypeOf<Effect.Effect<View<NotFound>, never, Svc>>()
   })

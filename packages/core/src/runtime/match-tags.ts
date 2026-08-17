@@ -4,8 +4,8 @@ import { bridgeAtom, isAtomRef } from "./coerce.ts"
 import type { ChildE, ChildLiveE, ChildR } from "./types/Fold.ts"
 import type { View } from "./View.ts"
 
-// `<MatchTags on={x}>{{ Tag: (v) => …, … }}</MatchTags>` — render a tagged
-// value (or an atom/ref of one) by tag, with FAILURES BUBBLING BY DEFAULT.
+// `<MatchTags on={x} Tag={(v) => …} … />` — render a tagged value (or an
+// atom/ref of one) by tag, with FAILURES BUBBLING BY DEFAULT.
 // Works for anything `_tag`ged: Option (Some/None), Result, AsyncResult, Exit,
 // a `Data.TaggedEnum` state union. Every tag handler is optional (missing →
 // renders nothing) EXCEPT that a failure-carrying variant — `{ _tag:
@@ -48,7 +48,16 @@ type FailureTagMap<E, F> = {
   ) => unknown
 }
 
-/** The handlers object: one optional function per tag; `Failure` may be a tag map. */
+/** Does `T` carry a `waiting` flag (AsyncResult)? Then a `Waiting` arm is offered. */
+type HasWaiting<T> = T extends { readonly waiting: boolean } ? true : never
+
+/**
+ * The arms, as PROPS of `<MatchTags on={…} Tag={…} />`: one optional function
+ * per tag (missing → nothing); `Failure` may be a tag map; `Waiting` (only
+ * for waiting-capable values) wins over the tag arms while `waiting` is true
+ * — `builder.onWaiting` semantics — and covers the first fetch too
+ * (`AsyncResult.initial(true)` is waiting).
+ */
 export type TagHandlers<T> = {
   readonly [K in Exclude<Tags<T>, "Failure">]?: (
     variant: Variant<T, K>,
@@ -59,7 +68,10 @@ export type TagHandlers<T> = {
       readonly Failure?:
         | ((variant: Variant<T, "Failure">) => unknown)
         | FailureTagMap<FailureError<T>, Variant<T, "Failure">>
-    })
+    }) &
+  ([HasWaiting<T>] extends [never]
+    ? {}
+    : { readonly Waiting?: (value: T & { readonly waiting: true }) => unknown })
 
 /** What still bubbles after `H` handled its part of `T`'s failure. */
 export type Residual<T, H> = [FailureError<T>] extends [never]
@@ -83,29 +95,24 @@ type HandlersR<H> = ChildR<HandlerRet<H>>
 
 /**
  * ```tsx
- * <MatchTags on={user}>{{
- *   Initial: () => "loading",
- *   Success: (s) => s.value.name,
- *   Failure: { HttpError: (e) => e.message },   // RateLimited bubbles: View<RateLimited>
- * }}</MatchTags>
- * <MatchTags on={selected}>{{ Some: (o) => <b>{o.value}</b> }}</MatchTags>   // None → nothing
+ * <MatchTags on={user}
+ *   Waiting={() => "loading"}
+ *   Success={(s) => s.value.name}
+ *   Failure={{ HttpError: (e) => e.message }}   // RateLimited bubbles: View<RateLimited>
+ * />
+ * <MatchTags on={selected} Some={(o) => <b>{o.value}</b>} />   // None → nothing
  * ```
  */
-export function MatchTags<
-  T extends Tagged,
-  const H extends TagHandlers<T>,
->(props: {
-  readonly on: T | Atom.Atom<T> | AtomRef.ReadonlyRef<T>
-  readonly children: readonly [H]
-}): Effect.Effect<View<Residual<T, H> | HandlersLiveE<H>>, never, HandlersR<H>>
-export function MatchTags(props: {
-  readonly on: unknown
-  readonly children: readonly [Record<string, unknown>]
-}): Effect.Effect<View<any>, never, any> {
-  const handlers = props.children[0]
+export function MatchTags<T extends Tagged, const H extends TagHandlers<T>>(
+  props: { readonly on: T | Atom.Atom<T> | AtomRef.ReadonlyRef<T> } & H,
+): Effect.Effect<View<Residual<T, H> | HandlersLiveE<H>>, never, HandlersR<H>>
+export function MatchTags(
+  props: { readonly on: unknown } & Record<string, unknown>,
+): Effect.Effect<View<any>, never, any> {
+  const { on, ...handlers } = props
   assertHandlers(handlers)
   const failure = handlers["Failure"]
-  const on = props.on
+  const waiting = handlers["Waiting"]
   // Always a reactive node (even for a plain value): the dispatch result —
   // including an unhandled failure raised as `Effect.failCause` — is a
   // render-time emission, so its E is LIVE (View<E>) uniformly.
@@ -115,7 +122,7 @@ export function MatchTags(props: {
       : isAtomRef(on)
         ? get(bridgeAtom(on))
         : on
-    return dispatch(value as Tagged, handlers, failure)
+    return dispatch(value as Tagged, handlers, failure, waiting)
   })
   return Effect.succeed(source as unknown as View<any>) as any
 }
@@ -124,8 +131,15 @@ const dispatch = (
   value: Tagged,
   handlers: Record<string, unknown>,
   failure: unknown,
+  waiting: unknown,
 ): unknown => {
   const tag = value._tag
+  if (
+    typeof waiting === "function" &&
+    (value as { readonly waiting?: boolean }).waiting === true
+  ) {
+    return waiting(value)
+  }
   if (tag === "Failure") {
     const cause = causeOf(value)
     if (typeof failure === "function") return failure(value)

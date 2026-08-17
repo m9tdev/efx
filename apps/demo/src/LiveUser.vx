@@ -31,21 +31,20 @@ export const LiveUser = Component.make(function* () {
         <button onclick={() => Atom.set(userId, "7")}>Grace (7)</button>
         <button onclick={() => Atom.set(userId, "999")}>Bad id</button>
       </div>
-      <MatchTags on={user}>
-        {{
-          Initial: () => <span class="loading"> loading…</span>,
-          Success: (s) => (
-            <div class="user-card">
-              <strong>{s.value.name}</strong>
-              {s.value.bio && <p class="bio">{s.value.bio}</p>}
-            </div>
-          ),
-          // A function Failure handles everything at the leaf → View<never>.
-          Failure: (f) => (
-            <span class="error">error: {Cause.pretty(f.cause)}</span>
-          ),
-        }}
-      </MatchTags>
+      <MatchTags
+        on={user}
+        Waiting={() => <span class="loading"> loading…</span>}
+        Success={(s) => (
+          <div class="user-card">
+            <strong>{s.value.name}</strong>
+            {s.value.bio && <p class="bio">{s.value.bio}</p>}
+          </div>
+        )}
+        // A function Failure handles everything at the leaf → View<never>.
+        Failure={(f) => (
+          <span class="error">error: {Cause.pretty(f.cause)}</span>
+        )}
+      />
     </div>
   )
 })

@@ -47,11 +47,14 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   the runtime `Scope` folds. Pinned by `testing/for.test.ts` (both sources,
   DOM identity across moves, Equal-dedup = 0 cell recompute, row Scope
   release, channel pins).
-- `MatchTags` — `<MatchTags on={x}>{{ Tag: (v) => …, … }}</MatchTags>`
+- `MatchTags` — `<MatchTags on={x} Tag={(v) => …} … />`
   (`match-tags.ts`): render a tagged value — or an atom/ref of one — by tag,
   with FAILURES BUBBLING BY DEFAULT. Generic over anything `_tag`ged
   (`Option`, `Result`, `AsyncResult`, `Exit`, a `Data.TaggedEnum` state
-  union). Every tag handler is optional (missing → nothing) EXCEPT a
+  union). Arms are PROPS. Every tag arm is optional (missing → nothing);
+  `Waiting` (offered only for waiting-capable values, AsyncResult) wins over
+  the tag arms while `waiting` is true — `builder.onWaiting` semantics,
+  covers the first fetch too. EXCEPT a
   failure-carrying variant (`{ _tag: "Failure"; cause }` or `{ …; failure }`
   — the only two special-cased shapes): unhandled, it escalates as
   `View<E>`; `Failure` takes a function (all handled → `never`) or a TAG MAP
