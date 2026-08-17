@@ -1,7 +1,7 @@
 import { Cause, Data, Effect } from "effect"
-import { AtomRef } from "effect/unstable/reactivity"
-import { Async, asyncRef, Catch, Component } from "@verrex/core"
-import { Http, HttpError, type User } from "./services.ts"
+import { AsyncResult, Atom } from "effect/unstable/reactivity"
+import { atom, Catch, Component } from "@verrex/core"
+import { Http, type User } from "./services.ts"
 
 /**
  * Demo-local second error tag: the per-tag choice of error home needs ≥2 tags
@@ -12,113 +12,117 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
 }> {}
 
 /**
- * `Async` failure homes (step 08) — **the `failure` arm picks where each
- * error lives, per call site and per tag** — now built on **`AsyncHandle`**:
- * each block's data is an `asyncRef` handle (`{ state, refetch }`) created in
- * the component body, OUTSIDE the boundaries, then handed to `Async`. The
- * data outlives the views: an escalated block's fetch loop keeps tracking
- * `userId` and can be refetched from anywhere — the spam button is just
- * `tagUser.refetch()` ×3, no synthetic dep tricks.
+ * Failure homes (step 08) — **the `AsyncResult.builder` chain picks where
+ * each error lives, per call site and per tag** — built on **`atom`**: each
+ * block's data is an `Atom<AsyncResult<User, HttpError | RateLimited>>`
+ * created in the component body, OUTSIDE the boundaries, then rendered via
+ * `Atom.map`. The data outlives the views: an escalated block's atom keeps
+ * tracking `userId` (`get(userId)` in its create fn) and can be refreshed
+ * from anywhere — the spam button is just `Atom.refresh(tagUser)` ×3, no
+ * synthetic dep tricks.
  *
- * **Tag-map block** (top): the thunk can fail with `HttpError | RateLimited`.
- * - `HttpError` is handled **at the leaf**: the 404 banner renders in place;
- *   picking another id refetches and recovers with no boundary involved, and
- *   the handler's `retry` (the handle's own `refetch`) re-runs the same
- *   fetch — the `initial` arm shows while it's in flight.
- * - `RateLimited` is *not* in the map, so it rides the residual —
- *   `View<Exclude<HttpError | RateLimited, { _tag: "HttpError" }>>` =
+ * **Tag block** (top): the fetch can fail with `HttpError | RateLimited`.
+ * - `HttpError` is handled **at the leaf** (`.onErrorTag("HttpError", …)`):
+ *   the 404 banner renders in place; picking another id refetches and
+ *   recovers with no boundary involved, and the banner's `retry` is
+ *   `Atom.refresh(tagUser)` — re-runs the same fetch, the waiting arm shows
+ *   while it's in flight.
+ * - `RateLimited` is *not* handled there, so `.onFailure(Effect.failCause)`
+ *   escalates the residual — the builder narrows `E` like `catchTag`, so the
+ *   emitted Effect is `Effect<never, RateLimited>` and the fold puts it on
  *   `View<RateLimited>` — to the page-level `Catch`, whose own tag map
  *   unwraps it (`e.retryAfterMs` is typed). Deleting that `Catch` is a
  *   compile error naming `RateLimited`, and only `RateLimited`.
  *
- * **Open-form block** (bottom): the SAME pattern with no `failure` arm —
- * every failure rides `View<HttpError | RateLimited>` to its catch-all
- * `Catch`. Deleting that `Catch` is a compile error naming the full union.
+ * **Open block** (bottom): the SAME data with no leaf handling — every
+ * failure rides `View<HttpError | RateLimited>` to its catch-all `Catch`.
+ * Deleting that `Catch` is a compile error naming the full union.
  *
- * **Boundary retries compose `refetch` + `reset`**: over a handle, `reset`
- * alone re-renders the handle's CURRENT state (the data outlives the
- * subtree — a still-failed handle would just re-escalate), so the banners'
- * retry buttons do `() => { handle.refetch(); reset() }`.
+ * **Boundary retries compose `Atom.refresh` + `reset`**: `reset` alone
+ * re-renders the atom's CURRENT state (the data outlives the subtree — a
+ * still-failed atom would just re-escalate), so the banners' retry buttons
+ * run `Atom.refresh(x)` and then `reset()`.
  *
  * **The rate limit is real, and the request log narrates it**: a
  * sliding-window limiter on the fake endpoint allows 2 requests/second
- * ACROSS BOTH HANDLES. Every request logs its budget verdict (`sent (n/2
+ * ACROSS BOTH ATOMS. Every request logs its budget verdict (`sent (n/2
  * this second)` / `→ 429`), its `← 200/404` outcome, and `← interrupted`
- * when a newer refetch took over. Both handles track `userId`, so an id
+ * when a newer refetch took over. Both atoms track `userId`, so an id
  * click always costs two requests — watch the log.
  *
- * Inferred type: `Effect<View, never, Http | Scope>`
+ * Inferred type: `Effect<View, never, Http | AtomRegistry | Scope>`
  */
 export const AsyncEscalate = Component.make(function* () {
-  const userId = AtomRef.make("42")
+  const userId = Atom.make("42")
   const http = yield* Http
 
-  // The request log: newest line first, capped. A plain reactive text ref —
+  // The request log: newest line first, capped. A plain reactive text cell —
   // the whole story of the limiter told by the demo itself.
-  const reqLog = AtomRef.make("")
+  const reqLog = Atom.make("")
   let seq = 0
-  const logLine = (line: string): void => {
-    reqLog.update((cur) => [line, ...cur.split("\n")].slice(0, 6).join("\n"))
-  }
+  const logLine = (line: string) =>
+    Atom.update(reqLog, (cur) =>
+      [line, ...cur.split("\n")].slice(0, 6).join("\n"),
+    )
 
   // Sliding-window rate limiter: at most LIMIT request creations per WINDOW,
-  // shared by both handles (it guards the endpoint, not the consumer). Runs in
-  // fetchUser's synchronous body — request-creation time — so every refetch
-  // (dep change, retry, spam) counts exactly once, interrupted or not.
+  // shared by both atoms (it guards the endpoint, not the consumer). Runs in
+  // fetchUser's synchronous prefix — request-creation time, the atom forks
+  // its fiber synchronously — so every refetch (dep change, retry, spam)
+  // counts exactly once, interrupted or not.
   const WINDOW_MS = 1000
   const LIMIT = 2
   const stamps: Array<number> = []
-  const fetchUser = (
-    id: string,
-  ): Effect.Effect<User, HttpError | RateLimited> => {
+  const fetchUser = Effect.fn(function* (id: string) {
     const now = Date.now()
     while (stamps.length > 0 && now - (stamps[0] ?? now) >= WINDOW_MS)
       stamps.shift()
     if (stamps.length >= LIMIT) {
       const retryAfterMs = WINDOW_MS - (now - (stamps[0] ?? now))
-      logLine(
+      yield* logLine(
         `#${++seq} GET /users/${id} → 429 rate-limited, slot free in ${retryAfterMs}ms`,
       )
-      return Effect.fail(new RateLimited({ retryAfterMs }))
+      return yield* Effect.fail(new RateLimited({ retryAfterMs }))
     }
     stamps.push(now)
     const n = ++seq
-    logLine(
+    yield* logLine(
       `#${n} GET /users/${id} — sent (${stamps.length}/${LIMIT} this second)`,
     )
-    return http.getUser(id).pipe(
-      Effect.tap((user) =>
-        Effect.sync(() => logLine(`#${n} ← 200 ${user.name}`)),
-      ),
-      Effect.tapError((e) =>
-        Effect.sync(() => logLine(`#${n} ← ${e.status} ${e.message}`)),
-      ),
+    return yield* http.getUser(id).pipe(
+      Effect.tap((user: User) => logLine(`#${n} ← 200 ${user.name}`)),
+      Effect.tapError((e) => logLine(`#${n} ← ${e.status} ${e.message}`)),
       Effect.onInterrupt(() =>
-        Effect.sync(() =>
-          logLine(`#${n} ← interrupted (newer request took over)`),
-        ),
+        logLine(`#${n} ← interrupted (newer request took over)`),
       ),
     )
-  }
+  })
 
-  // The handles: one fetch loop per block, both tracking userId, both living
+  // The atoms: one fetch loop per block, both tracking userId, both living
   // in the COMPONENT scope — boundaries below swap views, never the data.
-  const tagUser = yield* asyncRef(() => fetchUser(userId.value))
-  const openUser = yield* asyncRef(() => fetchUser(userId.value))
-  // Spam = three manual refetches of the CURRENT id on the top handle: the
+  const tagUser = yield* atom((get) => fetchUser(get(userId)))
+  const openUser = yield* atom((get) => fetchUser(get(userId)))
+  // Spam = three manual refreshes of the CURRENT id on the top atom: the
   // third (or earlier, right after a click) exceeds 2 req/s → a real 429.
-  const spam = () => {
-    tagUser.refetch()
-    tagUser.refetch()
-    tagUser.refetch()
-  }
+  // A handler's synchronous prefix is batched (three refreshes would coalesce
+  // into one recompute), so yield between them.
+  const spam = () =>
+    Effect.gen(function* () {
+      for (let i = 0; i < 3; i++) {
+        yield* Atom.refresh(tagUser)
+        yield* Effect.yieldNow
+      }
+    })
+  // Boundary retry: refresh the data, THEN re-render the subtree.
+  const retry = (x: Atom.Atom<unknown>, reset: () => void) =>
+    Effect.andThen(Atom.refresh(x), Effect.sync(reset))
 
   return yield* (
     <div class="async-escalate">
       <div class="controls">
-        <button onclick={() => userId.set("42")}>Ada (42)</button>
-        <button onclick={() => userId.set("7")}>Grace (7)</button>
-        <button onclick={() => userId.set("999")}>Bad id</button>
+        <button onclick={() => Atom.set(userId, "42")}>Ada (42)</button>
+        <button onclick={() => Atom.set(userId, "7")}>Grace (7)</button>
+        <button onclick={() => Atom.set(userId, "999")}>Bad id</button>
         <button class="spam" onclick={spam}>
           spam ×3
         </button>
@@ -130,45 +134,44 @@ export const AsyncEscalate = Component.make(function* () {
       <pre class="req-log">{reqLog}</pre>
       {Catch(
         <section class="content">
-          {Async(tagUser, {
-            initial: <span class="loading">loading…</span>,
-            failure: {
-              // Handled at the leaf: the handle stays live, so another id
-              // recovers without any reset; `retry` is tagUser.refetch.
-              HttpError: (e, retry) => (
+          {Atom.map(tagUser, (r) =>
+            AsyncResult.builder(r)
+              .onInitialOrWaiting(() => <span class="loading">loading…</span>)
+              // Handled at the leaf: the atom stays live, so another id
+              // recovers without any reset; retry is Atom.refresh(tagUser).
+              .onErrorTag("HttpError", (e) => (
                 <div class="leaf-fallback">
                   <p class="leaf-msg">
                     handled at the leaf — HttpError {e.status}: {e.message}
                   </p>
-                  <button class="leaf-retry" onclick={retry}>
+                  <button
+                    class="leaf-retry"
+                    onclick={() => Atom.refresh(tagUser)}
+                  >
                     retry
                   </button>
                 </div>
-              ),
-            },
-            success: (user) => (
-              <div class="user-card">
-                <strong>{user.name}</strong>
-                {user.bio && <p class="bio">{user.bio}</p>}
-              </div>
-            ),
-          })}
+              ))
+              .onSuccess((user) => (
+                <div class="user-card">
+                  <strong>{user.name}</strong>
+                  {user.bio && <p class="bio">{user.bio}</p>}
+                </div>
+              ))
+              // The residual — RateLimited — escalates to the nearest Catch.
+              .onFailure(Effect.failCause)
+              .exhaustive(),
+          )}
         </section>,
         {
           // The residual — View<RateLimited> — lands here, unwrapped + typed.
-          // Over a handle, reset alone re-renders the still-failed state:
-          // compose refetch + reset so retry re-fetches AND re-renders.
+          // Over an atom, reset alone re-renders the still-failed state:
+          // compose refresh + reset so retry re-fetches AND re-renders.
           RateLimited: (e, reset) => (
             <div class="boundary-fallback page-fallback">
               <p class="caught">page boundary caught: RateLimited</p>
               <p class="rate-msg">rate limited — retry in {e.retryAfterMs}ms</p>
-              <button
-                class="retry"
-                onclick={() => {
-                  tagUser.refetch()
-                  reset()
-                }}
-              >
+              <button class="retry" onclick={() => retry(tagUser, reset)}>
                 retry
               </button>
             </div>
@@ -176,26 +179,24 @@ export const AsyncEscalate = Component.make(function* () {
         },
       )}
       <p class="contrast-label">
-        same fetch, open form — no failure arm, every failure escalates:
+        same fetch, open form — nothing handled at the leaf, every failure
+        escalates:
       </p>
       {Catch(
         <section class="contrast">
-          {Async(openUser, {
-            initial: <span class="loading">loading…</span>,
-            success: (user) => <strong class="open-ok">{user.name}</strong>,
-          })}
+          {Atom.map(openUser, (r) =>
+            AsyncResult.builder(r)
+              .onInitialOrWaiting(() => <span class="loading">loading…</span>)
+              .onSuccess((user) => <strong class="open-ok">{user.name}</strong>)
+              .onFailure(Effect.failCause)
+              .exhaustive(),
+          )}
         </section>,
         (cause, reset) => (
           <div class="boundary-fallback open-fallback">
             <p class="caught">catch-all caught:</p>
             <pre class="cause">{Cause.pretty(cause)}</pre>
-            <button
-              class="retry"
-              onclick={() => {
-                openUser.refetch()
-                reset()
-              }}
-            >
+            <button class="retry" onclick={() => retry(openUser, reset)}>
               retry
             </button>
           </div>

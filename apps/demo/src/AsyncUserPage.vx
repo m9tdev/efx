@@ -1,50 +1,54 @@
 import { Cause } from "effect"
-import { Async, Component } from "@verrex/core"
+import { AsyncResult, Atom } from "effect/unstable/reactivity"
+import { atom, Component } from "@verrex/core"
 import { Http } from "./services.ts"
 
 /**
  * The async leaf, errors-as-values style.
  *
- * `Async(from, { initial, failure, success })` runs `from` on the mount fiber —
- * so `Http` folds into `R` (a forgotten Layer is still a compile error) and
- * `Scope` is borrowed for cancellation — and renders the three `AsyncResult`
- * states. `from` is a thunk, so it can be extracted (`getUser` below); a ref
- * read inside it auto-refetches. Thunk-first positional so `success`'s `user`
- * infers as `User`. Failure renders via `failure`, handled as a value — never
- * thrown, never folded to `E`.
+ * `atom(effect)` runs the fetch on its own fiber and hands back an
+ * `Atom<AsyncResult<User, HttpError>>` — the state of the Effect. `Http` is
+ * extracted in the component body, so it folds into `R` (a forgotten Layer
+ * is still a compile error); `AtomRegistry | Scope` are the atom's own
+ * contribution (mounted on the component's Scope, so ↻ reset interrupts an
+ * in-flight fetch). `Atom.map` + `AsyncResult.builder` render the three
+ * states as values; `.onFailure` handles the failure at the leaf — never
+ * thrown, never folded to `E` — and `exhaustive()` type-checks that every
+ * case is covered.
  *
- * (The compiler will lower `<Async from initial failure success/>` to this call;
- * here it's written out so the prototype needs no compiler change yet.)
- *
- * Inferred type: `Effect<View, never, Http | Scope>`
+ * Inferred type: `Effect<View, never, Http | AtomRegistry | Scope>`
  */
 export const AsyncUserPage = Component.make(function* (props: {
   userId: string
 }) {
   const http = yield* Http
-  const getUser = () => http.getUser(props.userId)
+  const user = yield* atom(http.getUser(props.userId))
 
   return yield* (
     <article class="async-user-page">
-      {Async(getUser, {
-        initial: <p class="loading"> loading user…</p>,
-        failure: (cause) => <p class="error">error: {Cause.pretty(cause)}</p>,
-        success: (user) => (
-          <div class="user-body">
-            <h1>{user.name}</h1>
-            {user.bio && <p class="bio">{user.bio}</p>}
-            {user.posts.length > 0 ? (
-              <ul class="posts">
-                {user.posts.map((p) => (
-                  <li data-post-id={p.id}>{p.title}</li>
-                ))}
-              </ul>
-            ) : (
-              <p class="empty">No posts yet.</p>
-            )}
-          </div>
-        ),
-      })}
+      {Atom.map(user, (r) =>
+        AsyncResult.builder(r)
+          .onInitialOrWaiting(() => <p class="loading"> loading user…</p>)
+          .onSuccess((user) => (
+            <div class="user-body">
+              <h1>{user.name}</h1>
+              {user.bio && <p class="bio">{user.bio}</p>}
+              {user.posts.length > 0 ? (
+                <ul class="posts">
+                  {user.posts.map((p) => (
+                    <li data-post-id={p.id}>{p.title}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p class="empty">No posts yet.</p>
+              )}
+            </div>
+          ))
+          .onFailure((cause) => (
+            <p class="error">error: {Cause.pretty(cause)}</p>
+          ))
+          .exhaustive(),
+      )}
     </article>
   )
 })

@@ -145,14 +145,14 @@ const App = (
         step: "01",
         title: "Reactive state",
         concept:
-          "Local state is an Effect AtomRef — verrex ships no signal of its own. Drop the ref straight into child position and h() emits a reactive node; on update, only that text node re-renders. No services, so R is never.",
-        type: "Effect<View, never, never>",
+          "Local state is an Effect Atom cell — verrex ships no signal of its own. Writes are Effects (Atom.update), returned straight from the handler. Drop the atom into child position and h() emits a reactive node; on update, only that text node re-renders. No services; the write's AtomRegistry is owned and discharged by mount.",
+        type: "Effect<View, never, AtomRegistry>",
         code: `export const Counter = Component.make(function* () {
-  const count = AtomRef.make(0)
+  const count = Atom.make(0)
 
   return yield* (
     <div>
-      <button onclick={() => count.update(n => n + 1)}>+</button>
+      <button onclick={() => Atom.update(count, n => n + 1)}>+</button>
       <span>clicks: {count}</span>
     </div>
   )
@@ -190,21 +190,26 @@ const App = (
     <section class="tour">
       {copy({
         step: "03",
-        title: "Async boundary (non-blocking)",
+        title: "Async data as an atom (non-blocking)",
         concept:
-          "Same fetch via Async. A pending placeholder shows immediately; failure is handled locally, so E is discharged to never. Http still folds into R from the thunk — a forgotten Layer is still a compile error across the boundary. Scope is Async's own contribution: it borrows the enclosing scope and forks the fetch into it, so the request is cancelled when that scope closes — here the element's own demo scope, so reset interrupts an in-flight fetch. The arms are the three AsyncResult states, handled as values.",
-        type: "Effect<View, never, Http | Scope>",
+          "Same fetch as an atom: atom(effect) runs it on its own fiber and hands back Atom<AsyncResult<User, HttpError>> — the state of the Effect. A pending placeholder shows immediately; the failure is rendered at the leaf (.onFailure), so E is discharged to never. Http still folds into R — a forgotten Layer is still a compile error. AtomRegistry | Scope are the atom's own contribution: it is mounted on the component's Scope, so the fetch is interrupted when that scope closes — here the demo scope, so reset cancels an in-flight fetch. AsyncResult.builder renders the states as values; exhaustive() type-checks that every case is handled.",
+        type: "Effect<View, never, Http | AtomRegistry | Scope>",
         code: `export const AsyncUserPage = Component.make(function* (props: {
   userId: string
 }) {
-  const http = yield* Http   // folds into R; Scope comes from Async
-  const getUser = () => http.getUser(props.userId)  // extractable thunk
+  const http = yield* Http                          // folds into R
+  const user = yield* atom(http.getUser(props.userId)) // Atom<AsyncResult>
 
-  return yield* Async(getUser, {
-    initial: <p>loading…</p>,
-    failure: () => <p>failed</p>,
-    success: user => <h1>{user.name}</h1>,   // user: User (inferred)
-  })
+  return yield* (
+    <article>
+      {Atom.map(user, (r) =>
+        AsyncResult.builder(r)
+          .onInitialOrWaiting(() => <p>loading…</p>)
+          .onSuccess((user) => <h1>{user.name}</h1>) // user: User (inferred)
+          .onFailure(() => <p>failed</p>)            // handled at the leaf
+          .exhaustive())}
+    </article>
+  )
 })`,
         file: "AsyncUserPage.vx",
       })}
@@ -216,25 +221,27 @@ const App = (
         step: "04",
         title: "Async, auto-tracking (deps discovered)",
         concept:
-          "The Async thunk reads userId.value, so the compiler tracks it as a dependency and re-runs the fetch whenever the id changes — interrupting the stale request. Deps are discovered, not declared: no key array. Failure and pending are AsyncResult values handled by the arms. Click the buttons to refetch.",
-        type: "Effect<View, never, Http | Scope>",
+          "The atom's create function reads get(userId), so the id is a tracked dependency and the fetch re-runs whenever it changes — interrupting the stale request. Deps are discovered, not declared: no key array. Pending and failure are AsyncResult values rendered by the builder. Click the buttons (Atom.set) to refetch.",
+        type: "Effect<View, never, Http | AtomRegistry | Scope>",
         code: `export const LiveUser = Component.make(function* () {
-  const userId = AtomRef.make("42")
+  const userId = Atom.make("42")
   const http = yield* Http
+  const user = yield* atom((get) => http.getUser(get(userId)))
 
   return yield* (
     <div>
-      <button onclick={() => userId.set("7")}>Grace</button>
+      <button onclick={() => Atom.set(userId, "7")}>Grace</button>
 
-      {Async(() => http.getUser(userId.value), {
-        initial: <span>loading…</span>,
-        failure: () => <span>not found</span>,
-        success: user => <strong>{user.name}</strong>,
-      })}
+      {Atom.map(user, (r) =>
+        AsyncResult.builder(r)
+          .onInitialOrWaiting(() => <span>loading…</span>)
+          .onSuccess((user) => <strong>{user.name}</strong>)
+          .onFailure(() => <span>not found</span>)
+          .exhaustive())}
     </div>
   )
 })
-// the thunk reads userId.value → refetch when it changes`,
+// the create fn reads get(userId) → refetch when it changes`,
         file: "LiveUser.vx",
       })}
       {demoSlot("live")}
@@ -245,7 +252,7 @@ const App = (
         step: "05",
         title: "Keyed reactive list",
         concept:
-          "A collection where each row is its own AtomRef. `coll.value.map(x => <Row/>)` in JSX compiles to a keyed View.List node; mount reconciles by ref identity on add/remove. Each row subscribes to its own ref, so toggling one doesn't re-render the rest.",
+          "A collection where each row is its own AtomRef — the row model. <For each={coll}> renders a keyed View.List node; mount reconciles by ref identity on add/remove. Each row subscribes to its own ref (get(item) in the row's JSX, or item.prop(\"text\")), so toggling one doesn't re-render the rest.",
         type: "Effect<View, never, never>",
         code: `export const Todos = Component.make(function* () {
   const todos = AtomRef.collection<Todo>([
@@ -255,12 +262,14 @@ const App = (
 
   return yield* (
     <ul>
-      {todos.value.map(item =>
-        <TodoRow item={item} remove={() => todos.remove(item)} />)}
+      <For each={todos}>
+        {(item) => <TodoRow item={item} remove={() => todos.remove(item)} />}
+      </For>
     </ul>
   )
 })
-// → keyed View.List; mount reconciles rows by ref identity`,
+// → keyed View.List; mount reconciles rows by ref identity
+// in TodoRow: <li class={get(item).done ? "done" : ""}>{item.prop("text")}</li>`,
         file: "Todos.vx",
       })}
       {demoSlot("todos")}
@@ -271,7 +280,7 @@ const App = (
         step: "06",
         title: "Per-component lifecycle",
         concept:
-          "Effect.acquireRelease registers a finalizer against the current Scope, so it rides Row's R — that's the inferred type shown. Each row mounts in its own Scope, so the release fires when that row's DOM is removed, not when the whole app unmounts. list() supplies each row's Scope, so a parent that renders the list stays Scope-free. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Reset closes the demo's scope, firing every remaining row's finalizer at once.)",
+          "Effect.acquireRelease registers a finalizer against the current Scope, so it rides Row's R — that's the inferred type shown. Each row mounts in its own Scope, so the release fires when that row's DOM is removed, not when the whole app unmounts. <For> supplies each row's Scope, so a parent that renders the list stays Scope-free. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Reset closes the demo's scope, firing every remaining row's finalizer at once.)",
         type: "Effect<View, never, Scope>",
         code: `const Row = Component.make(function* (props: {
   item: AtomRef<Item>
@@ -284,9 +293,9 @@ const App = (
   return yield* <li>row {id}</li>
 })
 
-// in a parent component — the map compiles to list(), which gives
-// each Row its own Scope, so the parent's own R stays never:
-<ul>{items.value.map(item => <Row item={item} />)}</ul>`,
+// in a parent component — <For> gives each Row its own Scope,
+// so the parent's own R stays never:
+<ul><For each={items}>{(item) => <Row item={item} />}</For></ul>`,
         file: "Lifecycle.vx",
       })}
       {demoSlot("lifecycle")}
@@ -328,35 +337,34 @@ const App = (
         step: "08",
         title: "Failure homes: leaf, page, or split by tag",
         concept:
-          "Each block's data is an AsyncHandle — asyncRef returns { state, refetch }, created in the component body and handed to Async — so the data outlives the views: an escalated block keeps tracking userId, and refetch works from anywhere (the spam button is literally tagUser.refetch() ×3). The failure arm picks where each error lives: HttpError is handled at the leaf (the handler's retry IS the handle's refetch; the loading arm shows in flight), while RateLimited rides the residual — View<Exclude<…>>, literally View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfterMs typed). Deleting that Catch names RateLimited, and only RateLimited. The open form below omits the arm: EVERY failure rides View<HttpError | RateLimited> to a catch-all. Over a handle, a boundary reset re-renders CURRENT state without refetching, so the banners compose () => { handle.refetch(); reset() }. The rate limit is real (2 req/s across both handles) and the request log narrates every request: budget verdict, outcome, and stale runs interrupted by newer refetches. Hit spam ×3 and watch the third request 429 in the log AND ride to the page banner — your id selection survives.",
-        type: "Effect<View, never, Http | Scope>",
-        code: `// fetchUser: (id) => Effect<User, HttpError | RateLimited>
+          "Each block's data is an atom — Atom<AsyncResult<User, HttpError | RateLimited>>, created in the component body and rendered via Atom.map — so the data outlives the views: an escalated block keeps tracking userId (get(userId) in its create fn), and Atom.refresh works from anywhere (the spam button is literally Atom.refresh(tagUser) ×3). The builder picks where each error lives: HttpError is handled at the leaf with onErrorTag (the banner's retry IS Atom.refresh; the waiting arm shows in flight), while .onFailure(Effect.failCause) escalates the residual — the builder narrows E like catchTag, so the emitted Effect is Effect<never, RateLimited> and the fold puts it on View<RateLimited> — to the page boundary's tag map, unwrapped (e.retryAfterMs typed). Deleting that Catch names RateLimited, and only RateLimited. The open form below handles nothing at the leaf: EVERY failure rides View<HttpError | RateLimited> to a catch-all. A boundary reset re-renders the atom's CURRENT state without refetching, so the banners compose Atom.refresh + reset. The rate limit is real (2 req/s across both atoms) and the request log narrates every request: budget verdict, outcome, and stale runs interrupted by newer refetches. Hit spam ×3 and watch the third request 429 in the log AND ride to the page banner — your id selection survives.",
+        type: "Effect<View, never, Http | AtomRegistry | Scope>",
+        code: `// fetchUser: (id) => Effect<User, HttpError | RateLimited, AtomRegistry>
 // — a REAL sliding-window limiter: >2 req/s fails with RateLimited
 
-// the handle: data decoupled from the view, refetchable from anywhere
-const tagUser = yield* asyncRef(() => fetchUser(userId.value))
-<button onclick={() => { tagUser.refetch(); tagUser.refetch(); tagUser.refetch() }}>
-  spam ×3
-</button>
+// the atom: data decoupled from the view, refreshable from anywhere
+const tagUser = yield* atom((get) => fetchUser(get(userId)))
+<button onclick={spam}>spam ×3</button>   // Atom.refresh(tagUser) ×3
 
 {Catch(
   <section>
-    {Async(tagUser, {
-      initial: <span>loading…</span>,
-      failure: {
-        // handled at the leaf — retry IS tagUser.refetch
-        HttpError: (e, retry) =>
-          <p>404 <button onclick={retry}>retry</button></p>,
-      },
-      success: user => <strong>{user.name}</strong>,
-    })}
+    {Atom.map(tagUser, (r) =>
+      AsyncResult.builder(r)
+        .onInitialOrWaiting(() => <span>loading…</span>)
+        // handled at the leaf — retry IS Atom.refresh(tagUser)
+        .onErrorTag("HttpError", (e) =>
+          <p>404 <button onclick={() => Atom.refresh(tagUser)}>retry</button></p>)
+        .onSuccess((user) => <strong>{user.name}</strong>)
+        .onFailure(Effect.failCause)   // the residual escalates
+        .exhaustive())}
   </section>,
   {
     // the residual: View<RateLimited> — unwrapped + typed here.
-    // reset re-renders CURRENT state; compose refetch + reset:
+    // reset re-renders CURRENT state; compose refresh + reset:
     RateLimited: (e, reset) =>
       <p>retry in {e.retryAfterMs}ms{" "}
-        <button onclick={() => { tagUser.refetch(); reset() }}>retry</button></p>,
+        <button onclick={() => Effect.andThen(Atom.refresh(tagUser), Effect.sync(reset))}>
+          retry</button></p>,
   },
 )}`,
         file: "AsyncEscalate.vx",
@@ -370,15 +378,15 @@ const tagUser = yield* asyncRef(() => fetchUser(userId.value))
         title: "Typed event handlers (the live channel)",
         concept:
           "Handlers are where most live errors are born — the element is already rendered when one runs, so a failure has no construction E to ride. An onclick returning Effect<_, E, R> stamps E on the element's LIVE channel (View<E>) and folds R into its requirements. This component never yields Http in its body: the handler alone puts Http in R (drop HttpLive from the root Layer and the build names Http), and load #999's 404 rides View<HttpError> — delete the Catch and mount stops compiling, naming HttpError. reset re-runs construction, so the card comes back fresh.",
-        type: "Effect<View<HttpError>, never, Http>",
+        type: "Effect<View<HttpError>, never, Http | AtomRegistry>",
         code: `const Loader = Component.make(function* () {
-  const loaded = AtomRef.make("nobody yet")
+  const loaded = Atom.make("nobody yet")
 
   // no \`yield* Http\` in the body — the HANDLER carries the channels
   const load = Effect.fn(function* (id: string) {
     const http = yield* Http              // handler R → element R
     const user = yield* http.getUser(id)  // may 404 → HttpError, LIVE
-    loaded.set(user.name)
+    yield* Atom.set(loaded, user.name)    // registry write → R too
   })
 
   return yield* (
@@ -389,8 +397,8 @@ const tagUser = yield* asyncRef(() => fetchUser(userId.value))
     </div>
   )
 })
-// Loader: Effect<View<HttpError>, never, Http> — the failing click
-// must meet a Catch before mount, which names it otherwise:
+// Loader: Effect<View<HttpError>, never, Http | AtomRegistry> — the
+// failing click must meet a Catch before mount, which names it otherwise:
 
 {Catch(<Loader />, {
   HttpError: (e, reset) =>
@@ -401,28 +409,27 @@ const tagUser = yield* asyncRef(() => fetchUser(userId.value))
       {demoSlot("handlers")}
       {copy({
         step: "10",
-        title: "Pending → run → settle (a handler outlives its button)",
+        title: "Pending → run → settle (the state of a function call)",
         concept:
-          "The standard mutation pattern. The handler's first action sets a saving flag. That flag swaps the button for a spinner — so the clicked element is gone before the first yield*. The handler then awaits the Http call and settles. Why it works: a dispatch is owned by the node that built the button (here the saving branch), and that node survives its own re-renders. The fiber completes and the button returns. Tear the owning subtree down instead (↻ reset while saving) and the handler is interrupted — no leak, no stale write. save (fails) shows the corollary: the typed HttpError still reaches the Catch after the re-render.",
-        type: "Effect<View<HttpError>, never, Http>",
+          "The standard mutation pattern, as fn: save(id) runs the body on the fn's own fiber and get(save) is its AsyncResult. Waiting swaps the buttons for a spinner — the clicked element is gone while the 600ms Http call runs — and success settles back to the buttons (saved += 1). The fn is mounted on the component's Scope: tear it down (↻ reset while saving) and the in-flight call is interrupted — no leak, no stale write. save (fails) shows the corollary: the failure is escalated with .onFailure(Effect.failCause), so the typed HttpError rides the live channel to the Catch. The fn's R (Http) rides the component like any atom's.",
+        type: "Effect<View<HttpError>, never, Http | AtomRegistry | Scope>",
         code: `const Saver = Component.make(function* () {
-  const saving = AtomRef.make(false)
-  const saved  = AtomRef.make(0)
+  const saved = Atom.make(0)
 
-  const save = Effect.fn(function* (id: string) {
-    saving.set(true)                     // hides THIS button — the re-render
-    const http = yield* Http             // ← pre-#161: interrupted right here
-    yield* http.getUser(id)              // 600ms; #999 → HttpError, LIVE
-    saved.set(saved.value + 1)
-    saving.set(false)
-  })
+  const save = yield* fn((id: string) => Effect.gen(function* () {
+    const http = yield* Http             // fn R → component R
+    yield* http.getUser(id)              // 600ms; #999 → HttpError
+    yield* Atom.update(saved, n => n + 1)
+  }))
 
   return yield* (
     <div>
       <p>saved: <strong>{saved}</strong></p>
-      {saving.value
-        ? <span>saving…</span>
-        : <button onclick={() => save("42")}>save</button>}
+      {Atom.map(save, (r) =>
+        AsyncResult.builder(r)
+          .onWaiting(() => <span>saving…</span>)   // hides THIS button
+          .onFailure(Effect.failCause)             // HttpError → live → Catch
+          .orElse(() => <button onclick={() => save("42")}>save</button>))}
     </div>
   )
 })`,
@@ -433,24 +440,25 @@ const tagUser = yield* asyncRef(() => fetchUser(userId.value))
         step: "11",
         title: "Streams (push-based, fine-grained)",
         concept:
-          "An Effect Stream drives an analog clock through streamRef, asyncRef's push sibling: the stream is the current time once a second (Stream.tick mapped to new Date()), and streamRef runs it on the mount fiber, handing back a ReadonlyRef<Date> updated per emission — with no initial value, construction simply waits for the first element (tick emits immediately, so that's instant). No manual fork, no unsubscribe bookkeeping: the fiber dies with the component's Scope (↻ reset, watch it freeze — the same mechanism as step 06), and a service-needing stream would fold its R into the component, like every other primitive here. The fine-grained part is derivation: each hand angle is a now.map(…) — a derived ref that recomputes on every tick but notifies only when ITS value changed — and each hand's style is a tracked attr on exactly its own derived ref. A tick re-renders ONE DOM attribute — watch the flash hit only the second hand, exactly on the second, with the other hands joining at the top of the minute.",
-        type: "Effect<View, never, Scope>",
+          "An Effect Stream drives an analog clock through atom(stream) — the same primitive as atom(effect), fed by a stream: the stream is the current time once a second (Stream.tick mapped to new Date()), and the atom runs it on its own fiber, updating an Atom<AsyncResult<Date>> per emission. No manual fork, no unsubscribe bookkeeping: the fiber dies with the component's Scope (↻ reset, watch it freeze — the same mechanism as step 06), and a service-needing stream would fold its R into the component, like every other primitive here. The fine-grained part is derivation: each hand angle is an Atom.map(…) — a derived atom that recomputes on every tick but notifies only when ITS value changed — and each hand's style is a get(...) reader over exactly its own derived atom. A tick re-renders ONE DOM attribute — watch the flash hit only the second hand, exactly on the second, with the other hands joining at the top of the minute.",
+        type: "Effect<View, never, AtomRegistry | Scope>",
         code: `export const Clock = Component.make(function* () {
-  // stream → ReadonlyRef<Date>; the fiber dies with the component's Scope
-  const now = yield* streamRef(
+  // stream → Atom<AsyncResult<Date>>; the fiber dies with the component's Scope
+  const now = yield* atom(
     Stream.tick("1 second").pipe(Stream.map(() => new Date())),
   )
+  const date = Atom.map(now, (r) => AsyncResult.getOrElse(r, () => new Date()))
 
-  // derived refs: recompute every tick, notify only on change
-  const second = now.map((d) => d.getSeconds() * 6)
-  const minute = now.map((d) => d.getMinutes() * 6)
-  const hour = now.map((d) => (d.getHours() % 12) * 30 + d.getMinutes() * 0.5)
+  // derived atoms: recompute every tick, notify only on change
+  const second = Atom.map(date, (d) => d.getSeconds() * 6)
+  const minute = Atom.map(date, (d) => d.getMinutes() * 6)
+  const hour = Atom.map(date, (d) => (d.getHours() % 12) * 30 + d.getMinutes() * 0.5)
 
   return yield* (
     <div class="aclock">
-      <div class="hand hour"   style={\`transform: rotate(\${hour.value}deg)\`} />
-      <div class="hand minute" style={\`transform: rotate(\${minute.value}deg)\`} />
-      <div class="hand second" style={\`transform: rotate(\${second.value}deg)\`} />
+      <div class="hand hour"   style={\`transform: rotate(\${get(hour)}deg)\`} />
+      <div class="hand minute" style={\`transform: rotate(\${get(minute)}deg)\`} />
+      <div class="hand second" style={\`transform: rotate(\${get(second)}deg)\`} />
     </div>
   )
 })`,
@@ -480,7 +488,8 @@ if (!rootEl) throw new Error("missing #root")
 const APP_LAYER = Layer.mergeAll(HttpLive, ThemeLive)
 
 // Everything the demos may require, after HttpLive/ThemeLive: the reactivity
-// registry (discharged by `mount`, which owns it), the two services, and a Scope.
+// registry (every `atom`/`fn`/`Atom.set` needs it; discharged by `mount`, which
+// owns it), the two services, and a Scope.
 type DemoR = AtomRegistry.AtomRegistry | Http | Theme | Scope.Scope
 
 /**
@@ -511,7 +520,8 @@ const setupDemo = <E,>(
     // Build APP_LAYER INTO the demo's scope (not `Effect.provide`, which scopes
     // it to the mount effect — an effect that completes once the DOM attaches).
     // The AtomRegistry needs no layer: `mount` owns one per mount and disposes
-    // it with the same scope close that detaches the DOM.
+    // it with the same scope close that detaches the DOM (every atom is mounted
+    // on this scope, so reset interrupts in-flight fetches and fn calls).
     Effect.runFork(
       Scope.provide(
         Effect.flatMap(Layer.build(APP_LAYER), (ctx) =>

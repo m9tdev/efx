@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { AtomRef } from "effect/unstable/reactivity"
+import { Atom } from "effect/unstable/reactivity"
 import { Catch, Component } from "@verrex/core"
 import { Http } from "./services.ts"
 
@@ -9,17 +9,18 @@ import { Http } from "./services.ts"
 // element is already rendered when a click runs, so `View<E>` is the only
 // honest home) and folds `R` into the element's requirements:
 //
-//   Loader : Effect<View<HttpError>, never, Http>
+//   Loader : Effect<View<HttpError>, never, Http | AtomRegistry>
 //
+// (`AtomRegistry` is the `Atom.set` write's requirement; `mount` discharges it.)
 // Delete the Catch in `TypedHandlers` below and the demo stops compiling,
 // naming HttpError; drop HttpLive from main's APP_LAYER and it names Http.
 const Loader = Component.make(function* () {
-  const loaded = AtomRef.make("nobody yet")
+  const loaded = Atom.make("nobody yet")
 
   const load = Effect.fn(function* (id: string) {
     const http = yield* Http // the handler's R — folds into the element
     const user = yield* http.getUser(id) // may 404 → HttpError, live
-    loaded.set(user.name)
+    yield* Atom.set(loaded, user.name)
   })
 
   return yield* (
@@ -41,8 +42,8 @@ const Loader = Component.make(function* () {
  * The discharged wrapper the demo mounts. The tag-map `Catch` handles the
  * handler-born HttpError (unwrapped, `e.status` typed); `reset` re-runs
  * Loader's construction, so the card comes back fresh ("nobody yet").
- * Inferred: `Effect<View, never, Http | Scope>` — HttpError discharged,
- * the handler's Http still riding R to the root.
+ * Inferred: `Effect<View, never, Http | AtomRegistry | Scope>` — HttpError
+ * discharged, the handler's Http still riding R to the root.
  */
 export const TypedHandlers = Component.make(function* () {
   return yield* Catch(<Loader />, {

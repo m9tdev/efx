@@ -1,22 +1,25 @@
 import { Component } from "@verrex/core"
-import { AtomRef } from "effect/unstable/reactivity"
+import { Atom } from "effect/unstable/reactivity"
 
 /**
- * Small reactive component using `AtomRef` for local state.
+ * Small reactive component using an `Atom` cell for local state.
  *
- * The `count` ref is interpolated directly as a child — `h()` emits a
- * `View.Reactive` IR node when it sees an `AtomRef` in child position.
- * On `count.update`, only the surrounding text node re-renders.
+ * `Atom.make(0)` is the default cell (a `Writable`; writes are `Atom.set` /
+ * `Atom.update` Effects, returned straight from the handler). The `count`
+ * atom is interpolated directly as a child — `h()` emits a `View.Reactive`
+ * IR node when it sees an `Atom` in child position. On update, only the
+ * surrounding text node re-renders.
  *
- * Inferred type: `Effect<View, never, never>`
- *   — `AtomRegistry` is mount's concern, not the component's.
+ * Inferred type: `Effect<View, never, AtomRegistry>`
+ *   — the handler's `Atom.update` needs the registry; `mount` owns one and
+ *   discharges it.
  */
 export const Counter = Component.make(function* () {
-  const count = AtomRef.make(0)
+  const count = Atom.make(0)
 
   return yield* (
     <div class="counter">
-      <button onclick={() => count.update((n) => n + 1)}>+</button>
+      <button onclick={() => Atom.update(count, (n) => n + 1)}>+</button>
       <span class="count"> clicks: {count} </span>
     </div>
   )

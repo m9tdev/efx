@@ -1,47 +1,50 @@
 import { Cause } from "effect"
-import { AtomRef } from "effect/unstable/reactivity"
-import { Async, Component } from "@verrex/core"
+import { AsyncResult, Atom } from "effect/unstable/reactivity"
+import { atom, Component } from "@verrex/core"
 import { Http } from "./services.ts"
 
 /**
- * Live, reactive async data via `Async`, auto-tracking form.
+ * Live, reactive async data: `atom` with a dependency.
  *
- * The user id is local writable state (`AtomRef`); the buttons set it. The
- * `Async` thunk reads `userId.value`, so it becomes a tracked dependency and the
- * fetch re-runs whenever the id changes — interrupting the stale request and
- * rendering initial/success/failure. No explicit trigger to declare. The arms
- * are thunk-first positional, so `success`'s `user` infers as `User`.
+ * The user id is a local `Atom.make` cell; the buttons `Atom.set` it. The
+ * atom's create function reads `get(userId)`, so the id becomes a tracked
+ * dependency and the fetch re-runs whenever it changes — interrupting the
+ * stale request — while `AsyncResult.builder` renders waiting / success /
+ * failure. No explicit trigger to declare.
  *
- * Inferred type: `Effect<View, never, Http | Scope>`
+ * Inferred type: `Effect<View, never, Http | AtomRegistry | Scope>`
  *   — the service is extracted up front (`const http = yield* Http`), so `Http`
- *   folds into the component's `R` and is provided at `mount`; the fetch runs on
- *   the mount fiber, not a baked `Atom.runtime`. Forgetting the `Http` layer is
- *   a compile error, not a runtime failure.
+ *   folds into the component's `R` and is provided at `mount`; the atom runs
+ *   with the component's context, not a baked `Atom.runtime`. Forgetting the
+ *   `Http` layer is a compile error, not a runtime failure.
  */
 export const LiveUser = Component.make(function* () {
-  const userId = AtomRef.make("42")
+  const userId = Atom.make("42")
   const http = yield* Http
+  const user = yield* atom((get) => http.getUser(get(userId)))
 
   return yield* (
     <div class="live-user">
-      <h3>Async data via Async (live, reactive, channels intact)</h3>
+      <h3>Async data via atom (live, reactive, channels intact)</h3>
       <div class="controls">
-        <button onclick={() => userId.set("42")}>Ada (42)</button>
-        <button onclick={() => userId.set("7")}>Grace (7)</button>
-        <button onclick={() => userId.set("999")}>Bad id</button>
+        <button onclick={() => Atom.set(userId, "42")}>Ada (42)</button>
+        <button onclick={() => Atom.set(userId, "7")}>Grace (7)</button>
+        <button onclick={() => Atom.set(userId, "999")}>Bad id</button>
       </div>
-      {Async(() => http.getUser(userId.value), {
-        initial: <span class="loading"> loading…</span>,
-        failure: (cause) => (
-          <span class="error">error: {Cause.pretty(cause)}</span>
-        ),
-        success: (user) => (
-          <div class="user-card">
-            <strong>{user.name}</strong>
-            {user.bio && <p class="bio">{user.bio}</p>}
-          </div>
-        ),
-      })}
+      {Atom.map(user, (r) =>
+        AsyncResult.builder(r)
+          .onInitialOrWaiting(() => <span class="loading"> loading…</span>)
+          .onSuccess((user) => (
+            <div class="user-card">
+              <strong>{user.name}</strong>
+              {user.bio && <p class="bio">{user.bio}</p>}
+            </div>
+          ))
+          .onFailure((cause) => (
+            <span class="error">error: {Cause.pretty(cause)}</span>
+          ))
+          .exhaustive(),
+      )}
     </div>
   )
 })

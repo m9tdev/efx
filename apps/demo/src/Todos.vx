@@ -1,4 +1,4 @@
-import { Component } from "@verrex/core"
+import { Component, For } from "@verrex/core"
 import { AtomRef } from "effect/unstable/reactivity"
 
 interface Todo {
@@ -17,19 +17,18 @@ const TodoRow = Component.make(function* (props: {
   readonly remove: () => void
 }) {
   const ref = props.item
-  const done = ref.map((t) => t.done) // ReadonlyRef<boolean>
   const toggle = () => ref.update((t) => ({ ...t, done: !t.done }))
 
-  // The compiler wraps every JSX expression in `h.track(() => …)` and
-  // rewrites `.value` reads inside to `h.read(…)`, tracking AtomRef
-  // dependencies. Always write `.value` explicitly — the types are exact
-  // (`done.value: boolean`), and the compiler handles the reactive plumbing.
+  // A JSX expression that reads a ref/atom uses `get(...)`: the compiler
+  // lowers the expression to `h.reader((get) => …)`, a derived the renderer
+  // subscribes to. `ref.prop("text")` is a per-field `ReadonlyRef`, dropped
+  // straight in as a child.
   return yield* (
-    <li class={done.value ? "done" : ""}>
+    <li class={get(ref).done ? "done" : ""}>
       <button class="toggle" onclick={toggle}>
-        {done.value ? "✓" : "·"}
+        {get(ref).done ? "✓" : "·"}
       </button>
-      <span class="text">{ref.value.text}</span>
+      <span class="text">{ref.prop("text")}</span>
       <button class="remove" onclick={props.remove}>
         ×
       </button>
@@ -39,9 +38,9 @@ const TodoRow = Component.make(function* (props: {
 
 /**
  * The list. State lives *inside* the component, so recreating it (the demo's
- * reset button) starts from the initial todos again. `todos.value.map(item =>
- * <TodoRow />)` in JSX position is compiled to a keyed `View.List` IR node;
- * `mount` reconciles rows by ref identity on add/remove.
+ * reset button) starts from the initial todos again. `<For each={todos}>`
+ * over an `AtomRef.Collection` renders one row per item ref — a keyed
+ * `View.List` IR node; `mount` reconciles rows by ref identity on add/remove.
  */
 export const Todos = Component.make(function* () {
   // Reactive collection — each item is wrapped in its own AtomRef so per-row
@@ -65,9 +64,9 @@ export const Todos = Component.make(function* () {
         <span class="remaining">{remaining} remaining</span>
       </div>
       <ul>
-        {todos.value.map((item) => (
-          <TodoRow item={item} remove={() => todos.remove(item)} />
-        ))}
+        <For each={todos}>
+          {(item) => <TodoRow item={item} remove={() => todos.remove(item)} />}
+        </For>
       </ul>
     </div>
   )
