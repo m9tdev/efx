@@ -302,3 +302,19 @@ assertEquals<FoldPropsR<{ ontimeupdate: WritableAtomHandler }>, HttpService>()
 type TrackedChild = Eff1 | Atom.Atom<Eff1>
 assertEquals<FoldE<readonly [TrackedChild]>, HttpError>()
 assertEquals<FoldR<readonly [TrackedChild]>, HttpService>()
+
+// 28) Reactive HANDLER SLOTS (docs/reactivity-migration.md step 3): a typed
+//     lowercase `on*` key accepts an `Atom`/`AtomRef` holding the handler, the
+//     event stays contextually typed inside a plain function, and the wrapped
+//     handler's channels fold through `h`. Before this, only `Record<string,
+//     unknown>` keys (`onClick`) took a wrapped handler.
+import type { IntrinsicProps } from "./Html.ts"
+type ClickSlot = NonNullable<IntrinsicProps["onclick"]>
+type _AtomHandlerAssignable =
+  Atom.Atom<(e: MouseEvent) => void> extends ClickSlot ? true : never
+type _RefHandlerAssignable =
+  AtomRef.ReadonlyRef<(e: MouseEvent) => void> extends ClickSlot ? true : never
+assertEquals<_AtomHandlerAssignable, true>()
+assertEquals<_RefHandlerAssignable, true>()
+type _StringNotAssignable = string extends ClickSlot ? true : false
+assertEquals<_StringNotAssignable, false>()
