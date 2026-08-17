@@ -134,34 +134,32 @@ export const AsyncEscalate = Component.make(function* () {
       <pre class="req-log">{reqLog}</pre>
       {Catch(
         <section class="content">
-          {Atom.map(tagUser, (r) =>
-            AsyncResult.builder(r)
-              .onInitialOrWaiting(() => <span class="loading">loading…</span>)
-              // Handled at the leaf: the atom stays live, so another id
-              // recovers without any reset; retry is Atom.refresh(tagUser).
-              .onErrorTag("HttpError", (e) => (
-                <div class="leaf-fallback">
-                  <p class="leaf-msg">
-                    handled at the leaf — HttpError {e.status}: {e.message}
-                  </p>
-                  <button
-                    class="leaf-retry"
-                    onclick={() => Atom.refresh(tagUser)}
-                  >
-                    retry
-                  </button>
-                </div>
-              ))
-              .onSuccess((user) => (
-                <div class="user-card">
-                  <strong>{user.name}</strong>
-                  {user.bio && <p class="bio">{user.bio}</p>}
-                </div>
-              ))
-              // The residual — RateLimited — escalates to the nearest Catch.
-              .onFailure(Effect.failCause)
-              .exhaustive(),
-          )}
+          {AsyncResult.builder(get(tagUser))
+            .onInitialOrWaiting(() => <span class="loading">loading…</span>)
+            // Handled at the leaf: the atom stays live, so another id
+            // recovers without any reset; retry is Atom.refresh(tagUser).
+            .onErrorTag("HttpError", (e) => (
+              <div class="leaf-fallback">
+                <p class="leaf-msg">
+                  handled at the leaf — HttpError {e.status}: {e.message}
+                </p>
+                <button
+                  class="leaf-retry"
+                  onclick={() => Atom.refresh(tagUser)}
+                >
+                  retry
+                </button>
+              </div>
+            ))
+            .onSuccess((user) => (
+              <div class="user-card">
+                <strong>{user.name}</strong>
+                {user.bio && <p class="bio">{user.bio}</p>}
+              </div>
+            ))
+            // The residual — RateLimited — escalates to the nearest Catch.
+            .onFailure(Effect.failCause)
+            .exhaustive()}
         </section>,
         {
           // The residual — View<RateLimited> — lands here, unwrapped + typed.
@@ -184,13 +182,11 @@ export const AsyncEscalate = Component.make(function* () {
       </p>
       {Catch(
         <section class="contrast">
-          {Atom.map(openUser, (r) =>
-            AsyncResult.builder(r)
-              .onInitialOrWaiting(() => <span class="loading">loading…</span>)
-              .onSuccess((user) => <strong class="open-ok">{user.name}</strong>)
-              .onFailure(Effect.failCause)
-              .exhaustive(),
-          )}
+          {AsyncResult.builder(get(openUser))
+            .onInitialOrWaiting(() => <span class="loading">loading…</span>)
+            .onSuccess((user) => <strong class="open-ok">{user.name}</strong>)
+            .onFailure(Effect.failCause)
+            .exhaustive()}
         </section>,
         (cause, reset) => (
           <div class="boundary-fallback open-fallback">

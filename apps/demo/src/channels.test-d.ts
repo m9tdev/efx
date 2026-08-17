@@ -514,26 +514,31 @@ const Extra = UserPage({ userId: "42", nope: true })
 void Extra
 
 // ─── Container parity: ChildE/ChildR must peel exactly what coerceAsync
-//     peels at runtime (Fold.ts ↔ coerce.ts). A shape folded here but not
-//     peeled there makes the channel claim a *lie* (the type promises an E/R
-//     the runtime would `String(v)` away). These pin the inner Effect's E/R
-//     folding through each peelable container. `Stream` is in NEITHER — it is
-//     deliberately not peeled, so it contributes no channels.
+//     peels at runtime (Fold.ts ↔ coerce.ts). Effect's VALUE containers
+//     (Option / Result / Chunk / AsyncResult / Stream) are peeled by neither —
+//     they are values the author maps explicitly — so they contribute NO
+//     channels here (an inner Effect's E/R must not leak through them, or the
+//     type would promise a channel the runtime `String(v)`s away). Arrays are
+//     structure and DO peel.
 
 declare const optEff: Option.Option<Effect.Effect<View, HttpError, Http>>
 const WithOption = h("div", {}, optEff)
-assertEquals<typeof WithOption, Effect.Effect<View, HttpError, Http>>()
+assertEquals<typeof WithOption, Effect.Effect<View, never, never>>()
 
 declare const resEff: Result.Result<
   Effect.Effect<View, HttpError, Http>,
   unknown
 >
 const WithResult = h("div", {}, resEff)
-assertEquals<typeof WithResult, Effect.Effect<View, HttpError, Http>>()
+assertEquals<typeof WithResult, Effect.Effect<View, never, never>>()
 
 declare const chunkEff: Chunk.Chunk<Effect.Effect<View, HttpError, Http>>
 const WithChunk = h("div", {}, chunkEff)
-assertEquals<typeof WithChunk, Effect.Effect<View, HttpError, Http>>()
+assertEquals<typeof WithChunk, Effect.Effect<View, never, never>>()
+
+declare const arrEff: ReadonlyArray<Effect.Effect<View, HttpError, Http>>
+const WithArray = h("div", {}, arrEff)
+assertEquals<typeof WithArray, Effect.Effect<View, HttpError, Http>>()
 
 // ─── The error-boundary thesis: discharge-or-it-won't-compile ───────────
 //     `Catch` discharges a subtree's errors; `mount` requires a fully

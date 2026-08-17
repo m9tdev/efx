@@ -29,21 +29,19 @@ const Saver = Component.make(function* () {
       <p>
         saved: <strong class="saved">{saved}</strong>
       </p>
-      {Atom.map(save, (r) =>
-        AsyncResult.builder(r)
-          .onWaiting(() => <span class="saving">saving…</span>)
-          .onFailure(Effect.failCause) // HttpError → live channel → Catch
-          .orElse(() => (
-            <span>
-              <button class="save" onclick={() => save("42")}>
-                save
-              </button>{" "}
-              <button class="save-fail" onclick={() => save("999")}>
-                save (fails)
-              </button>
-            </span>
-          )),
-      )}
+      {AsyncResult.builder(get(save))
+        .onWaiting(() => <span class="saving">saving…</span>)
+        .onFailure(Effect.failCause) // HttpError → live channel → Catch
+        .orElse(() => (
+          <span>
+            <button class="save" onclick={() => save("42")}>
+              save
+            </button>{" "}
+            <button class="save-fail" onclick={() => save("999")}>
+              save (fails)
+            </button>
+          </span>
+        ))}
     </div>
   )
 })

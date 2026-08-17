@@ -1,4 +1,4 @@
-import type { Chunk, Effect, Option, Result, Scope } from "effect"
+import type { Effect, Scope } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { View } from "../View.ts"
 
@@ -11,7 +11,7 @@ import type { View } from "../View.ts"
  * via `infer` inside conditional types, which TS does support.
  *
  * This set must stay in lockstep with the containers `coerceAsync` peels in
- * `../coerce.ts` (Effect, Option, Result, Chunk, Atom, AtomRef, array). A
+ * `../coerce.ts` (Effect, Atom, AtomRef, array). A
  * shape listed here but not peeled there makes the channel fold *lie* — the
  * type claims an E/R the runtime never produces (it would `String(v)` the
  * value instead). `apps/demo/src/channels.test-d.ts` pins this parity.
@@ -24,9 +24,6 @@ export type Child =
   | boolean
   | null
   | undefined
-  | Option.Option<unknown>
-  | Result.Result<unknown, any>
-  | Chunk.Chunk<unknown>
   | Atom.Atom<unknown>
   | AtomRef.ReadonlyRef<unknown>
   | ReadonlyArray<unknown>
@@ -54,23 +51,17 @@ export type ChildE<C> =
     ? E
     : C extends View<any>
       ? never
-      : C extends Option.Option<infer T>
-        ? ChildE<T>
-        : C extends Result.Result<infer A, any>
-          ? ChildE<A>
-          : C extends Chunk.Chunk<infer T>
+      : // PHASE SWITCH: whatever an Atom/AtomRef EMITS runs after
+        // construction (mount re-coerces each emission — an emitted
+        // Effect is executed at render time via `coerceSync`), so none of
+        // it is a construction error. Its channels move to `ChildLiveE`.
+        C extends Atom.Atom<any>
+        ? never
+        : C extends AtomRef.ReadonlyRef<any>
+          ? never
+          : C extends ReadonlyArray<infer T>
             ? ChildE<T>
-            : // PHASE SWITCH: whatever an Atom/AtomRef EMITS runs after
-              // construction (mount re-coerces each emission — an emitted
-              // Effect is executed at render time via `coerceSync`), so none of
-              // it is a construction error. Its channels move to `ChildLiveE`.
-              C extends Atom.Atom<any>
-              ? never
-              : C extends AtomRef.ReadonlyRef<any>
-                ? never
-                : C extends ReadonlyArray<infer T>
-                  ? ChildE<T>
-                  : never
+            : never
 
 /**
  * Walk a single child's type, extracting the union of every **live** `E` — the
@@ -90,24 +81,18 @@ export type ChildLiveE<C> =
       ? [unknown] extends [VE]
         ? never
         : VE
-      : C extends Option.Option<infer T>
-        ? ChildLiveE<T>
-        : C extends Result.Result<infer A, any>
-          ? ChildLiveE<A>
-          : C extends Chunk.Chunk<infer T>
+      : // PHASE SWITCH (see ChildE): an emitted Effect's OWN `E` is live
+        // here — `Atom<Effect<View, E>>` → `View<E>`. This is how
+        // `.onFailure(Effect.failCause)` inside `Atom.map(result, …)`
+        // escalates a typed failure to the nearest `Catch`
+        // (docs/reactivity-migration.md "Errors").
+        C extends Atom.Atom<infer T>
+        ? ChildE<T> | ChildLiveE<T>
+        : C extends AtomRef.ReadonlyRef<infer T>
+          ? ChildE<T> | ChildLiveE<T>
+          : C extends ReadonlyArray<infer T>
             ? ChildLiveE<T>
-            : // PHASE SWITCH (see ChildE): an emitted Effect's OWN `E` is live
-              // here — `Atom<Effect<View, E>>` → `View<E>`. This is how
-              // `.onFailure(Effect.failCause)` inside `Atom.map(result, …)`
-              // escalates a typed failure to the nearest `Catch`
-              // (docs/reactivity-migration.md "Errors").
-              C extends Atom.Atom<infer T>
-              ? ChildE<T> | ChildLiveE<T>
-              : C extends AtomRef.ReadonlyRef<infer T>
-                ? ChildE<T> | ChildLiveE<T>
-                : C extends ReadonlyArray<infer T>
-                  ? ChildLiveE<T>
-                  : never
+            : never
 
 /**
  * Walk a single child's type, extracting the union of every `R` channel.
@@ -120,19 +105,13 @@ export type ChildR<C> =
     ? R
     : C extends View<any>
       ? never
-      : C extends Option.Option<infer T>
+      : C extends Atom.Atom<infer T>
         ? ChildR<T>
-        : C extends Result.Result<infer A, any>
-          ? ChildR<A>
-          : C extends Chunk.Chunk<infer T>
+        : C extends AtomRef.ReadonlyRef<infer T>
+          ? ChildR<T>
+          : C extends ReadonlyArray<infer T>
             ? ChildR<T>
-            : C extends Atom.Atom<infer T>
-              ? ChildR<T>
-              : C extends AtomRef.ReadonlyRef<infer T>
-                ? ChildR<T>
-                : C extends ReadonlyArray<infer T>
-                  ? ChildR<T>
-                  : never
+            : never
 
 /** Fold a tuple of children to the union of their construction `E` channels. */
 export type FoldE<Cs extends readonly unknown[]> = ChildE<Cs[number]>

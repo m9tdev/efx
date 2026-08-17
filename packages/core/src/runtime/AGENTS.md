@@ -289,7 +289,7 @@ a variant is a coordinated edit across two files:
 
 Channels are unaffected — they're folded at the `h()` call site
 via `FoldE`/`FoldR`, which operate on input child _shapes_
-(Effect, Option, Atom, …), not on the IR. (Recall: there is no
+(Effect, Atom, array, …), not on the IR. (Recall: there is no
 "JSX call site" in the emitted code — the compiler turns every
 `<div>...</div>` into a plain `h(...)` call before tsc sees it.
 See root [AGENTS.md](../../../../AGENTS.md) on JSX-as-syntax-only.) By
@@ -608,8 +608,14 @@ is routed to the `sink` (passed as `coerceSync`'s third arg) and renders
 `Empty` — see "Runtime error routing" above. `coerceSync` is
 deliberately asymmetric vs. `coerceAsync`: at this point in the
 render path the Atom/AtomRef has already been peeled, so it does
-NOT recurse into Option/Result/Chunk/Atom/AtomRef. Don't "fix" that
-— the unwrap contract belongs upstream.
+NOT recurse into Atom/AtomRef. Don't "fix" that — the unwrap contract
+belongs upstream. And NEITHER path peels Effect's value containers
+(Option / Result / Chunk / AsyncResult): those are values the author maps
+explicitly (`Option.getOrNull`, `Result.match`, `AsyncResult.builder`) —
+an implicit peel hid a channel (a `Result.Failure` rendered nothing, error
+dropped) and read as magic. Arrays DO peel: they are structure (how a JSX
+expression yields several children), not a value container. Pinned in
+`coerce.test.ts` and the demo's `channels.test-d.ts` container-parity block.
 
 **Reactive ordering: build NEW → swap DOM → close OLD.** Per emit,
 fork a fresh child scope from the Reactive's scope, build the new
@@ -691,10 +697,10 @@ typically) and keep it alive for the lifetime of the rendered UI.
 - Don't normalize Reactive sources eagerly. `coerceSync` is
   synchronous on purpose; subscribing first then rendering would
   flash a comment in the DOM.
-- Don't make `coerceSync` peel Option/Result/Chunk/Atom/AtomRef.
-  Those containers are unwrapped upstream of the Reactive render
-  path; adding peeling here would either silently re-introduce
-  async dependencies into a sync hot path or grow dead code.
+- Don't peel Effect's value containers (Option/Result/Chunk/AsyncResult)
+  in either coerce path, and don't make `coerceSync` peel Atom/AtomRef.
+  Values are mapped by the author; nested reactive sources are unwrapped
+  upstream of the Reactive render path.
 - Don't return `DocumentFragment` from `buildDom`. Stable replacement
   needs a real parent node.
 - Don't return `{ node, cleanup }` (or any wrapper around `Node`)

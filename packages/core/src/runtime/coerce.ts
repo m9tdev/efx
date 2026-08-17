@@ -1,4 +1,4 @@
-import { Cause, Chunk, Effect, Exit, Option, Result, Scope } from "effect"
+import { Cause, Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { ChildE, ChildR } from "./types/Fold.ts"
 import { isView, View } from "./View.ts"
@@ -80,19 +80,13 @@ export function coerceAsync(v: unknown): Effect.Effect<View, any, any> {
   if (Effect.isEffect(v)) {
     return Effect.flatMap(v as Effect.Effect<unknown, any, any>, coerceAsync)
   }
-  if (Option.isOption(v)) {
-    return Option.match(v, {
-      onNone: () => Effect.succeed(Empty),
-      onSome: coerceAsync,
-    })
-  }
-  if (Result.isResult(v)) {
-    return Result.match(v, {
-      onFailure: () => Effect.succeed(Empty),
-      onSuccess: coerceAsync,
-    })
-  }
-  if (Chunk.isChunk(v)) return coerceChildren(Chunk.toReadonlyArray(v))
+  // Arrays are STRUCTURE (how a JSX expression yields several children —
+  // `{items.map(…)}`, a compiled `<>…</>`, spread children), so they peel.
+  // Effect's value containers (Option / Result / Chunk / AsyncResult) do NOT:
+  // they are values the author maps explicitly (`Option.getOrNull`,
+  // `Result.match`, `Chunk.toReadonlyArray`, `AsyncResult.builder`) — an
+  // implicit peel hid a channel (a `Result.Failure` used to render nothing,
+  // error dropped) and read as magic. Anything unrecognised is stringified.
   if (Array.isArray(v)) return coerceChildren(v)
   // Reactive nodes capture the construction context so their re-renders run
   // on it — a mid-tree Effect.provide reaches every rebuild, not just the
@@ -144,10 +138,10 @@ export type SyncRunner = <A, E>(
  * what lets a dynamically-built subtree resolve construction services and
  * capture real contexts for its handlers.
  *
- * **Asymmetric vs. coerceAsync**: this path does NOT peel
- * Option/Result/Chunk/Atom/AtomRef. At render-time those containers have
- * already been unwrapped by the caller; if one shows up here it's coerced
- * via `String()` rather than silently expanded.
+ * **Asymmetric vs. coerceAsync**: this path does NOT peel Atom/AtomRef (a
+ * nested reactive source at render time is coerced via `String()` rather
+ * than silently expanded). Neither path peels Effect's value containers
+ * (Option/Result/Chunk/AsyncResult) — see coerceAsync.
  *
  * A failing render Effect is **routed to `sink`** and renders nothing (an
  * `Empty` placeholder) — not stringified into the DOM as `[effect failed: …]`.

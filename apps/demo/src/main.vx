@@ -202,12 +202,11 @@ const App = (
 
   return yield* (
     <article>
-      {Atom.map(user, (r) =>
-        AsyncResult.builder(r)
+      {AsyncResult.builder(get(user))
           .onInitialOrWaiting(() => <p>loading…</p>)
           .onSuccess((user) => <h1>{user.name}</h1>) // user: User (inferred)
           .onFailure(() => <p>failed</p>)            // handled at the leaf
-          .exhaustive())}
+          .exhaustive()}
     </article>
   )
 })`,
@@ -232,12 +231,11 @@ const App = (
     <div>
       <button onclick={() => Atom.set(userId, "7")}>Grace</button>
 
-      {Atom.map(user, (r) =>
-        AsyncResult.builder(r)
+      {AsyncResult.builder(get(user))
           .onInitialOrWaiting(() => <span>loading…</span>)
           .onSuccess((user) => <strong>{user.name}</strong>)
           .onFailure(() => <span>not found</span>)
-          .exhaustive())}
+          .exhaustive()}
     </div>
   )
 })
@@ -348,15 +346,14 @@ const tagUser = yield* atom((get) => fetchUser(get(userId)))
 
 {Catch(
   <section>
-    {Atom.map(tagUser, (r) =>
-      AsyncResult.builder(r)
+    {AsyncResult.builder(get(tagUser))
         .onInitialOrWaiting(() => <span>loading…</span>)
         // handled at the leaf — retry IS Atom.refresh(tagUser)
         .onErrorTag("HttpError", (e) =>
           <p>404 <button onclick={() => Atom.refresh(tagUser)}>retry</button></p>)
         .onSuccess((user) => <strong>{user.name}</strong>)
         .onFailure(Effect.failCause)   // the residual escalates
-        .exhaustive())}
+        .exhaustive()}
   </section>,
   {
     // the residual: View<RateLimited> — unwrapped + typed here.
@@ -425,11 +422,10 @@ const tagUser = yield* atom((get) => fetchUser(get(userId)))
   return yield* (
     <div>
       <p>saved: <strong>{saved}</strong></p>
-      {Atom.map(save, (r) =>
-        AsyncResult.builder(r)
+      {AsyncResult.builder(get(save))
           .onWaiting(() => <span>saving…</span>)   // hides THIS button
           .onFailure(Effect.failCause)             // HttpError → live → Catch
-          .orElse(() => <button onclick={() => save("42")}>save</button>))}
+          .orElse(() => <button onclick={() => save("42")}>save</button>)}
     </div>
   )
 })`,

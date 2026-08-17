@@ -31,20 +31,18 @@ export const LiveUser = Component.make(function* () {
         <button onclick={() => Atom.set(userId, "7")}>Grace (7)</button>
         <button onclick={() => Atom.set(userId, "999")}>Bad id</button>
       </div>
-      {Atom.map(user, (r) =>
-        AsyncResult.builder(r)
-          .onInitialOrWaiting(() => <span class="loading"> loading…</span>)
-          .onSuccess((user) => (
-            <div class="user-card">
-              <strong>{user.name}</strong>
-              {user.bio && <p class="bio">{user.bio}</p>}
-            </div>
-          ))
-          .onFailure((cause) => (
-            <span class="error">error: {Cause.pretty(cause)}</span>
-          ))
-          .exhaustive(),
-      )}
+      {AsyncResult.builder(get(user))
+        .onInitialOrWaiting(() => <span class="loading"> loading…</span>)
+        .onSuccess((user) => (
+          <div class="user-card">
+            <strong>{user.name}</strong>
+            {user.bio && <p class="bio">{user.bio}</p>}
+          </div>
+        ))
+        .onFailure((cause) => (
+          <span class="error">error: {Cause.pretty(cause)}</span>
+        ))
+        .exhaustive()}
     </div>
   )
 })

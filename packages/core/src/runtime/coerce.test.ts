@@ -64,7 +64,7 @@ describe("coerceAsync — already-built View pass-through", () => {
   )
 })
 
-describe("coerceAsync — container peeling", () => {
+describe("coerceAsync — Effect / Array peeling (Effect's value containers are NOT peeled)", () => {
   it.effect("Effect<string> → coerce the inner value", () =>
     Effect.gen(function* () {
       const view = yield* coerceAsync(Effect.succeed("from effect"))
@@ -79,32 +79,18 @@ describe("coerceAsync — container peeling", () => {
     }),
   )
 
-  it.effect("Option.none → Empty", () =>
-    Effect.gen(function* () {
-      const view = yield* coerceAsync(Option.none())
-      expect(view).toEqual(View.Empty())
-    }),
-  )
-
-  it.effect("Option.some(x) → coerce x", () =>
-    Effect.gen(function* () {
-      const view = yield* coerceAsync(Option.some("inner"))
-      expect(view).toEqual(View.Text({ value: "inner" }))
-    }),
-  )
-
-  it.effect("Result failure → Empty", () =>
-    Effect.gen(function* () {
-      const view = yield* coerceAsync(Result.fail("nope"))
-      expect(view).toEqual(View.Empty())
-    }),
-  )
-
-  it.effect("Result success → coerce inner", () =>
-    Effect.gen(function* () {
-      const view = yield* coerceAsync(Result.succeed("ok"))
-      expect(view).toEqual(View.Text({ value: "ok" }))
-    }),
+  it.effect(
+    "Option / Result / Chunk are values, not children: String() fallback",
+    () =>
+      Effect.gen(function* () {
+        // Deliberate: the author maps these explicitly (`Option.getOrNull`,
+        // `Result.match`, `Chunk.toReadonlyArray`). An implicit peel hid a
+        // channel — a `Result.Failure` used to render nothing, error dropped.
+        const o = yield* coerceAsync(Option.some("x"))
+        const r = yield* coerceAsync(Result.succeed("y"))
+        const c = yield* coerceAsync(Chunk.make("z"))
+        for (const v of [o, r, c]) expect(v._tag).toBe("Text")
+      }),
   )
 
   it.effect("Array → Fragment of coerced children", () =>
@@ -117,17 +103,6 @@ describe("coerceAsync — container peeling", () => {
             View.Text({ value: "1" }),
             View.Empty(),
           ],
-        }),
-      )
-    }),
-  )
-
-  it.effect("Chunk → Fragment of coerced children", () =>
-    Effect.gen(function* () {
-      const view = yield* coerceAsync(Chunk.fromIterable(["a", "b"]))
-      expect(view).toEqual(
-        View.Fragment({
-          children: [View.Text({ value: "a" }), View.Text({ value: "b" })],
         }),
       )
     }),
