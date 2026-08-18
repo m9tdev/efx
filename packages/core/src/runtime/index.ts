@@ -2,7 +2,6 @@ import { Cause, Effect, Exit, Option, Queue, Scope, type Types } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
 import { coerceAsync, type ErrorSink } from "./coerce.ts"
 import type {
-  ArmR,
   ChildE,
   ChildLiveE,
   ChildR,
@@ -19,8 +18,8 @@ export {
   On,
   type Residual as OnResidual,
   type TagHandlers as OnArms,
+  type ArmKeys as OnArmKeys,
 } from "./on.ts"
-import type { HandledKeys } from "./on.ts"
 export { atom, fn, type Fn, type AtomOptions, type FnOptions } from "./atom.ts"
 export { mount, RootSink } from "./mount.ts"
 export { type Props, View } from "./View.ts"
@@ -392,49 +391,48 @@ const makeBoundary = <R>(
  * declares keys the value doesn't carry can still over-discharge — invisible
  * at runtime (erasure), documented limitation (#91).
  */
-// One mapped type (not `tag map & { Failure }`): with a GENERIC `E`, TS
-// can't rule "Failure" out of `Tags<E>`, so an intersection would give the
-// `Failure` prop a union parameter type. A single map resolves the key.
-export type CatchArms<E> = {
-  readonly [K in Types.Tags<E> | "Failure"]?: K extends "Failure"
-    ? (
-        cause: Cause.Cause<E>,
-        reset: () => void,
-      ) => View | Effect.Effect<View, any, any>
-    : (
-        error: Extract<E, { readonly _tag: K }>,
-        reset: () => void,
-      ) => View | Effect.Effect<View, any, any>
+// One mapped type keyed by the arms ACTUALLY PRESENT (`K`, inferred from
+// the props' keys), not by every tag of `E`: that is what lets `Failure` see
+// only what no tag arm took — `Cause<Exclude<E, { _tag: K }>>`, like
+// `catchTag` then `catchCause`. `NoInfer` keeps `Failure`'s parameter from
+// feeding `K`; "children" is in `K`'s key space only so the props' own key
+// doesn't push inference to the fallback constraint (`Cs` still infers from
+// the plain `children` member); a single map (not `tags & { Failure }`) keeps
+// a GENERIC `E` resolvable (TS can't rule "Failure" out of `Tags<E>` there).
+export type CatchArms<E, K extends string = Types.Tags<E> | "Failure"> = {
+  readonly [P in K]: P extends "children"
+    ? unknown
+    : P extends "Failure"
+      ? (
+          cause: Cause.Cause<
+            Exclude<E, { readonly _tag: Exclude<NoInfer<K>, "Failure"> }>
+          >,
+          reset: () => void,
+        ) => View | Effect.Effect<View, any, any>
+      : (
+          error: Extract<E, { readonly _tag: P }>,
+          reset: () => void,
+        ) => View | Effect.Effect<View, any, any>
 }
-type CatchResidual<E, H> = H extends {
-  readonly Failure: (...args: any) => unknown
-}
+type CatchResidual<E, K extends string> = "Failure" extends K
   ? never
-  : Types.ExcludeTag<E, HandledKeys<H> & string>
-type CatchArmsR<H> = FoldArmsR<Omit<H, "children">>
+  : Types.ExcludeTag<E, K>
 
-// Catch-all only, stated first: it also resolves for a GENERIC child `E`
-// (`<E,>(make: () => Effect<View, E, R>) => <Catch Failure={…}>{make()}</Catch>`),
-// where the tag-mapped overload below can't relate the props to `CatchArms<E>`.
 export function Catch<
   const Cs extends ReadonlyArray<unknown>,
-  H extends (
-    cause: Cause.Cause<FoldE<Cs> | FoldLiveE<Cs>>,
-    reset: () => void,
-  ) => View | Effect.Effect<View, any, any>,
->(props: {
-  readonly children: Cs
-  readonly Failure: H
-}): Effect.Effect<View<never>, never, FoldR<Cs> | Scope.Scope | ArmR<H>>
-export function Catch<
-  const Cs extends ReadonlyArray<unknown>,
-  const H extends CatchArms<FoldE<Cs> | FoldLiveE<Cs>>,
+  K extends Types.Tags<FoldE<Cs> | FoldLiveE<Cs>> | "Failure" | "children" =
+    never,
+  const H extends CatchArms<FoldE<Cs> | FoldLiveE<Cs>, K> = CatchArms<
+    FoldE<Cs> | FoldLiveE<Cs>,
+    K
+  >,
 >(
-  props: { readonly children: Cs } & H,
+  props: { readonly children: Cs } & CatchArms<FoldE<Cs> | FoldLiveE<Cs>, K> &
+    H,
 ): Effect.Effect<
-  View<CatchResidual<FoldLiveE<Cs>, H>>,
-  CatchResidual<FoldE<Cs>, H>,
-  FoldR<Cs> | Scope.Scope | CatchArmsR<H>
+  View<CatchResidual<FoldLiveE<Cs>, K>>,
+  CatchResidual<FoldE<Cs>, K>,
+  FoldR<Cs> | Scope.Scope | FoldArmsR<Omit<H, "children">>
 >
 export function Catch(
   props: { readonly children: ReadonlyArray<unknown> } & Record<

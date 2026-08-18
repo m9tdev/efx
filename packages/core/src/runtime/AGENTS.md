@@ -59,8 +59,8 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   — the only two special-cased shapes): unhandled, it escalates as
   `View<E>`; the ERROR'S tags are arms too (`HttpError={(e, f) => …}` —
   leaf-handled, residual `Exclude<E, {_tag}>` rides to the nearest `Catch`;
-  `HandledKeys` counts only keys that carry a handler), and `Failure` takes
-  the whole variant (all handled → `never`). Dispatch: error-tag arm first,
+  keyed by `K` = the arm keys present), and `Failure` takes the variant with
+  its error NARROWED by the error-tag arms beside it (all handled → `never`). Dispatch: error-tag arm first,
   then `Failure`, else escalate. Interrupt-only causes are dropped. Handler
   returns fold (E live, R). Runtime: one `Atom.readable` (reads `on`,
   bridging a ref) whose emission is the handler result or an
@@ -375,22 +375,27 @@ is the children, the handling is the arm props — one prop per error `_tag`, pl
 
 - **tag arms** — `<Catch Tag={(error, reset) => …}>…</Catch>`. Handle a subset of
   the children's error tags (each handler gets the unwrapped tagged error) and
-  **narrow** both channels by `Exclude<E, { _tag }>` (`CatchResidual`, over the
-  keys that actually carry a handler). Keys are constrained to the children's
-  actual error tags — a typo'd key is a compile error _when it is the only key_;
-  mixed with ≥1 valid key it is silently accepted (the exactness guard is
-  omitted to preserve per-handler `error` inference). That is a safe
-  over-approximation, not a soundness hole: a bad key just yields a dead handler,
-  and the residual keeps its tag in `E`, so no error is ever wrongly discharged —
-  an ergonomic gap, not a soundness one. A leftover tag must still be discharged
-  before `mount`.
+  **narrow** both channels by `Exclude<E, { _tag }>` (`CatchResidual<E, K>`,
+  over `K` = the arm keys present). Keys are constrained to the children's
+  actual error tags — an unknown key is a compile error. A leftover tag must
+  still be discharged before `mount`.
 - **catch-all** — `<Catch Failure={(cause, reset) => fallback}>…</Catch>`. Gets
   the _precise_ `Cause<EC | EV>` (both the construction `EC` and live `EV` of the
-  children — not `Cause<unknown>`) of whatever no tag arm took, and discharges
-  everything to `Effect<View<never>, never, R | Scope>`. `CatchArms` is ONE mapped
-  type over `Tags<E> | "Failure"` (not an intersection), and a catch-all-only
-  overload comes first, so a GENERIC child `E` (the demo's `setupDemo`) still
-  resolves.
+  children — not `Cause<unknown>`), **narrowed by the tag arms beside it** —
+  `catchTag` then `catchCause`: `<Catch HttpError={…} Failure={(cause) => …}>`
+  gives `Cause<Exclude<E, { _tag: "HttpError" }>>` — and discharges everything
+  to `Effect<View<never>, never, R | Scope>`.
+
+  How the types do it (`CatchArms<E, K>`): ONE mapped type over `K`, the arm
+  keys ACTUALLY PRESENT (inferred from the props' keys, default `never`), not
+  over every tag of `E` — that is what lets `Failure`'s parameter mention the
+  sibling arms. `NoInfer<K>` inside `Failure`'s parameter keeps it from feeding
+  `K`; `"children"` sits in `K`'s key space (mapped to `unknown`) so the props'
+  own key doesn't push inference to the fallback constraint; a separate `const H`
+  captures the literal arm types for `FoldArmsR`. One mapped type (not
+  `tags & { Failure }`) is also what keeps a GENERIC child `E` (the demo's
+  `setupDemo<E>`) resolvable. `On` uses the same scheme (`TagHandlers<T, K>`,
+  `Residual<T, K>`, `NarrowFailure` for the variant's `cause`/`failure`).
 
 Dispatch order: tag arm first, then `Failure`, else escalate. `assertHandlerMap`
 runs on the props object itself (a rest-spread would hide its prototype).

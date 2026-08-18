@@ -36,54 +36,70 @@ type FailureError<T> =
         ? E
         : never
 
-/**
- * The error's tags as arms, next to the value's own tags. Each handler also
- * receives the whole `Failure` variant (`f.waiting` on an AsyncResult — a
- * retry in flight is STILL a Failure here; tags are the truth, unlike
- * `builder.onInitialOrWaiting`).
- */
-type FailureTagArms<E, F> = {
-  readonly [K in Types.Tags<E>]?: (
-    error: Extract<E, { readonly _tag: K }>,
-    variant: F,
-  ) => unknown
-}
-
 /** Does `T` carry a `waiting` flag (AsyncResult)? Then a `Waiting` arm is offered. */
 type HasWaiting<T> = T extends { readonly waiting: boolean } ? true : never
 
 /**
- * The arms, as PROPS of `<On value={…} Tag={…} />`: one optional function
- * per tag (missing → nothing); the failure's ERROR tags are arms too;
- * `Failure` handles the whole variant; `Waiting` (only
- * for waiting-capable values) wins over the tag arms while `waiting` is true
- * — `builder.onWaiting` semantics — and covers the first fetch too
+ * The `Failure` variant with its error narrowed to `E2` — what the `Failure`
+ * arm sees after the error-tag arms took theirs: `cause: Cause<E2>`
+ * (AsyncResult, Exit) or `failure: E2` (Result).
+ */
+type NarrowFailure<F, E2> = F extends { readonly cause: Cause.Cause<any> }
+  ? Omit<F, "cause"> & { readonly cause: Cause.Cause<E2> }
+  : F extends { readonly failure: any }
+    ? Omit<F, "failure"> & { readonly failure: E2 }
+    : F
+
+/** Every key `<On>` accepts for `T`: value tags, the failure's error tags, `Waiting`, and `value`. */
+export type ArmKeys<T> =
+  | Tags<T>
+  | Types.Tags<FailureError<T>>
+  | "value"
+  | ([HasWaiting<T>] extends [never] ? never : "Waiting")
+
+/**
+ * The arms, as PROPS of `<On value={…} Tag={…} />`, keyed by the arms
+ * ACTUALLY PRESENT (`K`, inferred from the props' keys — `value` is in the
+ * key space only so it doesn't push inference to the constraint). One
+ * function per value tag (missing → nothing); the failure's ERROR tags are
+ * arms too (each also receives the whole `Failure` variant — `f.waiting` on
+ * an AsyncResult: a retry in flight is STILL a Failure here; tags are the
+ * truth, unlike `builder.onInitialOrWaiting`); `Failure` handles the REST of
+ * the variant — its error is narrowed by the error-tag arms present (`NoInfer`
+ * keeps that parameter from feeding `K`); `Waiting` (only for
+ * waiting-capable values) wins over the tag arms while `waiting` is true —
+ * `builder.onWaiting` semantics — and covers the first fetch too
  * (`AsyncResult.initial(true)` is waiting).
  */
-export type TagHandlers<T> = {
-  readonly [K in Exclude<Tags<T>, "Failure">]?: (
-    variant: Variant<T, K>,
-  ) => unknown
-} & ([FailureError<T>] extends [never]
-  ? { readonly Failure?: (variant: Variant<T, "Failure">) => unknown }
-  : {
-      readonly Failure?: (variant: Variant<T, "Failure">) => unknown
-    } & FailureTagArms<FailureError<T>, Variant<T, "Failure">>) &
-  ([HasWaiting<T>] extends [never]
-    ? {}
-    : { readonly Waiting?: (value: T & { readonly waiting: true }) => unknown })
+export type TagHandlers<T, K extends string = ArmKeys<T>> = {
+  readonly [P in K]: P extends "value"
+    ? unknown
+    : P extends "Failure"
+      ? (
+          variant: NarrowFailure<
+            Variant<T, "Failure">,
+            Exclude<
+              FailureError<T>,
+              { readonly _tag: Exclude<NoInfer<K>, "Failure"> }
+            >
+          >,
+        ) => unknown
+      : P extends "Waiting"
+        ? (value: T & { readonly waiting: true }) => unknown
+        : P extends Tags<T>
+          ? (variant: Variant<T, P>) => unknown
+          : (
+              error: Extract<FailureError<T>, { readonly _tag: P }>,
+              variant: Variant<T, "Failure">,
+            ) => unknown
+}
 
-/** What still bubbles after `H` handled its part of `T`'s failure. */
-export type Residual<T, H> = [FailureError<T>] extends [never]
+/** What still bubbles after the arms `K` handled their part of `T`'s failure. */
+export type Residual<T, K extends string> = [FailureError<T>] extends [never]
   ? never
-  : H extends { readonly Failure: (variant: any) => unknown }
+  : "Failure" extends K
     ? never
-    : Exclude<FailureError<T>, { readonly _tag: HandledKeys<H> }>
-
-/** The keys of `H` that actually carry a handler (an unset optional key is not one). */
-export type HandledKeys<H> = {
-  [K in keyof H]-?: H[K] extends (...args: any) => unknown ? K : never
-}[keyof H]
+    : Exclude<FailureError<T>, { readonly _tag: K }>
 
 /** Handler returns (views, Effects) fold like any reactive emission: E is LIVE, R folds. */
 type HandlerRet<H> = {
@@ -105,9 +121,16 @@ type HandlersR<H> = ChildR<HandlerRet<H>>
  * <On value={selected} Some={(o) => <b>{o.value}</b>} />   // None → nothing
  * ```
  */
-export function On<T extends Tagged, const H extends TagHandlers<T>>(
-  props: { readonly value: T | Atom.Atom<T> | AtomRef.ReadonlyRef<T> } & H,
-): Effect.Effect<View<Residual<T, H> | HandlersLiveE<H>>, never, HandlersR<H>>
+export function On<
+  T extends Tagged,
+  K extends ArmKeys<T> = never,
+  const H extends TagHandlers<T, K> = TagHandlers<T, K>,
+>(
+  props: {
+    readonly value: T | Atom.Atom<T> | AtomRef.ReadonlyRef<T>
+  } & TagHandlers<T, K> &
+    H,
+): Effect.Effect<View<Residual<T, K> | HandlersLiveE<H>>, never, HandlersR<H>>
 export function On(
   props: { readonly value: unknown } & Record<string, unknown>,
 ): Effect.Effect<View<any>, never, any> {

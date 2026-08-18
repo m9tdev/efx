@@ -687,6 +687,24 @@ const AllTags = Catch({
 assertEquals<typeof AllTags, Effect.Effect<View, never, Http | Scope.Scope>>()
 mount(AllTags, root)
 
+// A tag arm beside `Failure` NARROWS what `Failure` sees — `catchTag` then
+// `catchCause`: HttpError is taken by its arm, so the catch-all's Cause is
+// `Cause<ParseError>` only. Discharged, mountable.
+const TagThenAll = Catch({
+  children: [TwoErrors],
+
+  HttpError: (e) => h("p", {}, `${e.status}`),
+  Failure: (cause) => {
+    assertEquals<typeof cause, Cause.Cause<ParseError>>()
+    return h("p", {}, "rest")
+  },
+})
+assertEquals<
+  typeof TagThenAll,
+  Effect.Effect<View, never, Http | Scope.Scope>
+>()
+mount(TagThenAll, root)
+
 // ─── The LIVE half of the mount gate ────────────────────────────────────
 //     A View carrying a live error (`View<E≠never>`) is also rejected by `mount`,
 //     and `Catch` discharges it — the symmetric counterpart of the construction

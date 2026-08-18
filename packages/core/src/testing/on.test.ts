@@ -274,7 +274,7 @@ describe("On — Waiting arm", () => {
 })
 
 describe("On — types", () => {
-  it("handlers are optional, Failure is a fn or a tag map, residual narrows, extra keys rejected", () => {
+  it("handlers are optional, error tags are arms, Failure narrows, residual narrows, extra keys rejected", () => {
     const user = Atom.make<AsyncResult.AsyncResult<string, Err>>(
       AsyncResult.initial(),
     )
@@ -289,6 +289,22 @@ describe("On — types", () => {
     >()
     const none = On({ value: user, Failure: () => null })
     expectTypeOf(none).toEqualTypeOf<Effect.Effect<View<never>, never, never>>()
+    // an error-tag arm beside Failure NARROWS Failure's error (catchTag → catchCause)
+    const narrowed = On({
+      value: user,
+      NotFound: (e, f) => {
+        expectTypeOf(e).toEqualTypeOf<NotFound>()
+        expectTypeOf(f.waiting).toEqualTypeOf<boolean>()
+        return null
+      },
+      Failure: (f) => {
+        expectTypeOf(f.cause).toEqualTypeOf<Cause.Cause<RateLimited>>()
+        return null
+      },
+    })
+    expectTypeOf(narrowed).toEqualTypeOf<
+      Effect.Effect<View<never>, never, never>
+    >()
     // Option: no failure variant → nothing bubbles
     const opt = On({
       value: Option.some(1),
