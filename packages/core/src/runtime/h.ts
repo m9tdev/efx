@@ -66,6 +66,18 @@ export const get: Get = (source) => {
   return active(source)
 }
 
+/**
+ * Compile-time marker for a verrex `get(...)` inside a nested function or
+ * event handler — where it can never be reactive. The compiler's
+ * language-service mode rewrites such a call to `(get as unknown as GetInNestedFunction)(x)`,
+ * so the type-checker reports "not callable" AT the offending `get`. Fix:
+ * move the `get(...)` to the JSX expression level (or into the nested JSX it
+ * renders). Never a runtime value.
+ */
+export type GetInNestedFunction = {
+  readonly "get(...) inside a nested function or event handler is not reactive": "move it to the JSX expression level"
+}
+
 const readerImpl = <A>(_read: () => A): Atom.Atom<A> =>
   Atom.readable((ctx) => {
     const ambient: Get = (source) => {

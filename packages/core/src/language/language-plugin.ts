@@ -113,7 +113,12 @@ export function createVerrexLanguagePlugin<T>(
       const fileName = asFileName(scriptId)
       const source = snapshot.getText(0, snapshot.getLength())
       try {
-        const result = transformVerrex(source, fileName)
+        // `mark`: a `get(...)` in a nested function/handler becomes a TYPE
+        // error at its position instead of a throw that would drop the
+        // whole file to its last-good compile (invisible in the editor).
+        const result = transformVerrex(source, fileName, {
+          getInNestedFunction: "mark",
+        })
         const mappings = convertSourceMap(result.mappings)
         lastGood.set(fileName, { compiled: result.code, mappings })
         return new VerrexVirtualCode(

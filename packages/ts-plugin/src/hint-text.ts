@@ -5,11 +5,11 @@
  * (the compiler injects the name argument, so its hint lands on generated
  * code and leaks to the end of the call). `_name` is matched ONLY with the
  * underscore — bare `name:` is a common user parameter and must keep its
- * hint. The TS plugin filters these inlay hints out of `.vx` files; see
+ * hint; likewise `_read` (`h.reader`'s parameter) but not bare `read`. The TS plugin filters these inlay hints out of `.vx` files; see
  * `service-proxy.ts`. Coupled by name to `verrex`'s `h` / `Component.make`
  * parameter names — documented in both packages' AGENTS.md.
  */
-export const SUPPRESS_RE = /^(?:_?(?:tag|props|children)|_name):?$/i
+export const SUPPRESS_RE = /^(?:_?(?:tag|props|children)|_name|_read):?$/i
 
 /** The subset of an inlay hint we read a label string from. */
 export interface HintTextShape {

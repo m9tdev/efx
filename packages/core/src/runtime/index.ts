@@ -13,7 +13,7 @@ import type {
 import { type BoundaryState, View } from "./View.ts"
 
 export * as Component from "./Component.ts"
-export { get, type Get, h } from "./h.ts"
+export { get, type Get, type GetInNestedFunction, h } from "./h.ts"
 export {
   On,
   type Residual as OnResidual,

@@ -21,6 +21,17 @@ export interface TransformOptions {
    * shipping a recovered module.
    */
   readonly errorRecovery?: boolean
+  /**
+   * What to do with a verrex `get(...)` inside a nested function or event
+   * handler (never reactive there). `"throw"` (default; the build path)
+   * raises `GetInNestedFunctionError`. `"mark"` (the language-service path)
+   * keeps compiling and rewrites the call to
+   * `(get as unknown as GetInNestedFunction)(…)`
+   * so the TYPE-CHECKER reports it at that position — an editor or
+   * `verrex-check` shows the error where it is, instead of the whole file
+   * silently falling back to its last good compile.
+   */
+  readonly getInNestedFunction?: "throw" | "mark"
 }
 
 export interface TransformResult {
@@ -117,6 +128,8 @@ const attrName = (
  * whose JSX is all component tags emits direct calls and needs no `h` at all.
  */
 interface RewriteState {
+  readonly getInNestedFunction: "throw" | "mark"
+  usedGetInNestedFunction: boolean
   usedH: boolean
   usedGet: boolean
   usedFragment: boolean
@@ -154,7 +167,7 @@ const wrapReader = (
   scope: Scope,
   state: RewriteState,
 ): t.Expression => {
-  if (!hasVerrexGet(expr, scope)) return expr
+  if (!hasVerrexGet(expr, scope, state)) return expr
   state.usedH = true
   state.usedGet = true
   return t.callExpression(
@@ -169,9 +182,40 @@ const wrapReader = (
  * would never be tracked, so it is the same compile error as a nested
  * function. Returns the expression untouched otherwise.
  */
-const rejectGetInHandler = (expr: t.Expression, scope: Scope): t.Expression => {
-  if (hasVerrexGet(expr, scope)) throw new GetInNestedFunctionError(expr)
+const rejectGetInHandler = (
+  expr: t.Expression,
+  scope: Scope,
+  state: RewriteState,
+): t.Expression => {
+  if (hasVerrexGet(expr, scope, state)) onNestedGet(expr, state)
   return expr
+}
+
+/** The type the marked call is cast to; exported by `@verrex/core` (h.ts). */
+const GET_IN_NESTED_FUNCTION_TYPE = "GetInNestedFunction"
+
+/**
+ * A verrex `get(...)` where it can't be reactive: throw (build), or mark it
+ * for the type-checker (editor/check) — `get(x)` →
+ * `(get as unknown as GetInNestedFunction)(x)`;
+ * the identifier keeps its position, so the diagnostic maps onto the source
+ * `get`.
+ */
+const onNestedGet = (node: t.Node, state: RewriteState): void => {
+  if (state.getInNestedFunction === "throw")
+    throw new GetInNestedFunctionError(node)
+  if (
+    (t.isCallExpression(node) || t.isOptionalCallExpression(node)) &&
+    t.isIdentifier(node.callee, { name: "get" })
+  ) {
+    // `as unknown as`: a direct cast from `Get` would add a second
+    // "conversion may be a mistake" diagnostic on top of the wanted one.
+    node.callee = t.tsAsExpression(
+      t.tsAsExpression(node.callee, t.tsUnknownKeyword()),
+      t.tsTypeReference(t.identifier(GET_IN_NESTED_FUNCTION_TYPE)),
+    )
+    state.usedGetInNestedFunction = true
+  }
 }
 
 class GetInNestedFunctionError extends Error {
@@ -206,7 +250,11 @@ const getIsVerrex = (scope: Scope): boolean => {
  * (a nested function's `get` param, a `const get` in a block) is tracked;
  * shadowing from the enclosing scope is `getIsVerrex(scope)`.
  */
-const hasVerrexGet = (expr: t.Expression, scope: Scope): boolean => {
+const hasVerrexGet = (
+  expr: t.Expression,
+  scope: Scope,
+  state: RewriteState,
+): boolean => {
   if (!getIsVerrex(scope)) return false
   let top = false
   const walk = (
@@ -218,10 +266,13 @@ const hasVerrexGet = (expr: t.Expression, scope: Scope): boolean => {
     // Nested JSX gets its own reader later — opaque here.
     if (t.isJSXElement(node) || t.isJSXFragment(node)) return
     if (
-      t.isCallExpression(node) &&
+      (t.isCallExpression(node) || t.isOptionalCallExpression(node)) &&
       t.isIdentifier(node.callee, { name: "get" })
     ) {
-      if (depth > 0) throw new GetInNestedFunctionError(node)
+      if (depth > 0) {
+        onNestedGet(node, state)
+        return
+      }
       top = true
       // Still walk the arguments (`get(get(a))` — inner is also top-level).
     }
@@ -285,7 +336,11 @@ const buildProps = (
   const properties: Array<t.ObjectProperty | t.SpreadElement> = []
   for (const attr of attrs) {
     if (t.isJSXSpreadAttribute(attr)) {
-      properties.push(t.spreadElement(attr.argument))
+      // A spread is not a reactive expression (there is no single value to
+      // wrap): a verrex `get` in it is the nested-function error.
+      properties.push(
+        t.spreadElement(rejectGetInHandler(attr.argument, scope, state)),
+      )
       continue
     }
     const key = attrName(attr.name)
@@ -301,7 +356,7 @@ const buildProps = (
           // function error, but a bare `onclick={handler}` must never be
           // wrapped — it isn't reactive, it's a listener.
           isHandlerAttr(key)
-          ? rejectGetInHandler(attr.value.expression, scope)
+          ? rejectGetInHandler(attr.value.expression, scope, state)
           : wrapReader(attr.value.expression, scope, state)
     } else {
       // JSXElement/JSXFragment values are exotic — fall back to recursive transform
@@ -422,7 +477,11 @@ const transformChild = (
     // `children: [...]` array element. A bare passthrough would land the
     // whole array as ONE child and pick up a redundant Fragment wrapper
     // from coerceAsync's array peel.
-    return copyLoc(t.spreadElement(child.expression), child)
+    // Not a reactive expression either (see the spread attribute above).
+    return copyLoc(
+      t.spreadElement(rejectGetInHandler(child.expression, scope, state)),
+      child,
+    )
   }
   return transformJsxNode(child, scope, state)
 }
@@ -439,10 +498,14 @@ const ensureRuntimeImports = (
   for (const node of program.body) {
     if (!t.isImportDeclaration(node)) continue
     if (node.source.value !== RUNTIME_PKG) continue
+    // A type-only declaration (`import type { h }`) satisfies nothing at
+    // runtime and can't take value specifiers — skip it entirely.
+    if (node.importKind === "type") continue
     existing = node
     for (const spec of node.specifiers) {
       if (
         t.isImportSpecifier(spec) &&
+        spec.importKind !== "type" &&
         t.isIdentifier(spec.imported) &&
         spec.imported.name === spec.local.name
       ) {
@@ -454,9 +517,12 @@ const ensureRuntimeImports = (
 
   if (wanted.size === 0) return
 
-  const newSpecs = [...wanted].map((name) =>
-    t.importSpecifier(t.identifier(name), t.identifier(name)),
-  )
+  const newSpecs = [...wanted].map((name) => {
+    const spec = t.importSpecifier(t.identifier(name), t.identifier(name))
+    // The marker is a TYPE (erased at runtime; harmless in the editor buffer).
+    if (name === GET_IN_NESTED_FUNCTION_TYPE) spec.importKind = "type"
+    return spec
+  })
 
   if (existing) {
     existing.specifiers.push(...newSpecs)
@@ -646,6 +712,8 @@ export const transformVerrex = (
   })
 
   const state: RewriteState = {
+    getInNestedFunction: options.getInNestedFunction ?? "throw",
+    usedGetInNestedFunction: false,
     usedH: false,
     usedGet: false,
     usedFragment: false,
@@ -683,6 +751,10 @@ export const transformVerrex = (
   if (state.usedH) wanted.add("h")
   if (state.usedGet) wanted.add("get")
   if (state.usedFragment) wanted.add("Fragment")
+  if (state.usedGetInNestedFunction) {
+    wanted.add("get")
+    wanted.add(GET_IN_NESTED_FUNCTION_TYPE)
+  }
   if (wanted.size > 0) ensureRuntimeImports(ast.program, wanted)
 
   const result = generate(

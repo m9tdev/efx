@@ -161,6 +161,11 @@ current source won't parse, never an index of live objects.)
 
 ## Transform errors: recover in editors, throw in batch
 
+The plugin compiles with `getInNestedFunction: "mark"` (compiler AGENTS): a
+verrex `get(...)` in a nested function/handler is NOT a transform error here
+— it becomes a type error at its position, so it never trips the recovery
+path below (which would hide it).
+
 `transformVerrex` hard-throws on source Babel can't parse — and
 despite `errorRecovery: true`, that includes the most common mid-edit
 states (`count.` at EOF, an unterminated tag → "Unexpected token").

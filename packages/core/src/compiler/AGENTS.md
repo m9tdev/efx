@@ -77,10 +77,21 @@ Rules, all name/scope-based (no types, no atom analysis):
   COMPILE ERROR** (`GetInNestedFunctionError`, position included):
   `{items.map((i) => get(i).name)}` would run outside any reader (and throw
   at runtime). Same for handler attributes (`onclick={() => get(x)}`,
-  `onclick={get(h)}` — `rejectGetInHandler`): a listener is not a reactive
-  expression. The fix is always "move the `get` to the expression level, or
-  into the row's own JSX".
-- `get` is auto-imported (`state.usedGet`) alongside `h`.
+  `onclick={get(h)}` — `rejectGetInHandler`), and for spread children /
+  spread attributes (`{...get(xs)}`, `{...get(p)}` — no single value to
+  wrap): a listener/spread is not a reactive expression. The fix is always
+  "move the `get` to the expression level, or into the row's own JSX".
+  Optional-call `get?.(a)` counts as `get(a)`.
+  **Two policies** (`options.getInNestedFunction`): `"throw"` (default; the
+  Vite build path — overlay/failed build) or `"mark"` (the language plugin,
+  i.e. editors + `verrex-check`): the call is rewritten to
+  `(get as unknown as GetInNestedFunction)(x)` (type exported by
+  `@verrex/core`, auto-imported `type`-only) so the TYPE-CHECKER reports
+  "not callable" AT the source `get` — a throw there would drop the whole
+  file to its last-good compile, invisible in the editor.
+- `get` is auto-imported (`state.usedGet`) alongside `h`. `import type { … }`
+  declarations and `type` specifiers are ignored when deciding what is
+  already imported (a type import satisfies nothing at runtime).
 
 Gone with this (docs/reactivity-migration.md steps 5/6): the `.value` →
 `h.read` rewrite, the `h.track` wrap, the whole-body `.value` pass, the

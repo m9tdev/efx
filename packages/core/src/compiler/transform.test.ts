@@ -181,6 +181,35 @@ describe("get(...) reactive expressions (docs/reactivity-migration.md)", () => {
     ).toThrow(/nested function/)
   })
 
+  it("a spread child / spread attribute with a verrex get(...) is the same compile error", () => {
+    expect(() => compile(`const x = <div>{...get(items)}</div>`)).toThrow(
+      /nested function/,
+    )
+    expect(() => compile(`const x = <div {...get(props)} />`)).toThrow(
+      /nested function/,
+    )
+  })
+
+  it("optional-call form get?.(a) is wrapped like get(a)", () => {
+    const out = compile(`const x = <div>{get?.(count)}</div>`)
+    expect(out).toContain(`h.reader(() => get?.(count))`)
+  })
+
+  it("`mark` mode: a nested get(...) becomes `(get as unknown as GetInNestedFunction)(…)` for the type-checker, no throw", () => {
+    const out = transformVerrex(
+      `const x = <div onclick={() => get(count)}>{items.map((i) => get(i).name)}</div>`,
+      "t.vx",
+      { getInNestedFunction: "mark" },
+    ).code
+    expect(out).toContain(
+      `onclick: () => (get as unknown as GetInNestedFunction)(count)`,
+    )
+    expect(out).toContain(`(get as unknown as GetInNestedFunction)(i).name`)
+    expect(out).toMatch(
+      /import \{[^}]*\bget\b[^}]*type GetInNestedFunction[^}]*\} from "@verrex\/core"/,
+    )
+  })
+
   it("a row arrow rendering JSX is fine: the get lives in the row's own JSX", () => {
     const out = compile(`
       const x = <For each={items} key={(i) => i.id}>{(row) => <li>{get(row).name}</li>}</For>
@@ -224,6 +253,19 @@ describe("runtime auto-imports", () => {
     `)
     expect(out).toMatch(/import \{[^}]*Fragment[^}]*\} from "@verrex\/core"/)
     expect(out).toMatch(/import \{[^}]*h[^}]*\} from "@verrex\/core"/)
+  })
+
+  it("a type-only import does not count: `import type { h }` still gets a value import", () => {
+    const out = compile(`
+      import type { h } from "@verrex/core"
+      import { type get, Component } from "@verrex/core"
+      const x = <div>{get(a)}</div>
+    `)
+    // the type-only declaration is left alone; both names land on the value import
+    expect(out).toContain(`import type { h } from "@verrex/core"`)
+    expect(out).toMatch(
+      /import \{ type get, Component, h, get \} from "@verrex\/core"/,
+    )
   })
 
   it("does NOT inject if `h` is already imported under its own name", () => {
