@@ -77,9 +77,8 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   `FoldPropsLiveE`/`FoldPropsR` (the props fold, #72), `ArmR`/`FoldArmsR`
   (the arms fold, #120),
   `IntrinsicProps`, `HtmlEventHandlers`, `OnArms`/`OnResidual` (`On`'s
-  arm map + what rides on), `CatchArms` (`Catch`'s arm map), `Get` /
-  `GetInNestedFunction` (the `get` reader signature + the nested-function
-  guard), `Fn`/`AtomOptions`/`FnOptions` (`atom`/`fn` shapes), `RootSink`
+  arm map + what rides on), `CatchArms` (`Catch`'s arm map), `Get` (the
+  `get` reader signature), `Fn`/`AtomOptions`/`FnOptions` (`atom`/`fn` shapes), `RootSink`
   (the root cause sink reference `mount` installs)
 
 This is where the **channel propagation contract lives** —

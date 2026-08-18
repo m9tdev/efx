@@ -2,6 +2,7 @@ export {
   transformVerrex,
   type TransformOptions,
   type TransformResult,
+  type TransformDiagnostic,
   type JsxRange,
   type JsxElementRange,
   type JsxFragmentRange,

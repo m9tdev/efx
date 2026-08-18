@@ -113,11 +113,12 @@ export function createVerrexLanguagePlugin<T>(
       const fileName = asFileName(scriptId)
       const source = snapshot.getText(0, snapshot.getLength())
       try {
-        // `mark`: a `get(...)` in a nested function/handler becomes a TYPE
-        // error at its position instead of a throw that would drop the
-        // whole file to its last-good compile (invisible in the editor).
+        // `report`: a `get(...)` in a nested function/handler is a
+        // diagnostic at its position (carried on the virtual code), not a
+        // throw that would drop the whole file to its last-good compile —
+        // invisible in the editor.
         const result = transformVerrex(source, fileName, {
-          getInNestedFunction: "mark",
+          getInNestedFunction: "report",
         })
         const mappings = convertSourceMap(result.mappings)
         lastGood.set(fileName, { compiled: result.code, mappings })
@@ -126,6 +127,7 @@ export function createVerrexLanguagePlugin<T>(
           result.code,
           mappings,
           result.jsxRanges,
+          result.diagnostics,
         )
       } catch (error) {
         if (onTransformError === "throw") {

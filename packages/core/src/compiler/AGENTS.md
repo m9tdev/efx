@@ -83,12 +83,14 @@ Rules, all name/scope-based (no types, no atom analysis):
   "move the `get` to the expression level, or into the row's own JSX".
   Optional-call `get?.(a)` counts as `get(a)`.
   **Two policies** (`options.getInNestedFunction`): `"throw"` (default; the
-  Vite build path — overlay/failed build) or `"mark"` (the language plugin,
-  i.e. editors + `verrex-check`): the call is rewritten to
-  `(get as unknown as GetInNestedFunction)(x)` (type exported by
-  `@verrex/core`, auto-imported `type`-only) so the TYPE-CHECKER reports
-  "not callable" AT the source `get` — a throw there would drop the whole
-  file to its last-good compile, invisible in the editor.
+  Vite build path — overlay/failed build) or `"report"` (the language plugin,
+  i.e. editors + `verrex-check`): the call is left as written, `get` is still
+  auto-imported, and the error is listed in `TransformResult.diagnostics`
+  (`TransformDiagnostic`: message + SOURCE offsets). The language plugin
+  stores those on `VerrexVirtualCode.diagnostics`; the ts-plugin appends
+  them in `getSemanticDiagnostics`, `verrex-check` via
+  `createVerrexServicePlugin`. A throw in the editor path would drop the
+  whole file to its last-good compile — invisible.
 - `get` is auto-imported (`state.usedGet`) alongside `h`. `import type { … }`
   declarations and `type` specifiers are ignored when deciding what is
   already imported (a type import satisfies nothing at runtime).

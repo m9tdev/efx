@@ -173,7 +173,7 @@ describe("get(...) reactive expressions (docs/reactivity-migration.md)", () => {
       compile(`
         const x = <div>{items.map((i) => get(i).name)}</div>
       `),
-    ).toThrow(/get\(\.\.\.\) inside a nested function is not reactive/)
+    ).toThrow(/get\(\.\.\.\) inside a nested function or event handler is not reactive/)
     expect(() =>
       compile(`
         const x = <div onclick={() => get(count)} />
@@ -195,19 +195,19 @@ describe("get(...) reactive expressions (docs/reactivity-migration.md)", () => {
     expect(out).toContain(`h.reader(() => get?.(count))`)
   })
 
-  it("`mark` mode: a nested get(...) becomes `(get as unknown as GetInNestedFunction)(…)` for the type-checker, no throw", () => {
-    const out = transformVerrex(
-      `const x = <div onclick={() => get(count)}>{items.map((i) => get(i).name)}</div>`,
-      "t.vx",
-      { getInNestedFunction: "mark" },
-    ).code
-    expect(out).toContain(
-      `onclick: () => (get as unknown as GetInNestedFunction)(count)`,
-    )
-    expect(out).toContain(`(get as unknown as GetInNestedFunction)(i).name`)
-    expect(out).toMatch(
-      /import \{[^}]*\bget\b[^}]*type GetInNestedFunction[^}]*\} from "@verrex\/core"/,
-    )
+  it("`report` mode: a nested get(...) is left as written and listed in diagnostics (source offsets), no throw", () => {
+    const src = `const x = <div onclick={() => get(count)}>{items.map((i) => get(i).name)}</div>`
+    const result = transformVerrex(src, "t.vx", {
+      getInNestedFunction: "report",
+    })
+    expect(result.code).toContain(`onclick: () => get(count)`)
+    expect(result.diagnostics).toHaveLength(2)
+    for (const d of result.diagnostics) {
+      expect(src.slice(d.start, d.end)).toMatch(/^get\((count|i)\)$/)
+      expect(d.message).toMatch(/nested function/)
+    }
+    // the build path still throws
+    expect(() => transformVerrex(src, "t.vx")).toThrow(/nested function/)
   })
 
   it("a row arrow rendering JSX is fine: the get lives in the row's own JSX", () => {

@@ -3,7 +3,10 @@ import * as ts from "typescript"
 import * as kit from "@volar/kit"
 import { create as createTypeScriptServices } from "volar-service-typescript"
 import { URI } from "vscode-uri"
-import { createVerrexLanguagePlugin } from "@verrex/core/language"
+import {
+  createVerrexLanguagePlugin,
+  createVerrexServicePlugin,
+} from "@verrex/core/language"
 
 // LSP DiagnosticSeverity constants (stable wire protocol). `@volar/language-service`
 // re-exports the type but not the values, so we inline these to avoid pulling in
@@ -169,7 +172,9 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
     const tsServices = createTypeScriptServices(ts)
     return kit.createTypeScriptChecker(
       [trackingPlugin, languagePlugin],
-      tsServices,
+      // + the compiler's own diagnostics (a nested `get(...)`), reported at
+      // their source position like any TS error.
+      [...tsServices, createVerrexServicePlugin()],
       tsconfigPath,
     )
   }

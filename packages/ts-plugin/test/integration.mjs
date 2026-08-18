@@ -450,6 +450,49 @@ async function main() {
   // Close the modified file so other test runs don't see it
   await client.send("close", { file: counterVerrex })
 
+  console.log(
+    "\n11. Compiler diagnostic: a get(...) inside a handler is reported AT the get...",
+  )
+  // Replace the handler body with a nested verrex `get` — the compiler's own
+  // diagnostic (not a TS one) must reach the editor through
+  // getSemanticDiagnostics, positioned on the `get(count)` in the .vx source.
+  const badLines = [...counterLines]
+  const handlerIdx = badLines.findIndex((l) => l.includes("(n) => n + 1"))
+  badLines[handlerIdx] = badLines[handlerIdx].replace(
+    "() => Atom.update(count, (n) => n + 1)",
+    "() => get(count)",
+  )
+  const badSrc = badLines.join("\n")
+  const badLine = handlerIdx + 1
+  const badCol = badLines[handlerIdx].indexOf("get(count)") + 1
+  await client.send("open", {
+    file: counterVerrex,
+    fileContent: badSrc,
+    projectRootPath: demoRoot,
+  })
+  await new Promise((r) => setTimeout(r, 500))
+  const badDiags =
+    (await client.send("semanticDiagnosticsSync", { file: counterVerrex }))
+      .body || []
+  for (const d of badDiags) {
+    console.log(`   - [${d.start?.line}:${d.start?.offset}] ${d.text}`)
+  }
+  const own = badDiags.find(
+    (d) =>
+      /not reactive/.test(d.text ?? "") &&
+      d.start?.line === badLine &&
+      d.start?.offset === badCol,
+  )
+  if (own) {
+    console.log(`   PASS: verrex diagnostic at ${badLine}:${badCol}`)
+  } else {
+    console.log(
+      `   FAIL: no verrex diagnostic at ${badLine}:${badCol} (got ${badDiags.length})`,
+    )
+    process.exitCode = 1
+  }
+  await client.send("close", { file: counterVerrex })
+
   await client.close()
   console.log("\nDone.")
 }

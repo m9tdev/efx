@@ -24,14 +24,20 @@ export interface TransformOptions {
   /**
    * What to do with a verrex `get(...)` inside a nested function or event
    * handler (never reactive there). `"throw"` (default; the build path)
-   * raises `GetInNestedFunctionError`. `"mark"` (the language-service path)
-   * keeps compiling and rewrites the call to
-   * `(get as unknown as GetInNestedFunction)(…)`
-   * so the TYPE-CHECKER reports it at that position — an editor or
-   * `verrex-check` shows the error where it is, instead of the whole file
-   * silently falling back to its last good compile.
+   * raises `GetInNestedFunctionError`. `"report"` (the language-service path)
+   * keeps compiling — the call is left as written — and lists it in
+   * `TransformResult.diagnostics`, so an editor or `verrex-check` shows the
+   * error at its position instead of the whole file silently falling back
+   * to its last good compile.
    */
-  readonly getInNestedFunction?: "throw" | "mark"
+  readonly getInNestedFunction?: "throw" | "report"
+}
+
+/** A compiler diagnostic, in SOURCE offsets (`[start, end)`). */
+export interface TransformDiagnostic {
+  readonly message: string
+  readonly start: number
+  readonly end: number
 }
 
 export interface TransformResult {
@@ -47,6 +53,8 @@ export interface TransformResult {
    * algorithm.
    */
   readonly mappings: ReadonlyArray<CompilerMapping>
+  /** Non-fatal errors found in `"report"` mode (empty in `"throw"` mode — those throw). */
+  readonly diagnostics: ReadonlyArray<TransformDiagnostic>
 }
 
 /** Source-side span. All offsets are 0-based byte indices into the original `.vx` source. */
@@ -128,8 +136,8 @@ const attrName = (
  * whose JSX is all component tags emits direct calls and needs no `h` at all.
  */
 interface RewriteState {
-  readonly getInNestedFunction: "throw" | "mark"
-  usedGetInNestedFunction: boolean
+  readonly getInNestedFunction: "throw" | "report"
+  readonly diagnostics: Array<TransformDiagnostic>
   usedH: boolean
   usedGet: boolean
   usedFragment: boolean
@@ -191,40 +199,37 @@ const rejectGetInHandler = (
   return expr
 }
 
-/** The type the marked call is cast to; exported by `@verrex/core` (h.ts). */
-const GET_IN_NESTED_FUNCTION_TYPE = "GetInNestedFunction"
-
 /**
- * A verrex `get(...)` where it can't be reactive: throw (build), or mark it
- * for the type-checker (editor/check) — `get(x)` →
- * `(get as unknown as GetInNestedFunction)(x)`;
- * the identifier keeps its position, so the diagnostic maps onto the source
- * `get`.
+ * A verrex `get(...)` where it can't be reactive: throw (build), or report
+ * it at its source position (editor/check) and leave the call as written.
  */
 const onNestedGet = (node: t.Node, state: RewriteState): void => {
   if (state.getInNestedFunction === "throw")
     throw new GetInNestedFunctionError(node)
-  if (
-    (t.isCallExpression(node) || t.isOptionalCallExpression(node)) &&
-    t.isIdentifier(node.callee, { name: "get" })
-  ) {
-    // `as unknown as`: a direct cast from `Get` would add a second
-    // "conversion may be a mistake" diagnostic on top of the wanted one.
-    node.callee = t.tsAsExpression(
-      t.tsAsExpression(node.callee, t.tsUnknownKeyword()),
-      t.tsTypeReference(t.identifier(GET_IN_NESTED_FUNCTION_TYPE)),
-    )
-    state.usedGetInNestedFunction = true
-  }
+  // Import `get` anyway: the ONE useful error is ours, not TS2304.
+  state.usedGet = true
+  const message = GetInNestedFunctionError.describe(node)
+  state.diagnostics.push({
+    message,
+    start: node.start ?? 0,
+    end: node.end ?? node.start ?? 0,
+  })
 }
 
 class GetInNestedFunctionError extends Error {
+  /** The message without a position (a diagnostic carries its own range). */
+  static describe(_node: t.Node): string {
+    return (
+      "get(...) inside a nested function or event handler is not reactive — it would run " +
+      "outside the reader. Move the get(...) to the JSX expression level, or into the " +
+      "nested JSX it renders."
+    )
+  }
   constructor(node: t.Node) {
     const loc = node.loc?.start
     super(
-      `get(...) inside a nested function is not reactive — it would run outside the reader ` +
-        `(${loc ? `${loc.line}:${loc.column + 1}` : "unknown position"}). ` +
-        `Move the get(...) to the JSX expression level, or into the nested JSX it renders.`,
+      `${GetInNestedFunctionError.describe(node)} ` +
+        `(${loc ? `${loc.line}:${loc.column + 1}` : "unknown position"})`,
     )
     this.name = "GetInNestedFunctionError"
   }
@@ -517,12 +522,9 @@ const ensureRuntimeImports = (
 
   if (wanted.size === 0) return
 
-  const newSpecs = [...wanted].map((name) => {
-    const spec = t.importSpecifier(t.identifier(name), t.identifier(name))
-    // The marker is a TYPE (erased at runtime; harmless in the editor buffer).
-    if (name === GET_IN_NESTED_FUNCTION_TYPE) spec.importKind = "type"
-    return spec
-  })
+  const newSpecs = [...wanted].map((name) =>
+    t.importSpecifier(t.identifier(name), t.identifier(name)),
+  )
 
   if (existing) {
     existing.specifiers.push(...newSpecs)
@@ -713,7 +715,7 @@ export const transformVerrex = (
 
   const state: RewriteState = {
     getInNestedFunction: options.getInNestedFunction ?? "throw",
-    usedGetInNestedFunction: false,
+    diagnostics: [],
     usedH: false,
     usedGet: false,
     usedFragment: false,
@@ -751,10 +753,6 @@ export const transformVerrex = (
   if (state.usedH) wanted.add("h")
   if (state.usedGet) wanted.add("get")
   if (state.usedFragment) wanted.add("Fragment")
-  if (state.usedGetInNestedFunction) {
-    wanted.add("get")
-    wanted.add(GET_IN_NESTED_FUNCTION_TYPE)
-  }
   if (wanted.size > 0) ensureRuntimeImports(ast.program, wanted)
 
   const result = generate(
@@ -776,5 +774,6 @@ export const transformVerrex = (
     map,
     jsxRanges,
     mappings,
+    diagnostics: state.diagnostics,
   }
 }
