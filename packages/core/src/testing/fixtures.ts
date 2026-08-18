@@ -1,5 +1,5 @@
 /**
- * Shared scaffolds for the Async/asyncRef suites (#98) — test-only, NOT part
+ * Shared scaffolds for the atom / boundary suites (#98) — test-only, NOT part
  * of the package surface (excluded in tsconfig.build.json, never reaches
  * `dist`; nothing here is exported from `@verrex/core/testing`).
  *

@@ -72,7 +72,7 @@ describe("per-node context capture", () => {
   })
 
   it("a mid-tree Effect.provide reaches LIST ROWS — construction and handler", async () => {
-    // list() captures its construction context (ViewList.context) and every
+    // For() captures its construction context (View.List.context) and every
     // row builds on it — without the capture, rows materialize at reconcile
     // time on mount's ROOT context and this whole test type-checks but dies
     // at runtime (the round-2 review hole).
@@ -171,7 +171,7 @@ describe("per-node context capture", () => {
     // The boundary captures its construction context (ViewBoundary.context)
     // and the fallback builds on it — without the capture, the fallback's
     // handler ran on mount's root context and died with ServiceNotFound,
-    // while the same handler in the ok content (or an Async arm) worked.
+    // while the same handler in the ok content (or an `On` arm) worked.
     const count = AtomRef.make(0)
     const Failing = Effect.fn("Failing")(function* (_props: {} = {}) {
       return yield* Effect.fail(new Error("construction boom"))

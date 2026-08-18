@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from "vitest"
 import { Effect } from "effect"
-import { Catch, h } from "@verrex/core"
+import { Catch, h, On } from "@verrex/core"
 
 class NotFound {
   readonly _tag = "NotFound"
@@ -34,6 +34,18 @@ class ProtoHandlers {
     return h("p", {}, e.id)
   }
 }
+
+describe("On arm validation (#91)", () => {
+  it("rejects a prototype-keyed props object and a non-function arm", () => {
+    const value = { _tag: "NotFound" as const }
+    expect(() =>
+      On(Object.assign(new ProtoHandlers(), { value }) as never),
+    ).toThrow(/On: arms must be a plain object/)
+    expect(() => On({ value, NotFound: undefined } as never)).toThrow(
+      /On: handler "NotFound" is not a function/,
+    )
+  })
+})
 
 describe("tag-map construction validation (#91)", () => {
   it("Catch rejects a prototype-keyed handler object at the call site", () => {

@@ -63,6 +63,19 @@ describe("h.reader", () => {
     expect(seen).toEqual(["false", "true"])
   })
 
+  it("nested readers each track their own deps (small ambient stack)", () => {
+    const registry = AtomRegistry.make()
+    const a = Atom.make(1)
+    const b = Atom.make(10)
+    const inner = h.reader(() => get(b) * 2)
+    const outer = h.reader(() => get(a) + get(inner))
+    const seen: Array<number> = []
+    registry.subscribe(outer, (v) => seen.push(v), { immediate: true })
+    registry.set(b, 20)
+    registry.set(a, 2)
+    expect(seen).toEqual([21, 41, 42])
+  })
+
   it("get() inside a source's own read (Atom.map body) throws instead of mis-tracking", () => {
     const registry = AtomRegistry.make()
     const a = Atom.make(1)

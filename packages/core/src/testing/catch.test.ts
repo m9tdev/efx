@@ -174,6 +174,57 @@ describe("Catch — tag-selective (object)", () => {
     await b.unmount()
   })
 
+  it("a tag arm beside Failure on the SAME boundary: tag first, Failure gets the rest", async () => {
+    const make = (fail: "http" | "parse") =>
+      Effect.fn("App")(function* (_props: {} = {}) {
+        return yield* Catch({
+          children: [Child({ fail })],
+
+          HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
+          Failure: (cause) => h("p", { class: "rest" }, Cause.pretty(cause)),
+        })
+      })()
+    const a = await render(make("http"))
+    expect(a.text(".http")).toBe("http 503")
+    expect(a.query(".rest")).toBeNull()
+    await a.unmount()
+    const b = await render(make("parse"))
+    expect(b.query(".http")).toBeNull()
+    expect(b.text(".rest")).toContain("ParseError")
+    await b.unmount()
+  })
+
+  it("several children are wrapped in a Fragment; a failing one is caught", async () => {
+    const App = Effect.fn("App")(function* (_props: {} = {}) {
+      return yield* Catch({
+        children: [
+          h("p", { class: "one" }, "one"),
+          Child({ fail: "http" }),
+          h("p", { class: "three" }, "three"),
+        ],
+        HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
+      })
+    })
+    const ui = await render(App())
+    expect(ui.text(".http")).toBe("http 503")
+    expect(ui.query(".one")).toBeNull() // the whole fragment failed construction
+    await ui.unmount()
+
+    const Ok = Effect.fn("Ok")(function* (_props: {} = {}) {
+      return yield* Catch({
+        children: [
+          h("p", { class: "one" }, "one"),
+          h("p", { class: "two" }, "two"),
+        ],
+        Failure: () => h("p", { class: "never" }),
+      })
+    })
+    const ok = await render(Ok())
+    expect(ok.text(".one")).toBe("one")
+    expect(ok.text(".two")).toBe("two")
+    await ok.unmount()
+  })
+
   it("passes an unhandled tag through to an outer catch-all", async () => {
     const App = Effect.fn("App")(function* (_props: {} = {}) {
       return yield* Catch({

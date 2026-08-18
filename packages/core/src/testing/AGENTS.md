@@ -40,7 +40,7 @@ await ui.unmount()
   invariant in the runtime AGENTS.md).
 - `RenderResult` — `get`/`query`/`all`/`text` (DOM queries),
   `click`/`fire` (dispatch bubbling events that hit the component's
-  handlers — an `onClick` returning an `Effect` is forked on the mount
+  handlers — an `onclick` returning an `Effect` is forked on the mount
   context with its services, and its failures route to the error sink, so
   a failing handler is contained rather than thrown; `event-handlers.test.ts`
   pins this), `tick()` (flush a macrotask so async/atom updates settle),
@@ -143,8 +143,7 @@ map handle one tag and let the residual ride to a boundary.
 
 - Don't add a `waitFor(predicate)` variant until a test needs it; the
   selector-based `waitFor` plus `tick()` covers the current cases (a test
-  needing text-level polling keeps a local helper, see
-  `async-refetch-regression.test.ts`).
+  needing text-level polling keeps a local helper).
 - Don't re-declare a per-suite `Users`/db scaffold in a test file — take it
   from `fixtures.ts` (`makeUsersFixture`), and add to the fixture only what
   at least two suites share.

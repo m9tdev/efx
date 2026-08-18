@@ -134,8 +134,9 @@ export function On<
 export function On(
   props: { readonly value: unknown } & Record<string, unknown>,
 ): Effect.Effect<View<any>, never, any> {
+  // Validate the PROPS object (a rest-spread would hide its prototype).
+  assertHandlers(props)
   const { value: on, ...handlers } = props
-  assertHandlers(handlers)
   const failure = handlers["Failure"]
   const waiting = handlers["Waiting"]
   // Always a reactive node (even for a plain value): the dispatch result —
@@ -224,6 +225,7 @@ const assertHandlers = (handlers: Record<string, unknown>): void => {
     )
   }
   for (const key of Object.keys(handlers)) {
+    if (key === "value") continue
     const v = handlers[key]
     if (typeof v === "function") continue
     throw new TypeError(

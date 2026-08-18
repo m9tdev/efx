@@ -6,8 +6,9 @@ import { get, h, mount } from "@verrex/core"
 
 // Regression pins for #167: `mount` owns its AtomRegistry.
 //
-// Before this change the registry rode `mount`'s R, and the natural
-// `mount(...).pipe(Effect.provide(VerrexLive))` scoped the layer to the
+// History: before this change the registry rode `mount`'s R, and the natural
+// `mount(...).pipe(Effect.provide(VerrexLive))` (VerrexLive was the
+// then-exported `Layer<AtomRegistry>`, since removed) scoped the layer to the
 // mount effect — which completes as soon as the DOM attaches, disposing the
 // registry out from under the live UI. Everything rendered once, then
 // silently froze. Now mount creates, provides, and disposes the registry

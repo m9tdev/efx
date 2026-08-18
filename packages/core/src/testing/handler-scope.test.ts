@@ -414,7 +414,7 @@ describe("per-dispatch handler scope", () => {
 
   it("the handler's Scope is DISPATCH-lifetime: forkScoped work dies at settle; forkIn a captured scope survives", async () => {
     // Corollary of per-dispatch scopes: `Effect.forkScoped` (and an
-    // `asyncRef`/`streamRef` created inside a handler — same mechanism) attach
+    // `atom`/`fn` created inside a handler — same mechanism) attach
     // to the dispatch scope and are torn down the moment the handler returns.
     // Work that must outlive the click forks INTO a scope captured at
     // construction. Documented in runtime/AGENTS.md "Handler-scope semantics".

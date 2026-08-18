@@ -82,7 +82,7 @@ describe("For reactive index", () => {
   })
 })
 
-describe("list() row lifecycle", () => {
+describe("For row lifecycle", () => {
   // A row whose render returns an Effect with acquireRelease — the release
   // registers on the row's own scope (via coerceSync providing it), so it must
   // fire when THAT row is removed, not only on full unmount. The refactor moved
