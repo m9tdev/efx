@@ -1,5 +1,5 @@
 import { Cause, Effect, Exit, Layer, Scope } from "effect"
-import type { AtomRegistry } from "effect/unstable/reactivity"
+import { AtomRegistry } from "effect/unstable/reactivity"
 import { mount, RootSink, type View } from "@verrex/core"
 
 /**
@@ -53,6 +53,8 @@ export interface RenderResult {
    * `RootSink`; a `RootSink` in the `layer` argument is not used.
    */
   readonly sinkCauses: ReadonlyArray<Cause.Cause<unknown>>
+  /** The mount's own `AtomRegistry` — write atoms from the test (`registry.set(a, v)`). */
+  readonly registry: AtomRegistry.AtomRegistry
 }
 
 const el = (container: HTMLElement, selector: string): HTMLElement => {
@@ -114,8 +116,15 @@ const renderImpl = async (
   // harness discharges an undischarged construction error by turning it into a
   // defect, so a component that fails to build (with no boundary) rejects the
   // `render(...)` promise loudly — exactly the failure a test wants to see.
-  const discharged = Effect.catchCause(app, (cause) =>
-    Effect.die(Cause.squash(cause)),
+  // ...and captures the mount's own AtomRegistry (mount creates one per
+  // mount; the app runs inside it) so tests can `registry.set(...)` directly.
+  let registry: AtomRegistry.AtomRegistry | undefined
+  const discharged = Effect.catchCause(
+    Effect.flatMap(AtomRegistry.AtomRegistry, (r) => {
+      registry = r
+      return app
+    }),
+    (cause) => Effect.die(Cause.squash(cause)),
   )
   // Build the caller's layer INTO the harness scope (not `Effect.provide`,
   // which would scope it to the mount effect — an effect that completes as
@@ -145,6 +154,7 @@ const renderImpl = async (
   return {
     container,
     sinkCauses,
+    registry: registry!,
     get: (s) => el(container, s),
     query: (s) => container.querySelector(s) as HTMLElement | null,
     all: (s) => Array.from(container.querySelectorAll(s)) as HTMLElement[],

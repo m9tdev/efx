@@ -47,7 +47,9 @@ await ui.unmount()
   `unmount()` (close the scope → fire every finalizer → detach),
   `sinkCauses` (every `Cause` the root sink received, via `mount`'s
   `RootSink` reference: uncaught live failures AND handlers interrupted
-  mid-flight, #127/#186).
+  mid-flight, #127/#186), `registry` (the mount's own `AtomRegistry`, so a
+  test writes atoms directly — `ui.registry.set(a, v)` — instead of
+  smuggling the registry out of the component).
 - **Assert the continuation, not the stub.** A test that only checks a
   stub's side effect (`sink.push` inside `http.send`) goes green even when
   the handler is interrupted right after its first `yield*` — the stub ran

@@ -73,18 +73,16 @@ describe("On — dispatch", () => {
       | { _tag: "Failure"; readonly msg: string }
       | { _tag: "Ok" }
     const st = Atom.make<S>({ _tag: "toString" })
-    let registry!: AtomRegistry.AtomRegistry
     const App = Effect.fn(function* () {
-      registry = yield* AtomRegistry.AtomRegistry
       return yield* h("p", { class: "out" }, On({ value: st, Ok: () => "ok" }))
     })
     const ui = await render(App())
     expect(ui.text(".out")).toBe("") // not "[object Undefined]"
-    registry.set(st, { _tag: "Failure", msg: "x" })
+    ui.registry.set(st, { _tag: "Failure", msg: "x" })
     await ui.tick()
     expect(ui.text(".out")).toBe("") // renders nothing, nothing escalated
     expect(ui.sinkCauses).toEqual([])
-    registry.set(st, { _tag: "Ok" })
+    ui.registry.set(st, { _tag: "Ok" })
     await ui.tick()
     expect(ui.text(".out")).toBe("ok")
     await ui.unmount()
@@ -93,9 +91,7 @@ describe("On — dispatch", () => {
   it("an arm that throws becomes a live defect (Effect.die) — siblings keep updating", async () => {
     type S = { _tag: "Ok"; readonly v: number }
     const st = Atom.make<S>({ _tag: "Ok", v: 0 })
-    let registry!: AtomRegistry.AtomRegistry
     const App = Effect.fn(function* () {
-      registry = yield* AtomRegistry.AtomRegistry
       return yield* h(
         "p",
         {},
@@ -118,11 +114,11 @@ describe("On — dispatch", () => {
       )
     })
     const ui = await render(App())
-    registry.set(st, { _tag: "Ok", v: 1 })
+    ui.registry.set(st, { _tag: "Ok", v: 1 })
     await ui.tick()
     expect(ui.text(".b")).toBe("1")
     expect(ui.sinkCauses.length).toBe(1)
-    registry.set(st, { _tag: "Ok", v: 2 })
+    ui.registry.set(st, { _tag: "Ok", v: 2 })
     await ui.tick()
     expect(ui.text(".a")).toBe("2")
     expect(ui.text(".b")).toBe("2")

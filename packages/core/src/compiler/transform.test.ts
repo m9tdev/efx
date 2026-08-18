@@ -173,7 +173,9 @@ describe("get(...) reactive expressions (docs/reactivity-migration.md)", () => {
       compile(`
         const x = <div>{items.map((i) => get(i).name)}</div>
       `),
-    ).toThrow(/get\(\.\.\.\) inside a nested function or event handler is not reactive/)
+    ).toThrow(
+      /get\(\.\.\.\) inside a nested function or event handler is not reactive/,
+    )
     expect(() =>
       compile(`
         const x = <div onclick={() => get(count)} />
