@@ -383,11 +383,10 @@ const makeBoundary = <R>(
  */
 /**
  * `Catch`'s arms: one optional handler per error `_tag` (plus `Failure`, the
- * catch-all). Keys are constrained to the children's tags for per-handler
- * `error` inference, and the exactness guard is omitted on purpose — a typo'd
- * key beside ≥1 valid key is silently dead (its tag stays on the channel, so
- * the type never lies for inline literals), while a typo as the only key is a
- * compile error. Prototype-keyed objects and explicit-`undefined` slots are
+ * catch-all). Keys are constrained to the children's tags (`K extends
+ * Tags<E> | "Failure"`), so an unknown key is a compile error — alone or
+ * beside valid keys — and each handler's `error` infers from its key.
+ * Prototype-keyed objects and explicit-`undefined` slots are
  * rejected at construction by `assertHandlerMap`; pre-built maps whose TYPE
  * declares keys the value doesn't carry can still over-discharge — invisible
  * at runtime (erasure), documented limitation (#91).

@@ -26,8 +26,8 @@ own)` — the atom keeps its own `Scope`/`AtomRegistry`, so an atom-body
   `Atom.set`s ITSELF (targeting the inner atom would create a second node
   and run the body twice). Footgun: Atom combinators (`keepAlive`,
   `withEquality`, …) return a NON-callable copy — use `Atom.set` on those.
-  Deps inside bodies are `get(...)` (atoms only; no AtomRef bridge). Both are
-  in the compiler's self-tracking skip set. Pinned by `atom.test-d.ts`
+  Deps inside bodies are `get(...)` (atoms only; no AtomRef bridge). Pinned by
+  `atom.test-d.ts`
   (channels, missing-Layer compile error) and `testing/atom-fn.test.ts`
   (services vs own scope, lifetime, once-per-call, interrupt/reset, stream
   latest, span parent).
@@ -64,12 +64,11 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   then `Failure`, else escalate. Interrupt-only causes are dropped. Handler
   returns fold (E live, R). Runtime: one `Atom.readable` (reads `on`,
   bridging a ref) whose emission is the handler result or an
-  `Effect.failCause` — the fold's phase switch types it. This is the old
-  `Async` arms default generalized to any tagged value, with no matching API
-  of its own; the explicit alternatives (`AsyncResult.builder`,
-  `Match.valueTags`) stay first-class for custom states. Pinned by
-  `testing/on.test.ts`.
-- `Catch` — view-level error boundary, a JSX tag with the same arm props as `On` (`Tag={…}` = tag-selective, `Failure={…}` = catch-all; mirrors `Effect.catch*`; see "`Catch`" below)
+  `Effect.failCause` — the fold's phase switch types it. THE idiom for
+  rendering tagged / async values; the explicit alternatives
+  (`AsyncResult.builder`, `Match.valueTags`) stay as an escape hatch for
+  custom states. Pinned by `testing/on.test.ts`.
+- `Catch` — view-level error boundary, a JSX tag with the same arm KEYS as `On` (`Tag={…}` = tag-selective, `Failure={…}` = catch-all; mirrors `Effect.catch*`; see "`Catch`" below). Handler signatures differ: `Catch` arms get `(error, reset)` / `(cause, reset)`; `On` arms get `(error, variant)` / `(variant)`.
 - `Fragment` — `<>...</>` compile target (a direct-call component since
   #71: `Fragment({ children: [...] })`, generic over the children tuple —
   also the canonical pattern for effectful-children components)
@@ -77,7 +76,11 @@ Equal.equals)` INSIDE the family fn — applied at the use site the
   families died with #71 — component channels are ordinary child folds),
   `FoldPropsLiveE`/`FoldPropsR` (the props fold, #72), `ArmR`/`FoldArmsR`
   (the arms fold, #120),
-  `IntrinsicProps`, `HtmlEventHandlers`
+  `IntrinsicProps`, `HtmlEventHandlers`, `OnArms`/`OnResidual` (`On`'s
+  arm map + what rides on), `CatchArms` (`Catch`'s arm map), `Get` /
+  `GetInNestedFunction` (the `get` reader signature + the nested-function
+  guard), `Fn`/`AtomOptions`/`FnOptions` (`atom`/`fn` shapes), `RootSink`
+  (the root cause sink reference `mount` installs)
 
 This is where the **channel propagation contract lives** —
 `h()`'s signature uses the fold conditional types to union every child's
@@ -108,9 +111,10 @@ step 4): whatever an `Atom`/`AtomRef` EMITS runs after construction — mount
 re-coerces each emission and executes an emitted Effect at render time via
 `coerceSync` — so `ChildE<Atom<T>> = never` and `ChildLiveE<Atom<T>> =
 ChildE<T> | ChildLiveE<T>`. An `Atom<Effect<View, E>>` child is a `View<E>`.
-This is what makes `Atom.map(result, r => AsyncResult.builder(r)…
-.onFailure(Effect.failCause).exhaustive())` escalate a typed failure to the
-nearest `Catch` with no `Async`-style boundary — and what closes the old
+This is what makes an unhandled `On` failure (or the escape-hatch
+`Atom.map(result, r => AsyncResult.builder(r)….onFailure(Effect.failCause)
+.exhaustive())`) escalate a typed failure to the nearest `Catch` with no
+extra boundary primitive — and what closes the old
 "reactive re-render whose Effect fails is caught only at runtime" hole.
 Pinned by Fold.test-d §6/§28 and `testing/atom-escalate.test.ts`.
 `mount` requires both error channels `never`;
@@ -135,17 +139,17 @@ and keeps its hint. If you rename a slot, update the regex.
 
 | File                   | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `h.ts`                 | `h()` factory + `track`/`read` reactivity-tracking machinery (built on `trackDeps`/`recordDep` from `coerce.ts`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `h.ts`                 | `h()` factory + `h.reader` (the compiler's `get(...)`-expression wrap) + `get` (the reader signature)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `atom.ts`              | `atom` / `fn` — caller-owned-`R` wrappers over `Atom.make` / `Atom.fn` (context capture UNDER own services, `Atom.mount` on the caller's Scope, callable `fn`); see the surface bullet above                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `Component.ts`         | `Component.make` — the canonical component constructor (traced `Effect.fn` seam + compiler-filled name slot). `Component.test.ts` pins the span-in-Cause; `Component.test-d.ts` pins the channel inference and generic preservation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `coerce.ts`            | `coerceAsync` (any child shape → `Effect<View>`) and `coerceSync` (render-time emission → `View`; takes a `SyncRunner` — runs on the owning node's context, with an `Exit` fast path so `Effect.succeed` children don't spin a fiber). Internal; not re-exported from `index.ts`. Owns `isAtomRef` (brand check against `AtomRef.TypeId`), `isHandlerKey` (THE handler-key gate, shared with `applyProp` + `h()`'s capture predicate, mirrored by the type fold), and `bridgeAtom` (the AtomRef→Atom bridge `h.reader`'s `get(ref)` goes through)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `View.ts`              | `View<E>` IR. The runtime shape is `ViewNode` — a hand-written union of 7 phantom-free named interfaces (`ViewText`…`ViewBoundary`, `ViewEmpty`); constructors via `Data.taggedEnum<ViewNode>()`. `View<E = never> = ViewNode & ViewErr<E>` layers the runtime-error channel on via a covariant phantom (`ViewErr`), so `View<HttpError>` ⊄ `View<never>` (mount can require it) while a `ViewNode` ⊂ any `View<E>` (constructors need no casts). Plus `isView`, `VIEW_TAGS`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `mount.ts`             | DOM renderer. `buildDom(view, ctx, scope) → Node` (`ctx: BuildCtx = { registry, context, sink, runSyncExit, ownerScope }` — `runSyncExit` is a context-paired `Effect.runSyncExitWith` cache for `coerceSync`; `ownerScope` is the handler-dispatch owner, #160/#161; the Element handler path takes `context`/`sink`/`registry`/`ownerScope` directly, never the ctx), `mount(app, el)`. Cleanup is delegated to `Scope` — every subscription/listener/release registers a finalizer on the scope it was created in, and parent-fork cascade tears them down on close. Owns `buildScopedChild` (the one place a dynamic subtree gets a parent-linked child scope), the `List` **interpreter** that applies a `reconcile.ts` plan to real DOM + scopes, and the error **sink** (runs event-handler Effects + routes runtime failures). Form-control props (`value`/`checked`/`selected`/`indeterminate`) write DOM _properties_ — post-dirty-flag, attributes stop mirroring — with initial writes deferred past the children loop (`select.value` needs its `<option>`s) and guarded against no-op writes (caret); pins in `testing/form-props.test.ts`. **Known limitation (#156):** options arriving _after_ the value write silently reset the select to its first option |
 | `reconcile.ts`         | Pure keyed-list diff. `plan(prevKeys, nextKeys) → ReconcileOp[]` over opaque keys — no DOM, no `Scope`, no `Effect`. The runtime's highest-bug-density logic, made exhaustively unit-testable. `mount`'s `List` case interprets the ops                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `index.ts`             | Public exports + `For` (keyed list over a `ListSource`), `Catch` (overloaded catch-all + tag-selective, over an internal `makeBoundary`), `Fragment`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `index.ts`             | Public exports + `For` (keyed list over a `ListSource`), `Catch` (one signature, tag arms + `Failure`, over an internal `makeBoundary`), `Fragment`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `coerce.test.ts`       | Vitest suite for `coerceAsync` / `coerceSync` (parity + the sync/async asymmetry pin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `reconcile.test.ts`    | Pure diff tests — an apply-to-array oracle (plan turns `prev` into `next`) plus exact op-sequence pins (move-minimality; index updates on shift)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `types/Fold.ts`        | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls). Plus the props fold (#72): `FoldPropsLiveE`/`FoldPropsR` — an `on*` handler's `Effect` return contributes live `E` + `R`, via ONE cached `[E, R]` pass (`FoldPropsChannels`) with a zero-handler fast path, an `any`-guard, a bare-`on` exclusion, and AtomRef fold-through. Hard-won pin: the pair is read through a naked type param (`PairE`/`PairR`) — a non-distributive `never extends [infer E, any]` silently resolves to `unknown`. Plus the arms fold (#120): `ArmR`/`FoldArmsR` — an Async arm or Catch fallback's `R` (minus `Scope`) folds onto the boundary                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `types/Fold.ts`        | `ChildE`/`ChildLiveE`/`ChildR` + `FoldE`/`FoldLiveE`/`FoldR` — the channel-fold conditional types. Two error families: construction (`*E`, Effect channel) vs live (`*LiveE`, `View<E>` channel). No `Tag*` family since #71 (component tags are direct calls). Plus the props fold (#72): `FoldPropsLiveE`/`FoldPropsR` — an `on*` handler's `Effect` return contributes live `E` + `R`, via ONE cached `[E, R]` pass (`FoldPropsChannels`) with a zero-handler fast path, an `any`-guard, a bare-`on` exclusion, and AtomRef fold-through. Hard-won pin: the pair is read through a naked type param (`PairE`/`PairR`) — a non-distributive `never extends [infer E, any]` silently resolves to `unknown`. Plus the arms fold (#120): `ArmR`/`FoldArmsR` — an `On` arm or `Catch` arm's `R` (minus `Scope`) folds onto the boundary                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `types/Html.ts`        | `IntrinsicProps`/`HtmlEventHandlers` — typed event handlers for HTML intrinsics. Handlers return `unknown` (the honest `applyProp` contract: an `Effect` return is run, anything else ignored); the precise `E`/`R` are read off the _inferred_ props type by the props fold, not off this constraint. A typed `on*` slot also accepts an `Atom`/`AtomRef` holding the handler (reactive handler; `applyProp` re-applies the current function; the fold peels the wrapper) — any prop may be reactive, pinned by `testing/reactive-props.test.ts` + Fold.test-d §28                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `types/Fold.test-d.ts` | `assertEquals` matrix — every channel-fold shape                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
@@ -335,40 +339,38 @@ the time `coerceAsync` returns a View, all channels have been
 hoisted into the surrounding Effect.
 
 Good candidates if a need arises: `Portal` (render children to a
-different DOM root). Note an async boundary did **not** need a new
-variant (`Async` builds a `Reactive` — see below), but the _error_
+different DOM root). Note `On` did **not** need a new
+variant (it builds a `Reactive` — see below), but the _error_
 boundary **did** (`Boundary`): it has to redirect the error sink for its
 child subtree, which only `buildDom` can do when it descends into the
 node — not expressible by `Reactive`-over-a-ref alone. Anti-pattern:
 convenience wrappers like `Card`/`Heading` — those are components, not IR.
 
-## Async data: `atom` / `fn` + `AsyncResult`
+## Async data: `atom` / `fn` + `On`
 
 Errors-as-values (à la effect-atom): `atom(effect)` / `fn(f)` expose an
-`AsyncResult<A, E>` you match where it is consumed — `AsyncResult.builder`
-/ `match` — never a throw-and-catch boundary. THE idiom for "handle some,
-bubble the rest":
+`AsyncResult<A, E>` you match where it is consumed — never a
+throw-and-catch boundary. THE idiom is `On`: "handle some, bubble the rest":
 
 ```tsx
-{
-  Atom.map(user, (r) =>
-    AsyncResult.builder(r)
-      .onInitialOrWaiting(() => <p>loading…</p>)
-      .onErrorTag("NotFound", () => <p>no such user</p>) // handled here; E narrows
-      .onSuccess((u) => <b>{u.name}</b>)
-      .onFailure(Effect.failCause) // residual → live E → nearest Catch
-      .exhaustive(),
-  )
-} // compile check: nothing unhandled
+<On
+  value={user}
+  Waiting={() => <p>loading…</p>}
+  NotFound={() => <p>no such user</p>} // handled here; E narrows
+  Success={(s) => <b>{s.value.name}</b>}
+/> // residual failures → live E → nearest Catch
 ```
 
-`.onFailure(Effect.failCause)` makes the atom EMIT an `Effect<never, E>`;
-the fold's phase switch (above, "Phase switch at the Atom/AtomRef
-boundary") puts that `E` on `View<E>`, so `mount` refuses the tree without
-a `Catch` naming it — the same guarantee `Async`'s open failure arm gave,
-without a second boundary primitive. Retry = `Catch`'s `reset` +
-`Atom.refresh(x)`. Never `.render()` (it throws the squashed cause,
-bypassing the typed channel). Pinned by `testing/atom-escalate.test.ts`.
+An unhandled failure makes `On`'s atom EMIT an `Effect<never, E>`; the
+fold's phase switch (above, "Phase switch at the Atom/AtomRef boundary")
+puts that `E` on `View<E>`, so `mount` refuses the tree without a `Catch`
+naming it — one boundary primitive for both phases. Retry = `Catch`'s
+`reset` + `Atom.refresh(x)`.
+
+Escape hatch for custom states: `Atom.map(user, r => AsyncResult.builder(r)
+….onFailure(Effect.failCause).exhaustive())` — the same phase switch types
+it. Never `.render()` (it throws the squashed cause, bypassing the typed
+channel). Pinned by `testing/atom-escalate.test.ts`.
 
 ## `Catch` — the view-level error boundary
 
@@ -408,9 +410,9 @@ is the children, the handling is the arm props — one prop per error `_tag`, pl
 Dispatch order: tag arm first, then `Failure`, else escalate. `assertHandlerMap`
 runs on the props object itself (a rest-spread would hide its prototype).
 
-Both run over the internal `makeBoundary(child, accepts, handler)` (builds the
-`Boundary` node, drives `state`); they differ only in `accepts` (`Failure` present = always;
-else `_tag ∈ keys`) and how the handler is invoked. A cause a tag-map doesn't
+`Catch` runs over the internal `makeBoundary(child, accepts, handler)` (builds the
+`Boundary` node, drives `state`); `accepts` is `Failure` present = always,
+else `_tag ∈ keys`. A cause a tag-map doesn't
 `accept` is **escalated**: at construction it re-raises on the Effect channel (its
 residual rides `EC`, so a parent boundary / `mount` still sees it); when live it
 goes to the ambient sink (the parent boundary — `mount` hands it over via the
@@ -419,7 +421,7 @@ event-handler/reactive error needs the catch-all form.
 
 A subtree with undischarged errors won't pass `mount` — that's the thesis. (The
 fallback's `R` folds — `ArmR<H>` for the catch-all, `FoldArmsR<Handlers>` for
-the tag map — like `Async`'s arms (#120); its own `E` is permissive and its
+the tag map — like `On`'s arms (#120); its own `E` is permissive and its
 success must be `View<never>`.)
 
 Catches **both phases** through one fallback:
@@ -438,8 +440,8 @@ Catches **both phases** through one fallback:
 drained by a `forkScoped` loop** — never mutating boundary
 state synchronously inside the child's render, which would close the child scope
 mid-render (reentrant). The runtime impl runs on a deliberately wider, untyped
-signature (`Cause<unknown>` sink); the precise types live in the two public
-overloads that front it.
+signature (`Cause<unknown>` sink); the precise types live in the public
+`Catch` signature that fronts it.
 
 **Two lifecycle details that are easy to get wrong (and were):**
 
@@ -515,13 +517,13 @@ scope IS the cleanup.
 path that runs user code AFTER construction must run it on the context that
 was ambient WHERE the node was constructed — that's what makes a mid-tree
 `Effect.provide` sound against the channels the fold claims (`FoldPropsR`,
-`list`'s row `R`). The variant matrix (get this right when adding an IR
+`For`'s row `R`). The variant matrix (get this right when adding an IR
 variant — the "new variant" checklist below points here):
 
 | Variant                   | Captures where                                                                                               | Consumed by                                                                                                                                                            | Why / why not                                                                              |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `Element`                 | `h()`, ONLY when a handler prop exists (`hasHandlerProp` over the shared `isHandlerKey` gate, own keys only) | handler dispatch — `applyProps` gets the `HandlerDeps` quartet (`context`/`sink`/`registry`/`ownerScope`) DIRECTLY; the static-element path derives no node ctx/runner | handler-less elements stay pure data                                                       |
-| `Reactive`                | `coerceAsync`'s reactive-source branch; `Async`                                                              | every re-render (`buildScopedChild` with the node-scoped ctx)                                                                                                          | re-renders run through `coerceSync`, not the construction fiber                            |
+| `Reactive`                | `coerceAsync`'s reactive-source branch; `On`                                                                 | every re-render (`buildScopedChild` with the node-scoped ctx)                                                                                                          | re-renders run through `coerceSync`, not the construction fiber                            |
 | `List`                    | `For()` (an Effect precisely so it can capture)                                                              | every row build, incl. post-mount inserts                                                                                                                              | rows materialize at reconcile time                                                         |
 | `Boundary`                | `makeBoundary`                                                                                               | the FALLBACK arm only                                                                                                                                                  | ok content is rebuilt by the drain fiber, which inherits the construction context natively |
 | `Text`/`Fragment`/`Empty` | —                                                                                                            | —                                                                                                                                                                      | no post-construction user code                                                             |

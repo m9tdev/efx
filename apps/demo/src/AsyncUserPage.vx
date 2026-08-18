@@ -11,9 +11,8 @@ import { Http } from "./services.ts"
  * is still a compile error); `AtomRegistry | Scope` are the atom's own
  * contribution (mounted on the component's Scope, so ↻ reset interrupts an
  * in-flight fetch). `<On value={user} …/>` renders the three
- * states as values; `.onFailure` handles the failure at the leaf — never
- * thrown, never folded to `E` — and `exhaustive()` type-checks that every
- * case is covered.
+ * states as values; the `Failure` arm handles the failure at the leaf — never
+ * thrown, never folded to `E` — so nothing is left to bubble.
  *
  * Inferred type: `Effect<View, never, Http | AtomRegistry | Scope>`
  */

@@ -16,21 +16,21 @@ class RateLimited extends Data.TaggedError("RateLimited")<{
  * each error lives, per call site and per tag** — built on **`atom`**: each
  * block's data is an `Atom<AsyncResult<User, HttpError | RateLimited>>`
  * created in the component body, OUTSIDE the boundaries, then rendered via
- * `Atom.map`. The data outlives the views: an escalated block's atom keeps
+ * `<On value={…}>`. The data outlives the views: an escalated block's atom keeps
  * tracking `userId` (`get(userId)` in its create fn) and can be refreshed
  * from anywhere — the spam button is just `Atom.refresh(tagUser)` ×3, no
  * synthetic dep tricks.
  *
  * **Tag block** (top): the fetch can fail with `HttpError | RateLimited`.
- * - `HttpError` is handled **at the leaf** (`.onErrorTag("HttpError", …)`):
+ * - `HttpError` is handled **at the leaf** (the `HttpError={…}` arm):
  *   the 404 banner renders in place; picking another id refetches and
  *   recovers with no boundary involved, and the banner's `retry` is
  *   `Atom.refresh(tagUser)` — re-runs the same fetch, the waiting arm shows
  *   while it's in flight.
- * - `RateLimited` is *not* handled there, so `.onFailure(Effect.failCause)`
- *   escalates the residual — the builder narrows `E` like `catchTag`, so the
- *   emitted Effect is `Effect<never, RateLimited>` and the fold puts it on
- *   `View<RateLimited>` — to the page-level `Catch`, whose own tag map
+ * - `RateLimited` is *not* handled there, so `On` escalates the residual —
+ *   the tag arm narrows `E` like `catchTag`, so the emitted Effect is
+ *   `Effect<never, RateLimited>` and the fold puts it on
+ *   `View<RateLimited>` — to the page-level `Catch`, whose own tag arm
  *   unwraps it (`e.retryAfterMs` is typed). Deleting that `Catch` is a
  *   compile error naming `RateLimited`, and only `RateLimited`.
  *

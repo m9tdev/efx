@@ -50,7 +50,7 @@ type UserPageType = ReturnType<typeof UserPage>
 assertEquals<UserPageType, Effect.Effect<View, HttpError, Http | Theme>>()
 
 // ─── AsyncUserPage: the same fetch as an `atom`. On handles the
-//     failure locally (`.onFailure(view)`), so E is `never`; Http still folds
+//     failure locally (a `Failure` arm), so E is `never`; Http still folds
 //     (the atom runs on the component's context), plus `AtomRegistry | Scope`
 //     from `atom` (mounted on the component's Scope; mount discharges the
 //     registry). Same data, opposite E — the leaf vs. fold-to-root contrast,
@@ -62,9 +62,9 @@ assertEquals<
   Effect.Effect<View, never, Http | AtomRegistry.AtomRegistry | Scope.Scope>
 >()
 
-// ─── AsyncEscalate: `onErrorTag` handles HttpError at the leaf; the
-//     RateLimited residual (`.onFailure(Effect.failCause)`) rides
-//     View<RateLimited> to a page Catch tag map. Fully discharged end-to-end
+// ─── AsyncEscalate: an `HttpError` arm on `On` handles it at the leaf; the
+//     RateLimited residual (no arm) rides
+//     View<RateLimited> to a page Catch tag arm. Fully discharged end-to-end
 //     → View<never>/E never, Http folds.
 
 type AsyncEscalateType = ReturnType<typeof AsyncEscalate>

@@ -1,16 +1,17 @@
-// Probe for step 08 — `Async` failure homes over `AsyncHandle`s: the tag-map
-// arm splits per tag, the open-form block beside it escalates everything, and
-// the fake endpoint REALLY rate-limits (2 requests/second across both handles,
-// counted at request-creation time). Verifies: both blocks render on load; a
+// Probe for step 08 — `On` failure homes over `atom`s: the tag block's
+// `HttpError` arm handles that tag at the leaf, the open block beside it has
+// no failure arm so everything bubbles, and the fake endpoint REALLY
+// rate-limits (2 requests/second across both atoms, counted at
+// request-creation time). Verifies: both blocks render on load; a
 // leaf-handled HttpError (Bad id) renders the leaf fallback WITHOUT touching
-// the page tag-map boundary while the SAME failure escalates the open-form
-// block to its catch-all banner; the tag-map handle recovers on a dep change
-// with no reset while the open form needs its banner's refetch+reset; leaf
-// retry (the handle's refetch) shows the loading arm then re-fails; spam ×3
-// (three manual refetches of the top handle) trips the limiter and
-// RateLimited rides the residual to the page tag map; the page banner's
-// refetch+reset then re-fetches the STILL-SELECTED id. Every id click costs
-// one request PER HANDLE, so steps that must not be limited settle >1s first.
+// the page tag-arm boundary while the SAME failure escalates the open block
+// to its catch-all banner; the tag block's atom recovers on a dep change with
+// no reset while the open form needs its banner's refresh+reset; leaf retry
+// (`Atom.refresh`) shows the waiting arm then re-fails; spam ×3 (three manual
+// refreshes of the top atom) trips the limiter and RateLimited rides the
+// residual to the page tag arm; the page banner's refresh+reset then
+// re-fetches the STILL-SELECTED id. Every id click costs one request PER
+// ATOM, so steps that must not be limited settle >1s first.
 import { runProbe, waitForText as waitForTextIn } from "./probe-harness.mjs"
 
 const errors = []

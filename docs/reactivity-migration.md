@@ -115,20 +115,21 @@ equally fine-grained; the split is composability vs per-cell cost. Plus
 `AsyncResult.*`.
 
 Removed: `asyncRef`, `streamRef`, `AsyncHandle`, `makeDepSubscription`,
-`list`, our `AtomRef` glue (`bridgeAtom`, tracker), `Async`, `VerrexLive`,
-`h.track`, `h.read`. `Fragment` STAYS: a
+`list`, the `AtomRef` tracker, `Async`, `VerrexLive`,
+`h.track`, `h.read`. `bridgeAtom` STAYS (the AtomRef→Atom bridge `h.reader`'s
+`get(ref)` and `On` go through — see the status line). `Fragment` STAYS: a
 fragment must be an Effect where an Effect is expected (`return yield* <>…</>`,
 `<Catch>` children, `For` rows) — an array child is not one. `isAtomRef`
 stays as the subscribe-shape switch.
-Added: `atom`, `fn`, `For`.
+Added: `atom`, `fn`, `For`, `On`, `get`.
 
 `Component.make` STAYS (decided): the name slot is worth the seam. Note for
 later: `Effect.fn` on rc.109 preserves a generic component's type parameter
 (verified with tsc), so its "generic preservation" job is gone; a future
 compiler rewrite naming top-level `Effect.fn` in `.vx` could replace it.
 
-Final core surface: **`h`, `mount`, `Catch`, `For`, `Fragment`, `atom`, `fn`,
-`Component.make`, types.** Everything reactive is `effect/unstable/reactivity` verbatim.
+Final core surface: **`h`, `get`, `mount`, `Catch`, `On`, `For`, `Fragment`, `atom`, `fn`,
+`Component.make`, `RootSink`, types.** Everything reactive is `effect/unstable/reactivity` verbatim.
 
 ## Errors: both phases escalate to the nearest `Catch`
 
@@ -152,12 +153,14 @@ E>`; the fold puts `E` on `View<E>` → nearest `Catch`. Partial handling
   Pin: `Atom<Effect<View, E>>` child → `View<E>`, construction `E = never`.
 - Handler Effects keep riding `View<E>` (#72). Retry = `Catch`'s `reset` +
   `Atom.refresh(x)`.
-- THE idiom for "handle some, bubble the rest" is Effect's own builder:
-  `AsyncResult.builder(r).onInitialOrWaiting(…).onErrorTag("NotFound", …)
-.onSuccess(…).onFailure(Effect.failCause).exhaustive()` — `onErrorTag`
-  narrows `E` like `Effect.catchTag`, `onFailure` receives the residual
-  `Cause<E>`, `exhaustive()` type-checks completeness. Never `.render()` (it
-  throws the squashed cause, bypassing the typed channel).
+- [Superseded] The plan named Effect's builder as THE idiom for "handle
+  some, bubble the rest": `AsyncResult.builder(r).onInitialOrWaiting(…)
+.onErrorTag("NotFound", …).onSuccess(…).onFailure(Effect.failCause)
+.exhaustive()`. What landed is `<On value={r} Waiting={…} NotFound={…}
+Success={…} />` — same semantics (a tag arm narrows `E`, an unhandled failure
+  bubbles), as a JSX tag. The builder stays as an escape hatch for custom
+  states. Never `.render()` (it throws the squashed cause, bypassing the typed
+  channel).
 
 ## One dialect: `get` everywhere
 
@@ -175,7 +178,7 @@ const user   = yield* atom((get) => http.getUser(get(userId)))
 <input value={prompt} oninput={(e) => Atom.set(prompt, e.currentTarget.value)} />
 <span>user #{get(userId)} ({get(prompt).length} chars)</span>          // multi-source, one expression
 <div class={get(open) ? "open" : ""} />
-{AsyncResult.builder(get(user)).onSuccess((u) => <b>{u.name}</b>).onFailure(Effect.failCause).exhaustive()}
+<On value={user} Success={(s) => <b>{s.value.name}</b>} />                       // failure bubbles to Catch
 <For each={todos}>{(todo) => <li>{get(todo).title}</li>}</For>                     // Collection rows (AtomRef)
 <For each={users} key={(u) => u.id}>{(u) => <li>{get(u).name}</li>}</For>          // Atom rows — same row DX
 ```
@@ -198,9 +201,11 @@ Compiler rule (name-based, the same size as today's `.value` pass):
   throws at runtime; the checker/ts-plugin flags it.
 - Purity contract = `Atom.readable`'s own (re-runs per dep change).
 
-Three layers, each valid alone: `{get(x) * 2}` (sugar) → `{(get) => get(x) * 2}`
-(explicit inline reader; ALSO supported by `h`, function child/prop → reader)
-→ `Atom.readable((get) => …)` (plain effect-atom). Implemented as: `get` is a real export read through an ambient reader; the compiler only wraps `h.reader(() => expr)`.
+Two layers, each valid alone: `{get(x) * 2}` (sugar) → `Atom.readable((get) => …)`
+(plain effect-atom). Implemented as: `get` is a real export read through an
+ambient reader; the compiler only wraps `h.reader(() => expr)`. (Superseded
+from the plan: `h` does NOT accept a function child/prop as an inline reader —
+function-valued non-`on*` props stay stringified; only the compiler emits readers.)
 
 Deleted with this: the compiler's `.value → h.read` rewrite, the `h.track`
 wrap (replaced by the `get(…)` → reader wrap), `isSelfTrackingCall`,
@@ -272,7 +277,8 @@ only". Upstream issue: `batch` should save/restore `phase`.
    writes the attribute/property live (children already do; the existing
    AtomRef-handler re-apply becomes the special case). Function-valued
    non-`on*` props become inline readers in step 5 (today stringified —
-   note the meaning change). Types:
+   note the meaning change). [Superseded: the function-prop reader was
+   dropped; see the JSX-reader section.] Types:
    `IntrinsicProps` values accept `T | Atom<T> | AtomRef.ReadonlyRef<T>`
    (verified: contextual `e: MouseEvent`, handler fold and `any`-guard
    survive; `Atom<handler>` folds its E). Delete `bridgeAtom` only — the
@@ -321,8 +327,8 @@ only". Upstream issue: `batch` should save/restore `phase`.
 5. **Compiler + runtime deletions (one PR)** — replace `.value → h.read` +
    `h.track` wrap with the `get(…)` → `Atom.readable((get) => …)` wrap
    (+ nested-function compile error); remove `isSelfTrackingCall`,
-   `.map → list` sugar; `h` accepts a function child/prop as an inline
-   reader; export `get`; `<>` still
+   `.map → list` sugar; export `get` [superseded: no function child/prop
+   reader in `h`]; `<>` still
    lowers to `Fragment`; `Component.make` name injection unchanged. Same PR deletes `h.track`, `h.read`, `trackDeps`,
    `track-*.test.ts` (they are one contract). Update
    `compiler/AGENTS.md`, transform tests, the ts-plugin inlay filter if

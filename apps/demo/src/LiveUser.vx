@@ -9,7 +9,7 @@ import { Http } from "./services.ts"
  * The user id is a local `Atom.make` cell; the buttons `Atom.set` it. The
  * atom's create function reads `get(userId)`, so the id becomes a tracked
  * dependency and the fetch re-runs whenever it changes — interrupting the
- * stale request — while `AsyncResult.builder` renders waiting / success /
+ * stale request — while `<On value={user}>` renders waiting / success /
  * failure. No explicit trigger to declare.
  *
  * Inferred type: `Effect<View, never, Http | AtomRegistry | Scope>`

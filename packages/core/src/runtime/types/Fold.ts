@@ -139,7 +139,7 @@ export type FoldR<Cs extends readonly unknown[]> = ChildR<Cs[number]>
 // function-valued attr is stringified into an attribute and never invoked —
 // folding it would make the type claim an `E` that can never fire. (The same
 // parity rule as `Child` ↔ `coerceAsync`.) A reactive-valued handler prop
-// (Atom — what a `h.track` derived is — or AtomRef) folds through to the
+// (Atom — e.g. a compiler-emitted `h.reader` — or AtomRef) folds through to the
 // inner function: `applyProp`'s reactive branch unwraps the source and
 // re-applies its value as a live listener, so the channels must survive
 // the wrapper.
@@ -213,7 +213,7 @@ export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
 /**
  * Fold a props object to the union of its `on*` handlers' `R` channels.
  *
- * `Scope` is EXCLUDED, mirroring `list`'s row fold: `runHandlerEffect` provides
+ * `Scope` is EXCLUDED, mirroring `For`'s row fold: `runHandlerEffect` provides
  * a `Scope` into the handler effect, so a handler's `Scope` is already
  * satisfied by the runtime. Surfacing it would demand a `Scope` the caller
  * never has to supply — the same lie, in the opposite direction, that the rest
@@ -225,14 +225,14 @@ export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
  */
 export type FoldPropsR<P> = Exclude<PairR<FoldPropsChannels<P>>, Scope.Scope>
 
-// ─── Arms fold: Async arms, Catch fallbacks, tag-map handlers (#120) ───────
+// ─── Arms fold: `On` arms, `Catch` arms (#120) ───────
 //
 // An arm/fallback renders on the node's construction-captured context, so a
 // service it (or a handler inside it) needs must be in that context — i.e.
 // provided at `mount`. Folding the arm's `R` onto the boundary's result makes
 // a missing Layer there the same compile error as everywhere else, instead
 // of a click-time Service-not-found defect. `Scope` is excluded: the arm
-// renders under the node scope (`coerceSync` provides it), like `list` rows
+// renders under the node scope (`coerceSync` provides it), like `For` rows
 // and handlers. Only `R` folds — an arm's OWN Effect `E` stays permissive and
 // its success stays `View<never>` (a typed failing handler inside an arm is
 // rejected at the arm; discharge it with a nested `Catch`).

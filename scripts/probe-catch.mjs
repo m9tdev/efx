@@ -21,7 +21,7 @@ await runProbe({
     const demoText = async () =>
       (await demo.innerText()).replace(/\s+/g, " ").trim()
 
-    // 1) tag-map (object form): the flaky request ~50% fails at construction with a
+    // 1) tag arm (`HttpError={…}`): the flaky request ~50% fails at construction with a
     //    random tagged error (caught + unwrapped) and ~50% succeeds. On success the
     //    subtree stays live — its button fails with an HttpError on click, which the
     //    SAME tag-map catches (a LIVE error). Drive it via `retry` (from an error)
@@ -75,7 +75,7 @@ await runProbe({
 
     console.log("\n[on load]\n" + (await demoText()))
 
-    // 2) catch-all (function form): child rendered its working button (scoped to
+    // 2) catch-all (`Failure` arm): child rendered its working button (scoped to
     //    `.crasher` — the tag-map's success view also has a `.crash`).
     const crashBtn = demo.locator(".crasher .crash")
     const crashVisible = (await crashBtn.count()) > 0

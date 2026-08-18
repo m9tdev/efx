@@ -40,10 +40,14 @@ the running component (with a reset button) on the right.
 Success={(s) => …} NotFound={(e) => … } />` renders a tagged
   value by tag and BUBBLES any unhandled failure — the residual `E` rides
   `View<E>` to the nearest `Catch`. Works for `Option`, `Result`,
-  `AsyncResult`, `Exit`, your own tagged unions.
+  `AsyncResult`, `Exit`, your own tagged unions. Two gotchas: a non-failure
+  tag with no arm renders nothing; `Waiting` wins over `Success` while a
+  refetch is in flight — omit `Waiting` and read `s.waiting` inside `Success`
+  to keep stale data visible.
 - **Effect-native error boundary.** `<Catch Failure={(cause, reset) => fallback}>`
   (or `<Catch HttpError={(e, reset) => …}>` for tag-selective — the same arm
-  props as `On`) recovers the failure side of
+  keys as `On`, but `Catch` handlers get `(error, reset)` / `(cause, reset)`
+  where `On`'s get `(error, variant)` / `(variant)`) recovers the failure side of
   a view subtree, mirroring Effect's `catch*`. `mount` requires every error
   discharged, so a forgotten boundary is a compile error that names the unhandled
   error — the runtime counterpart of a forgotten `Layer`.
@@ -142,7 +146,7 @@ together, so the UI and its reactivity always die at the same moment.
 ```
 packages/
   core/               one package (`@verrex/core`), subpath exports:
-    src/runtime/        export `@verrex/core`     — View IR, h(), mount(), atom(), fn(), For, Catch
+    src/runtime/        export `@verrex/core`     — View IR, h(), get, mount(), atom(), fn(), For, On, Catch
     src/compiler/       export `@verrex/core/compiler` — .vx → plain TypeScript (Babel)
     src/language/       export `@verrex/core/language` — Volar language plugin
     src/check/          export `@verrex/core/check`, bin `verrex-check`
@@ -195,15 +199,15 @@ Installs from npm do not have this problem — pnpm hoists one `effect`.
 
 | Asset                    | Raw       | Gzipped      |
 | ------------------------ | --------- | ------------ |
-| `dist/index.html`        | 11.66 kB  | 3.06 kB      |
-| `dist/assets/index-*.js` | 117.45 kB | **39.64 kB** |
+| `dist/index.html`        | 12.97 kB  | 3.46 kB      |
+| `dist/assets/index-*.js` | 132.75 kB | **44.75 kB** |
 
-The JS bundle contains: `effect@4.0.0-beta.78` runtime (~6 kB gzipped per
-upstream docs), `effect/unstable/reactivity` (`AtomRef`, `Atom`,
-`AtomRegistry`, `AsyncResult`), the `verrex` runtime (~600 LOC,
-contributes single-digit kB), plus all eight demo components (`Counter`,
-`UserPage`, `AsyncUserPage`, `LiveUser`, `Todos`, `Lifecycle`, `CatchDemo`,
-`AsyncEscalate`), the guided-tour
+The JS bundle contains: the `effect@4.0.0-rc.109` runtime,
+`effect/unstable/reactivity` (`AtomRef`, `Atom`,
+`AtomRegistry`, `AsyncResult`), the `verrex` runtime (a few kB gzipped),
+plus all eleven demo components (`Counter`,
+`UserPage`, `AsyncUserPage`, `LiveUser`, `SaveButton`, `TypedHandlers`,
+`Clock`, `Todos`, `Lifecycle`, `CatchDemo`, `AsyncEscalate`), the guided-tour
 shell (a small dependency-free TSX highlighter + reactivity-flash visualizer),
 and their mock services. Verified interactive after build — Counter increments,
 the async demos load then resolve, Todos add/remove/toggle, Lifecycle's

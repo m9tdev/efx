@@ -9,7 +9,7 @@ import { Http } from "./services.ts"
 // no leak, no stale write); `get(save)` is its `AsyncResult`: waiting swaps
 // the buttons for a spinner — the very element the click came from is gone
 // while the (600ms) Http call runs — success settles back to the buttons, and
-// a failure is escalated (`.onFailure(Effect.failCause)`) so the typed
+// a failure is escalated (`<On>` with no failure arm) so the typed
 // HttpError rides the LIVE channel to the `Catch`.
 //
 //   Saver : Effect<View<HttpError>, never, Http | AtomRegistry | Scope>

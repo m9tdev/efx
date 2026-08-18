@@ -496,7 +496,7 @@ type DemoR = AtomRegistry.AtomRegistry | Http | Theme | Scope.Scope
 /**
  * Mount a component into its demo container under a Closeable scope we own, and
  * register a `remount` that tears the old one down (firing its finalizers,
- * cancelling in-flight Async fetches) and builds a fresh one. Because `make()`
+ * interrupting in-flight `atom` fetches) and builds a fresh one. Because `make()`
  * is called anew each time, refresh shows the component's initial state again.
  *
  * `make`'s `R` is constrained to `DemoR`, so a component needing a service

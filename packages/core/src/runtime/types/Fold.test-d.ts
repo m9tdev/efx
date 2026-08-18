@@ -174,9 +174,9 @@ assertEquals<FoldPropsLiveE<OptionalClick>, HttpError>()
 assertEquals<FoldPropsR<OptionalClick>, HttpService>()
 
 // 19) An `unknown`-typed attr contributes nothing — the channels were already
-//     erased upstream, so the fold must not invent any. (Since #159 `h.track`
-//     no longer PRODUCES `unknown`; this pins the general rule, and case 27
-//     pins the tracked shape it produces instead.)
+//     erased upstream, so the fold must not invent any. (History: the old
+//     `h.track` wrap once PRODUCED `unknown` (#159); this pins the general
+//     rule, and case 27 pins the reactive-handler shape instead.)
 type TrackedClick = { onclick: unknown }
 assertEquals<FoldPropsLiveE<TrackedClick>, never>()
 assertEquals<FoldPropsR<TrackedClick>, never>()
@@ -254,7 +254,7 @@ assertEquals<
 
 // 26) A handler's `Scope` is EXCLUDED from the folded R — `runHandlerEffect`
 //     provides a Scope into the effect, so surfacing it would demand one the
-//     caller never supplies. Mirrors `list`'s `Exclude<R, Scope>` on row
+//     caller never supplies. Mirrors `For`'s `Exclude<R, Scope>` on row
 //     channels. Other services still ride. (The exclusion is sound — a Scope
 //     really is provided: a PER-DISPATCH scope, closed when the handler
 //     settles (#160); see runHandlerEffect in mount.ts and the release-per-
@@ -270,10 +270,10 @@ type ScopedPlusService = {
 }
 assertEquals<FoldPropsR<ScopedPlusService>, HttpService>()
 
-// 27) h.track's HONEST return type folds (#159). The compiler wraps a
-//     `.value`-reading attr in `h.track(() => …)`, which returns `T` (nothing
-//     read) or `Atom<T>` (something read — the demand-driven derived) — a
-//     union, not `unknown`. The `unknown` erasure was #159: invisible on
+// 27) A `T | Atom<T>` handler union folds (#159). History: the old `h.track`
+//     wrap returned `T` (nothing read) or `Atom<T>` (something read) — a
+//     union, not `unknown`; today the same shape is a hand-written reactive
+//     handler prop. The `unknown` erasure was #159: invisible on
 //     LISTED keys (it failed HandlerSlot loudly) and silent on UNLISTED ones,
 //     which pass through IntrinsicProps' `Record<string, unknown>` half.
 //     NOTE what this pin does and does NOT prove: `HandlerChannels`
