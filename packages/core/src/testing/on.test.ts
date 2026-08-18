@@ -2,7 +2,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest"
 import { Cause, Context, Data, Deferred, Effect, Option, Result } from "effect"
 import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity"
-import { atom, Catch, h, On, type View } from "@verrex/core"
+import { atom, Catch, get, h, On, type View } from "@verrex/core"
 import { render } from "./index.ts"
 
 // `<On value={x} Tag={…} />` — after compile:
@@ -64,6 +64,68 @@ describe("On — dispatch", () => {
     })
     const ui = await render(App())
     expect(ui.text(".out")).toBe("busy 3")
+    await ui.unmount()
+  })
+
+  it("value tags dispatch on OWN arms only; a user 'Failure' variant without cause/failure is an ordinary tag", async () => {
+    type S =
+      | { _tag: "toString" }
+      | { _tag: "Failure"; readonly msg: string }
+      | { _tag: "Ok" }
+    const st = Atom.make<S>({ _tag: "toString" })
+    let registry!: AtomRegistry.AtomRegistry
+    const App = Effect.fn(function* () {
+      registry = yield* AtomRegistry.AtomRegistry
+      return yield* h("p", { class: "out" }, On({ value: st, Ok: () => "ok" }))
+    })
+    const ui = await render(App())
+    expect(ui.text(".out")).toBe("") // not "[object Undefined]"
+    registry.set(st, { _tag: "Failure", msg: "x" })
+    await ui.tick()
+    expect(ui.text(".out")).toBe("") // renders nothing, nothing escalated
+    expect(ui.sinkCauses).toEqual([])
+    registry.set(st, { _tag: "Ok" })
+    await ui.tick()
+    expect(ui.text(".out")).toBe("ok")
+    await ui.unmount()
+  })
+
+  it("an arm that throws becomes a live defect (Effect.die) — siblings keep updating", async () => {
+    type S = { _tag: "Ok"; readonly v: number }
+    const st = Atom.make<S>({ _tag: "Ok", v: 0 })
+    let registry!: AtomRegistry.AtomRegistry
+    const App = Effect.fn(function* () {
+      registry = yield* AtomRegistry.AtomRegistry
+      return yield* h(
+        "p",
+        {},
+        h(
+          "span",
+          { class: "a" },
+          On({
+            value: st,
+            Ok: (o) => {
+              if (o.v === 1) throw new Error("boom")
+              return String(o.v)
+            },
+          }),
+        ),
+        h(
+          "span",
+          { class: "b" },
+          h.reader(() => String(get(st).v)),
+        ),
+      )
+    })
+    const ui = await render(App())
+    registry.set(st, { _tag: "Ok", v: 1 })
+    await ui.tick()
+    expect(ui.text(".b")).toBe("1")
+    expect(ui.sinkCauses.length).toBe(1)
+    registry.set(st, { _tag: "Ok", v: 2 })
+    await ui.tick()
+    expect(ui.text(".a")).toBe("2")
+    expect(ui.text(".b")).toBe("2")
     await ui.unmount()
   })
 })

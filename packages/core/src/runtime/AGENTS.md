@@ -240,9 +240,17 @@ set for good (siblings freeze silently) and the throw lands in the writer
 `user` is briefly null) is common in JSX, so `h.reader` catches: keep the
 last good value (`ctx.self()`), stay subscribed to whatever the failed run
 did read, `console.error`, recover on the next dep change; a FIRST-read
-throw has no last value and rethrows (fail loud at first paint). Pinned by
-`h.test.ts`. User-written `Atom.readable`s get Effect's behaviour (upstream
-issue). Do NOT "simplify" this back to letting the throw propagate.
+throw has no last value and becomes `Effect.die(error)` — a live defect for
+the nearest `Catch` / root sink (a nested reader's first read usually happens
+INSIDE a notify cascade, so rethrowing would freeze siblings just the same).
+`On`'s readable applies the same rule (an arm that throws → `Effect.die`).
+While a reader reads a source, the ambient-reader stack holds a `null`
+frame, so a verrex `get(...)` reached synchronously from inside an
+`Atom.map`/`Atom.readable` body throws ("outside a reactive expression")
+instead of silently recording its dep on the outer reader. Pinned by
+`h.test.ts` / `on.test.ts`. User-written `Atom.readable`s get Effect's
+behaviour (upstream issue). Do NOT "simplify" this back to letting the throw
+propagate.
 
 **Timing:** dep-change propagation (write → reader recompute → mount
 listener) is synchronous. Handler dispatch batches its synchronous prefix

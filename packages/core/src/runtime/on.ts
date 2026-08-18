@@ -147,7 +147,14 @@ export function On(
       : isAtomRef(on)
         ? get(bridgeAtom(on))
         : on
-    return dispatch(value as Tagged, handlers, failure, waiting)
+    // A throw must not escape the registry read (it would freeze this node's
+    // siblings for good — see `h.reader`); an arm that throws is a defect →
+    // `Effect.die`, a live failure for the nearest `Catch` / the root sink.
+    try {
+      return dispatch(value as Tagged, handlers, failure, waiting)
+    } catch (error) {
+      return Effect.die(error)
+    }
   })
   return Effect.succeed(source as unknown as View<any>) as any
 }
@@ -165,7 +172,10 @@ const dispatch = (
   ) {
     return waiting(value)
   }
-  if (tag === "Failure") {
+  // Only the two failure SHAPES escalate (`cause: Cause` / `failure`); a user
+  // union's own `Failure` variant without either is an ordinary tag (the type
+  // says so: `FailureError<T>` is `never` for it).
+  if (tag === "Failure" && isFailureVariant(value)) {
     const cause = causeOf(value)
     // Error-tag arm first (the more specific), then the whole-variant arm.
     const err = Option.getOrUndefined(Cause.findErrorOption(cause))
@@ -173,7 +183,9 @@ const dispatch = (
       typeof err === "object" && err !== null && "_tag" in err
         ? (err as Tagged)._tag
         : undefined
-    if (t !== undefined && Object.hasOwn(handlers, t)) {
+    // (an error tagged "Failure" itself has no error-tag arm: that key IS
+    // the whole-variant arm)
+    if (t !== undefined && t !== "Failure" && Object.hasOwn(handlers, t)) {
       const fn = handlers[t]
       if (typeof fn === "function") return fn(err, value)
     }
@@ -187,8 +199,14 @@ const dispatch = (
     if ((value as { readonly waiting?: boolean }).waiting === true) return null
     return Effect.failCause(cause)
   }
-  const fn = handlers[tag]
+  // OWN keys only — a value tagged "toString" must not hit Object.prototype.
+  const fn = Object.hasOwn(handlers, tag) ? handlers[tag] : undefined
   return typeof fn === "function" ? fn(value) : null
+}
+
+const isFailureVariant = (v: Tagged): boolean => {
+  const rec = v as unknown as Record<string, unknown>
+  return Cause.isCause(rec["cause"]) || Object.hasOwn(rec, "failure")
 }
 
 /** A `Failure` variant's cause: `cause` (AsyncResult, Exit) or a `Cause.fail(failure)` (Result). */

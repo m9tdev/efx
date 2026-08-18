@@ -3,9 +3,10 @@
  * that reads atoms/refs via `get(...)`. An `Atom.readable` under the hood:
  * `get` accepts an `Atom` (registry read) or an `AtomRef` (bridged inside
  * the reader's own read); a re-run that throws keeps the last value and
- * stays subscribed (node-local; a first-run throw rethrows).
+ * stays subscribed (node-local; a first-run throw becomes `Effect.die`).
  */
 import { describe, expect, it, vi } from "@effect/vitest"
+import { Effect } from "effect"
 import { AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { Atom } from "effect/unstable/reactivity"
 import { get, h } from "./h.ts"
@@ -42,11 +43,34 @@ describe("h.reader", () => {
     expect(() => get(a)).toThrow(/outside a reactive expression/)
   })
 
-  it("a FIRST-run throw rethrows (fail loud at first paint)", () => {
+  it("a FIRST-run throw becomes Effect.die (never escapes the registry)", () => {
     const registry = AtomRegistry.make()
     const user = AtomRef.make<{ name: string } | null>(null)
     const name = h.reader(() => get(user)!.name)
-    expect(() => registry.get(name)).toThrow()
+    const v = registry.get(name)
+    expect(Effect.isEffect(v)).toBe(true)
+    // ...and a sibling on the same dep keeps updating: the throw did not
+    // abort the notify cascade.
+    const show = Atom.make(false)
+    const inner = h.reader(() =>
+      get(show) ? h.reader(() => get(user)!.name) : null,
+    )
+    const sibling = h.reader(() => String(get(show)))
+    const seen: Array<string> = []
+    registry.subscribe(sibling, (x) => seen.push(x), { immediate: true })
+    registry.subscribe(inner, () => {}, { immediate: true })
+    registry.set(show, true)
+    expect(seen).toEqual(["false", "true"])
+  })
+
+  it("get() inside a source's own read (Atom.map body) throws instead of mis-tracking", () => {
+    const registry = AtomRegistry.make()
+    const a = Atom.make(1)
+    const b = Atom.make(10)
+    const m = Atom.map(a, (v) => v + get(b)) // wrong: get() outside a reader
+    const out = h.reader(() => get(m))
+    const v = registry.get(out) // first-run throw → Effect.die
+    expect(Effect.isEffect(v)).toBe(true)
   })
 })
 

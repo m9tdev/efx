@@ -38,7 +38,11 @@ export type Get = <A>(source: Atom.Atom<A> | AtomRef.ReadonlyRef<A>) => A
 // (by the registry), so the stack is almost always depth 1 — it is a stack
 // only so a reader that synchronously reads another reader's atom (nested
 // registry reads re-enter this function) stays correct.
-const readers: Array<Get> = []
+// `null` = an explicit "no ambient" frame: pushed while a reader reads one of
+// its sources, so a verrex `get(...)` reached synchronously from INSIDE that
+// read (an `Atom.map`/`Atom.readable` body) throws instead of silently
+// recording its dep on the outer reader (where it would never re-track).
+const readers: Array<Get | null> = []
 
 /**
  * Read an atom or ref inside a reactive JSX expression. The compiler wraps
@@ -51,7 +55,7 @@ const readers: Array<Get> = []
  */
 export const get: Get = (source) => {
   const active = readers[readers.length - 1]
-  if (active === undefined) {
+  if (active === undefined || active === null) {
     throw new Error(
       "[verrex] get() called outside a reactive expression. `get` only tracks inside a JSX " +
         "expression (which the compiler wraps in h.reader) — not in an event handler, after an " +
@@ -64,10 +68,16 @@ export const get: Get = (source) => {
 
 const readerImpl = <A>(_read: () => A): Atom.Atom<A> =>
   Atom.readable((ctx) => {
-    const ambient: Get = (source) =>
-      isAtomRef(source)
-        ? ctx(bridgeAtom(source))
-        : ctx(source as Atom.Atom<any>)
+    const ambient: Get = (source) => {
+      readers.push(null)
+      try {
+        return isAtomRef(source)
+          ? ctx(bridgeAtom(source))
+          : ctx(source as Atom.Atom<any>)
+      } finally {
+        readers.pop()
+      }
+    }
     // A throw must NOT escape the registry read: `AtomRegistry` has no
     // try/catch around a node's read, so an escaping exception aborts the
     // notify cascade — the parent's REMAINING dependents are dropped from
@@ -76,16 +86,19 @@ const readerImpl = <A>(_read: () => A): Atom.Atom<A> =>
     // (`get(user)!.name` while `user` is briefly null) is common in JSX, so
     // the reader stays node-local: keep the last good value, stay
     // subscribed to whatever the failed run did read, report, and recover on
-    // the next dep change. A FIRST-read throw has no last value and rethrows
-    // (fail loud at first paint). This is a verrex-owned readable, so the
-    // guard is ours to keep; user-written `Atom.readable`s get Effect's
-    // behaviour (upstream issue).
+    // the next dep change. A FIRST-read throw has no last value: it becomes
+    // `Effect.die(error)` — a LIVE defect the fold routes to the nearest
+    // `Catch` / the root sink (never rethrown into the registry: a nested
+    // reader's first read commonly happens inside a notify cascade, where a
+    // throw would freeze the siblings just the same). This is a verrex-owned
+    // readable, so the guard is ours to keep; user-written `Atom.readable`s
+    // get Effect's behaviour (upstream issue).
     readers.push(ambient)
     try {
       return _read()
     } catch (error) {
       const previous = ctx.self<A>()
-      if (Option.isNone(previous)) throw error
+      if (Option.isNone(previous)) return Effect.die(error) as A
       console.error(
         "[verrex] a reader threw while re-rendering; " +
           "the node kept its last value and will retry on the next dep change.",
