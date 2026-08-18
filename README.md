@@ -96,19 +96,26 @@ minor versions.
 
 ```tsx
 // Counter.vx
-import { AtomRef } from "effect/unstable/reactivity"
+import { Atom } from "effect/unstable/reactivity"
 import { Component } from "@verrex/core"
 
 export const Counter = Component.make(function* () {
-  const count = AtomRef.make(0)
+  const count = Atom.make(0) // the default local cell
   return yield* (
     <div>
-      <button onclick={() => count.update((n) => n + 1)}>+</button>
-      <span> {count} clicks </span>
-      <button onclick={() => count.set(0)}>reset</button>
+      <button onclick={() => Atom.update(count, (n) => n + 1)}>+</button>
+      <span>
+        {" "}
+        {count} clicks, {get(count) * 2} half-clicks{" "}
+      </span>
+      <button onclick={() => Atom.set(count, 0)}>reset</button>
     </div>
   )
 })
+// Inferred: Effect<View, never, AtomRegistry> — the handlers' writes need the
+// registry; `mount` owns one and discharges it. An atom in JSX renders live;
+// `get(atom)` inside a JSX expression tracks it. (`AtomRef` is only the
+// `Collection` row model — reading `.value` in JSX is not tracked.)
 ```
 
 ```ts

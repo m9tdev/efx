@@ -18,7 +18,6 @@ export {
   On,
   type Residual as OnResidual,
   type TagHandlers as OnArms,
-  type ArmKeys as OnArmKeys,
 } from "./on.ts"
 export { atom, fn, type Fn, type AtomOptions, type FnOptions } from "./atom.ts"
 export { mount, RootSink } from "./mount.ts"
@@ -189,7 +188,7 @@ const taggedMatch = (
 // ─── Error boundary (Catch) ────────────────
 
 /**
- * Shared boundary machinery for `Catch` (both forms). `accepts`
+ * Shared boundary machinery for `Catch`. `accepts`
  * decides which causes THIS boundary handles; a non-accepted cause re-raises at
  * construction (its residual rides the Effect channel → a parent boundary / fails
  * mount) and escalates to the ambient sink when live. The typed public wrappers
@@ -224,7 +223,7 @@ const makeBoundary = <R>(
     // emission distinct.
     let gen = 0
     // Construction scope of the CURRENT content: a child's construction-time effects
-    // (an `asyncRef` supervisor + finalizers, `acquireRelease`, …) bind to a fresh
+    // (an `atom` body's fibers + finalizers, `acquireRelease`, …) bind to a fresh
     // scope forked from the mount scope, so they're released when we swap away or
     // reset rather than leaking onto the mount scope. The fork cascade closes the
     // live one on teardown; `adopt` closes the prior one mid-life. Error content
@@ -344,7 +343,9 @@ const makeBoundary = <R>(
  * View-level error boundary — `Catch`. Mirrors Effect's `catch*`: recover the
  * FAILURE side of a view subtree, let success pass through (the children
  * render themselves). A JSX tag, like `On`: the subtree is the children, the
- * handling is in the props — the same shape as `On`'s failure arms:
+ * handling is in the props — the same arm KEYS as `On`'s failure arms, but a
+ * different handler signature (`Catch`: `(error, reset)` / `(cause, reset)`;
+ * `On`: `(error, variant)` / `(variant)`):
  *
  *  - **tag-selective** — one prop per error `_tag`, for any subset of the
  *    children's error tags (each handler gets the unwrapped tagged error). The
@@ -414,7 +415,7 @@ export type CatchArms<E, K extends string = Types.Tags<E> | "Failure"> = {
           reset: () => void,
         ) => View | Effect.Effect<View, any, any>
 }
-type CatchResidual<E, K extends string> = "Failure" extends K
+export type CatchResidual<E, K extends string> = "Failure" extends K
   ? never
   : Types.ExcludeTag<E, K>
 
