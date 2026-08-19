@@ -233,13 +233,14 @@ describe("per-node context capture", () => {
   })
 
   it("an IN-FLIGHT handler is interrupted (and releases) when its OWNING node is torn down — but not by its node's own re-emit", async () => {
-    // The owner of a handler dispatched from a Reactive emission is the
-    // NODE's scope, not the per-emit child. So: swapping the node's CONTENT
-    // (a re-emit) must NOT interrupt an in-flight handler — while tearing down the node ITSELF (here: the outer slot swaps
-    // the whole inner node away) must interrupt it and fire its release.
-    // The discriminating shape: inner slot nested in an outer slot. This also
-    // rules out the degenerate implementation ownerScope=mount-root, which
-    // would keep the handler alive past the node teardown.
+    // The owner of a handler dispatched from a Reactive emission is the NODE's
+    // scope, not the per-emit child. So: swapping the node's CONTENT (a
+    // re-emit) must NOT interrupt an in-flight handler — while tearing down the
+    // node ITSELF (here: the outer slot swaps the whole inner node away) must
+    // interrupt it and fire its release. The discriminating shape: inner slot
+    // nested in an outer slot. This also rules out the degenerate
+    // implementation ownerScope=mount-root, which would keep the handler alive
+    // past the node teardown.
     const log: string[] = []
     const gate = Deferred.makeUnsafe<void>()
     const makeButton = () =>

@@ -36,7 +36,7 @@ export type CompilerMappingKind = "user" | "h-call" | "punctuation"
  * position translation. Consumers should NOT re-process Babel's source map.
  *
  * Algorithm:
- *   1. Decode Babel's V3 mappings into (genOffset, srcOffset, srcChar) segments.
+ * 1. Decode Babel's V3 mappings into (genOffset, srcOffset, srcChar) segments.
  *   2. Dedupe by source offset (first wins) — Babel sometimes emits multiple
  *      generated points for the same source point.
  *   3. Compute source spans by sorting segments by source offset and taking

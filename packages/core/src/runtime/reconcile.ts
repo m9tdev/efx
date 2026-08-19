@@ -3,8 +3,9 @@
 // This is the single most bug-prone piece of the runtime — a keyed diff — and
 // it is deliberately pure: it operates over opaque keys `K` with NO DOM, no
 // `Scope`, no `Effect`. That makes the diff exhaustively unit-testable (see
-// `reconcile.test.ts`) without mounting a real DOM. `mount`'s `List` case is the
-// *interpreter*: it applies the plan to real DOM nodes and per-row `Scope`s.
+// `reconcile.test.ts`) without mounting a real DOM. `mount`'s `List` case is
+// the *interpreter*: it applies the plan to real DOM nodes and per-row
+// `Scope`s.
 //
 // The `keep` op carries the row's new index so the interpreter can push it
 // into the reactive index ref.
@@ -17,31 +18,38 @@
 export type ReconcileOp<K> =
   /** Row dropped from the list — tear down its scope and detach its node. */
   | { readonly op: "remove"; readonly key: K }
-  /** New row — build it, set its index, insert before `before` (null = append). */
+  /**
+   * New row — build it, set its index, insert before `before` (null = append).
+   */
   | {
       readonly op: "insert"
       readonly key: K
       readonly before: K | null
       readonly index: number
     }
-  /** Existing row repositioned — move its node before `before`, update its index. */
+  /**
+   * Existing row repositioned — move its node before `before`, update its
+   * index.
+   */
   | {
       readonly op: "move"
       readonly key: K
       readonly before: K | null
       readonly index: number
     }
-  /** Existing row already in place — update its index only (no DOM mutation). */
+  /**
+   * Existing row already in place — update its index only (no DOM mutation).
+   */
   | { readonly op: "keep"; readonly key: K; readonly index: number }
 
 /**
  * Compute the ops that turn the `prev` key order into the `next` key order.
  *
  * Removals are emitted first (every `prev` key absent from `next`), then a
- * left-to-right placement walk over `next` emits one `insert`/`move`/`keep` per
- * key. The walk models the post-removal DOM children in `work` and tracks a
- * `cursor` that mirrors the live DOM cursor: it only advances past a row that is
- * already in place, exactly like the original `cursor = cursor.nextSibling`.
+ * left-to-right placement walk over `next` emits one `insert`/ `move`/ `keep`
+ * per key. The walk models the post-removal DOM children in `work` and tracks a
+ * `cursor` that mirrors the live DOM cursor: it only advances past a row that
+ * is already in place, exactly like the original `cursor = cursor.nextSibling`.
  */
 export const plan = <K>(
   prev: ReadonlyArray<K>,
@@ -72,8 +80,9 @@ export const plan = <K>(
       return
     }
     // Needs (re)placing before `atCursor` (null → append). Mirror the DOM
-    // `insertBefore(node, atCursor)`: drop any current occurrence of `key`, then
-    // splice it in at the cursor — leaving `cursor` pointed at `atCursor` again.
+    // `insertBefore(node, atCursor)`: drop any current occurrence of `key`,
+    // then splice it in at the cursor — leaving `cursor` pointed at `atCursor`
+    // again.
     const from = work.indexOf(key)
     if (from !== -1) {
       work.splice(from, 1)

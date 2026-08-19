@@ -225,7 +225,8 @@ async function main() {
   }
   const hParamHints = hints.filter((h) => {
     const text = typeof h.text === "string" ? h.text : JSON.stringify(h.text)
-    // Check for h() parameter hints (tag/props/children, including underscore-prefixed)
+    // Check for h() parameter hints (tag/props/children, including
+    // underscore-prefixed)
     return h.kind === "Parameter" && /^_?(tag|props|children):?$/i.test(text)
   })
   if (hParamHints.length > 0) {
@@ -236,8 +237,9 @@ async function main() {
     console.log("   PASS: No h() parameter hints")
   }
 
-  // Counter.vx's handler line: `onclick={() => Atom.update(count, (n) => n + 1)}`.
-  // With `includeInlayFunctionParameterTypeHints` on, tsserver emits a Type hint
+  // Counter.vx's handler line:
+  // `onclick={() => Atom.update(count, (n) => n + 1)}`. With
+  // `includeInlayFunctionParameterTypeHints` on, tsserver emits a Type hint
   // `: number` for the `n` parameter. It must render IMMEDIATELY AFTER the `n`
   // (the `)` position), not at the `n` position itself — that would render as
   // `( : numbern)` instead of `(n: number)`. Stale source-map mappings without
@@ -336,7 +338,8 @@ async function main() {
   }
 
   console.log("\n8. Test find-references on Counter (from Counter.vx)...")
-  // Find references to Counter from its definition - matches user's exact scenario
+  // Find references to Counter from its definition - matches user's exact
+  // scenario
   const refsResponse = await client.send("references", {
     file: counterVerrex,
     ...find("export const Counter", "Counter"),

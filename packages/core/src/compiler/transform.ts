@@ -53,23 +53,35 @@ export interface TransformResult {
    * algorithm.
    */
   readonly mappings: ReadonlyArray<CompilerMapping>
-  /** Non-fatal errors found in `"report"` mode (empty in `"throw"` mode — those throw). */
+  /**
+   * Non-fatal errors found in `"report"` mode (empty in `"throw"` mode — those
+   * throw).
+   */
   readonly diagnostics: ReadonlyArray<TransformDiagnostic>
 }
 
-/** Source-side span. All offsets are 0-based byte indices into the original `.vx` source. */
+/**
+ * Source-side span. All offsets are 0-based byte indices into the original
+ * `.vx` source.
+ */
 export interface TagPosition {
   readonly start: number
   readonly end: number
 }
 
-/** Tag span carrying the name sub-range — `<Foo`'s "Foo" lives at `nameStart..nameEnd`. */
+/**
+ * Tag span carrying the name sub-range — `<Foo`'s "Foo" lives at
+ * `nameStart..nameEnd`.
+ */
 export interface NamedTagPosition extends TagPosition {
   readonly nameStart: number
   readonly nameEnd: number
 }
 
-/** A `<Tag>...</Tag>` (or `<Tag />`) range. `closingTag` is `undefined` when `isSelfClosing`. */
+/**
+ * A `<Tag>...</Tag>` (or `<Tag />`) range. `closingTag` is `undefined` when
+ * `isSelfClosing`.
+ */
 export interface JsxElementRange {
   readonly kind: "element"
   readonly start: number
@@ -89,13 +101,14 @@ export interface JsxFragmentRange {
 }
 
 /**
- * Source-side metadata about a JSX node the compiler rewrote into an `h()` call.
- * Emitted in pre-order: outermost node first, then nested children in source order.
+ * Source-side metadata about a JSX node the compiler rewrote into an `h()`
+ * call. Emitted in pre-order: outermost node first, then nested children in
+ * source order.
  *
- * Consumed by `@verrex/ts-plugin` to identify "inside-h()" positions, JSX punctuation,
- * and tag-pair partners without re-parsing the source or scanning the compiled
- * output with regex. The producer (Babel AST) has the exact positions; we report
- * them so consumers don't have to recover them.
+ * Consumed by `@verrex/ts-plugin` to identify "inside-h()" positions, JSX
+ * punctuation, and tag-pair partners without re-parsing the source or scanning
+ * the compiled output with regex. The producer (Babel AST) has the exact
+ * positions; we report them so consumers don't have to recover them.
  */
 export type JsxRange = JsxElementRange | JsxFragmentRange
 
@@ -300,7 +313,10 @@ const hasVerrexGet = (
   return top
 }
 
-/** Does a function parameter pattern bind `name`? (identifier, default, rest, destructuring) */
+/**
+ * Does a function parameter pattern bind `name`? (identifier, default, rest,
+ * destructuring)
+ */
 const bindsName = (p: t.Node, name: string): boolean => {
   if (t.isIdentifier(p)) return p.name === name
   if (t.isAssignmentPattern(p)) return bindsName(p.left, name)
@@ -363,7 +379,8 @@ const buildProps = (
           ? rejectGetInHandler(attr.value.expression, scope, state)
           : wrapReader(attr.value.expression, scope, state)
     } else {
-      // JSXElement/JSXFragment values are exotic — fall back to recursive transform
+      // JSXElement/JSXFragment values are exotic — fall back to recursive
+      // transform
       value = transformJsxNode(
         attr.value as t.JSXElement | t.JSXFragment,
         scope,
@@ -405,7 +422,9 @@ const copyLoc = <T extends t.Node>(target: T, source: t.Node): T => {
  */
 const isIntrinsicName = (name: string): boolean => /^[a-z]/.test(name)
 
-/** Decide the tag expression: lowercase → string literal, otherwise identifier. */
+/**
+ * Decide the tag expression: lowercase → string literal, otherwise identifier.
+ */
 const tagExpression = (
   name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName,
 ): t.Expression => {
@@ -697,11 +716,12 @@ export const transformVerrex = (
     sourceFilename: filename,
   })
 
-  // Pre-pass: collect a JsxRange for every JSXElement/JSXFragment in source order.
-  // The rewrite pass below uses path.replaceWith, which only visits outermost JSX
-  // (nested children get rewritten recursively inside transformJsxNode and are no
-  // longer JSX nodes by the time Babel would visit them). Collecting separately
-  // beforehand is the cleanest way to see every node.
+  // Pre-pass: collect a JsxRange for every JSXElement/JSXFragment in source
+  // order. The rewrite pass below uses path.replaceWith, which only visits
+  // outermost JSX (nested children get rewritten recursively inside
+  // transformJsxNode and are no longer JSX nodes by the time Babel would visit
+  // them). Collecting separately beforehand is the cleanest way to see every
+  // node.
   const jsxRanges: JsxRange[] = []
   traverse(ast, {
     JSXElement(path: NodePath<t.JSXElement>) {

@@ -29,7 +29,9 @@ export const refKey = (ref: {
   textSpan: ts.TextSpan
 }): string => `${ref.fileName}:${ref.textSpan.start}`
 
-/** Drop duplicate reference hits (same `refKey`), preserving first-seen order. */
+/**
+ * Drop duplicate reference hits (same `refKey`), preserving first-seen order.
+ */
 export function dedupeRefs<
   R extends { fileName: string; textSpan: ts.TextSpan },
 >(refs: ReadonlyArray<R>): R[] {

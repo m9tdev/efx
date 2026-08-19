@@ -74,10 +74,10 @@ await runProbe({
       "PASS: leaf retry re-ran the fetch (loading shown, still retryable)",
     )
 
-    // 5. Spam ×3 → three manual refetches of the top handle for the CURRENT
-    //    id (999): the third exceeds 2 req/s — a REAL RateLimited. Not in the
-    //    leaf map → rides the residual to the page boundary's tag map, which
-    //    renders the unwrapped, typed payload. (.caught is CSS-uppercased → /i.)
+    // 5. Spam ×3 → three manual refetches of the top handle for the CURRENT id
+    //    (999): the third exceeds 2 req/s — a REAL RateLimited. Not in the leaf
+    //    map → rides the residual to the page boundary's tag map, which renders
+    //    the unwrapped, typed payload. (.caught is CSS-uppercased → /i.)
     await settle()
     await demo.locator("button.spam").click()
     await waitForText(/429 rate-limited/) // the request log narrates the limiter

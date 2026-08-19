@@ -43,8 +43,8 @@ export type Child =
 /**
  * Walk a single child's type, extracting the union of every **construction**
  * `E` — an Effect child's own error channel. A bare `View<E>` child is already
- * built, so it contributes no construction error (its live `E` is `ChildLiveE`'s
- * job). Distributes over unions automatically.
+ * built, so it contributes no construction error (its live `E` is
+ * `ChildLiveE`'s job). Distributes over unions automatically.
  */
 export type ChildE<C> =
   C extends Effect.Effect<any, infer E, any>
@@ -66,17 +66,18 @@ export type ChildE<C> =
 /**
  * Walk a single child's type, extracting the union of every **live** `E` — the
  * error a rendered subtree can still produce after construction. It reads the
- * phantom `E` off a bare `View<E>` child, and recurses into an Effect's *success*
- * (where a `View<E>` rides) — ignoring the Effect's own `E`, which is
- * construction (`ChildE`'s job). One `infer` at the `View` leaf, no walk into the
- * View's children, so the recursion stays shallow.
+ * phantom `E` off a bare `View<E>` child, and recurses into an Effect's
+ * *success* (where a `View<E>` rides) — ignoring the Effect's own `E`, which is
+ * construction (`ChildE`'s job). One `infer` at the `View` leaf, no walk into
+ * the View's children, so the recursion stays shallow.
  */
 export type ChildLiveE<C> =
   C extends Effect.Effect<infer A, any, any>
     ? ChildLiveE<A>
     : // Coalesce `unknown`→`never`: a phantom-free `ViewNode` (no `ViewErr`) matches
-      // `View<infer VE>` with `VE = unknown`; treat it as no live error rather than
-      // poisoning the fold. (Latent — `ViewNode` isn't part of the public child shapes.)
+      // `View<infer VE>` with `VE = unknown`; treat it as no live error rather
+      // than poisoning the fold. (Latent — `ViewNode` isn't part of the public
+      // child shapes.)
       C extends View<infer VE>
       ? [unknown] extends [VE]
         ? never
@@ -85,7 +86,7 @@ export type ChildLiveE<C> =
         // here — `Atom<Effect<View, E>>` → `View<E>`. This is how
         // `.onFailure(Effect.failCause)` inside `Atom.map(result, …)`
         // escalates a typed failure to the nearest `Catch`
-        //.
+        // .
         C extends Atom.Atom<infer T>
         ? ChildE<T> | ChildLiveE<T>
         : C extends AtomRef.ReadonlyRef<infer T>
@@ -116,7 +117,9 @@ export type ChildR<C> =
 /** Fold a tuple of children to the union of their construction `E` channels. */
 export type FoldE<Cs extends readonly unknown[]> = ChildE<Cs[number]>
 
-/** Fold a tuple of children to the union of their live `E` channels (`View<E>`). */
+/**
+ * Fold a tuple of children to the union of their live `E` channels (`View<E>`).
+ */
 export type FoldLiveE<Cs extends readonly unknown[]> = ChildLiveE<Cs[number]>
 
 /** Fold a tuple of children to the union of their `R` channels. */
@@ -144,7 +147,10 @@ export type FoldR<Cs extends readonly unknown[]> = ChildR<Cs[number]>
 // re-applies its value as a live listener, so the channels must survive
 // the wrapper.
 
-/** `true` for exactly `any` — the one type that matches both conditional branches. */
+/**
+ * `true` for exactly `any` — the one type that matches both conditional
+ * branches.
+ */
 type IsAny<T> = 0 extends 1 & T ? true : false
 
 /**
@@ -207,7 +213,9 @@ type FoldPropsChannels<P> = P extends unknown
 type PairE<T> = T extends [infer E, any] ? E : never
 type PairR<T> = T extends [any, infer R] ? R : never
 
-/** Fold a props object to the union of its `on*` handlers' live `E` channels. */
+/**
+ * Fold a props object to the union of its `on*` handlers' live `E` channels.
+ */
 export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
 
 /**

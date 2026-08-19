@@ -52,7 +52,9 @@ const Saver = Component.make(function* () {
   )
 })
 
-/** The discharged wrapper the demo mounts — mirrors TypedHandlers' Catch form. */
+/**
+ * The discharged wrapper the demo mounts — mirrors TypedHandlers' Catch form.
+ */
 export const SaveButton = Component.make(function* () {
   return yield* (
     <Catch

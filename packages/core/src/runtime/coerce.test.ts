@@ -16,7 +16,8 @@ const sink: ErrorSink = () => {}
 
 // The `SyncRunner` every `coerceSync` call needs. These suites exercise the
 // coercion itself, not context propagation, so one empty-context runner serves
-// them all (the per-node runners are pinned in testing/context-capture.test.ts).
+// them all (the per-node runners are pinned in
+// testing/context-capture.test.ts).
 const runSync = Effect.runSyncExitWith(Context.empty())
 
 // `it.effect` wraps each test body in an `Effect.scoped`, so an ambient
@@ -252,7 +253,8 @@ describe("coerceSync — Effect handling", () => {
     Effect.gen(function* () {
       const scope = yield* Effect.scope
       const caught: Array<Cause.Cause<unknown>> = []
-      // A pure-interrupt cause is a scope tearing down mid-render, not an error.
+      // A pure-interrupt cause is a scope tearing down mid-render, not an
+      // error.
       const result = coerceSync(
         Effect.interrupt,
         scope,

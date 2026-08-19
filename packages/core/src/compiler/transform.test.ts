@@ -263,7 +263,8 @@ describe("runtime auto-imports", () => {
       import { type get, Component } from "@verrex/core"
       const x = <div>{get(a)}</div>
     `)
-    // the type-only declaration is left alone; both names land on the value import
+    // the type-only declaration is left alone; both names land on the value
+    // import
     expect(out).toContain(`import type { h } from "@verrex/core"`)
     expect(out).toMatch(
       /import \{ type get, Component, h, get \} from "@verrex\/core"/,

@@ -85,8 +85,9 @@ export function coerceAsync(v: unknown): Effect.Effect<View, any, any> {
   // Effect's value containers (Option / Result / Chunk / AsyncResult) do NOT:
   // they are values the author maps explicitly (`Option.getOrNull`,
   // `Result.match`, `Chunk.toReadonlyArray`, `AsyncResult.builder`). Do NOT
-  // peel them implicitly — it hides a channel (a `Result.Failure` would
-  // render nothing, error dropped) and reads as magic. Anything unrecognised is stringified.
+  // peel them implicitly — it hides a channel (a `Result.Failure` would render
+  // nothing, error dropped) and reads as magic. Anything unrecognised is
+  // stringified.
   if (Array.isArray(v)) return coerceChildren(v)
   // Reactive nodes capture the construction context so their re-renders run
   // on it — a mid-tree Effect.provide reaches every rebuild, not just the

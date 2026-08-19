@@ -12,8 +12,9 @@ const HAS_IMPORT_RE = /[?&]import(=|&|$)/
  * Vite plugin that handles `.vx` files.
  *
  * Pipeline per `.vx` request (the plugin owns the whole transform):
- *   1. `verrex/compiler`'s `transformVerrex` rewrites JSX → `h()` calls. Output is
- *      plain TypeScript (no JSX nodes left), with a source map back to `.vx`.
+ * 1. `verrex/compiler`'s `transformVerrex` rewrites JSX → `h()` calls. Output
+ *      is plain TypeScript (no JSX nodes left), with a source map back to
+ *      `.vx`.
  *   2. Vite's `transformWithOxc` strips the TypeScript types → JavaScript,
  *      chaining the Babel map (passed as `inMap`) so the final map still
  *      points at the original `.vx` source.

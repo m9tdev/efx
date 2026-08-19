@@ -11,9 +11,9 @@ import type {
  *
  * All the heavy lifting (decoding Babel's V3 source map, deduplicating
  * segments, computing source AND generated span lengths, intersecting with
- * `jsxRanges` to classify each region) lives in `verrex/compiler/src/source-map`.
- * This function is intentionally trivial: kind → `CodeInformation` profile,
- * and copy the offset/length pairs across.
+ * `jsxRanges` to classify each region) lives in
+ * `verrex/compiler/src/source-map`. This function is intentionally trivial:
+ * kind → `CodeInformation` profile, and copy the offset/length pairs across.
  */
 export function convertSourceMap(
   mappings: ReadonlyArray<CompilerMapping>,

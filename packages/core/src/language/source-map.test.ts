@@ -3,8 +3,9 @@ import { transformVerrex } from "@verrex/core/compiler"
 import { convertSourceMap } from "./source-map.ts"
 
 /**
- * Tests for `convertSourceMap`. Each test runs the full pipeline (`transformVerrex`
- * → `convertSourceMap`) and asserts on the resulting Volar `Mapping<CodeInformation>[]`.
+ * Tests for `convertSourceMap`. Each test runs the full pipeline
+ * (`transformVerrex` → `convertSourceMap`) and asserts on the resulting Volar
+ * `Mapping<CodeInformation>[]`.
  *
  * The point of these tests is to lock in the bidirectional position-mapping
  * contract: every Babel transform that shifts byte counts (paren strip on
@@ -232,8 +233,9 @@ describe("convertSourceMap — structural cases", () => {
   })
 
   it("auto-injected import line has no overlap with user code mappings", () => {
-    // The compiler injects `import { h } from "@verrex/core"` for files using JSX.
-    // That insertion shouldn't claim source territory that belongs to user code.
+    // The compiler injects `import { h } from "@verrex/core"` for files using
+    // JSX. That insertion shouldn't claim source territory that belongs to user
+    // code.
     const src = `
       const view = <div>hi</div>
     `
@@ -278,7 +280,8 @@ describe("convertSourceMap — CodeInformation profiles", () => {
     const ltSrc = src.indexOf("<div")
     const m = findBySourceOffset(mappings, ltSrc)
     expect(m, "expected a mapping at the opening `<`").toBeDefined()
-    // structuralOnlyData: navigation: false, semantic: false, completion: false.
+    // structuralOnlyData: navigation: false, semantic: false, completion:
+    // false.
     expect(m!.data.navigation, "`<` should not navigate").toBe(false)
     expect(m!.data.semantic, "`<` should not have semantic features").toBe(
       false,

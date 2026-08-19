@@ -11,8 +11,8 @@ import { Http } from "./services.ts"
 //
 //   Loader : Effect<View<HttpError>, never, Http | AtomRegistry>
 //
-// (`AtomRegistry` is the `Atom.set` write's requirement; `mount` discharges it.)
-// Delete the Catch in `TypedHandlers` below and the demo stops compiling,
+// (`AtomRegistry` is the `Atom.set` write's requirement; `mount` discharges
+// it.) Delete the Catch in `TypedHandlers` below and the demo stops compiling,
 // naming HttpError; drop HttpLive from main's APP_LAYER and it names Http.
 const Loader = Component.make(function* () {
   const loaded = Atom.make("nobody yet")

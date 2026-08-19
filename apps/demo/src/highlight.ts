@@ -1,12 +1,12 @@
 /**
  * A tiny, dependency-free TSX-ish tokenizer for the guided-tour code blocks.
  *
- * Why hand-rolled instead of Shiki/Prism: verrex builds DOM from a View tree and
- * has no `innerHTML` seam, so a highlighter that emits HTML strings doesn't
+ * Why hand-rolled instead of Shiki/Prism: verrex builds DOM from a View tree
+ * and has no `innerHTML` seam, so a highlighter that emits HTML strings doesn't
  * fit. Emitting tokens lets `main.vx` render each as a `<span>` View node —
  * highlighting becomes just another verrex child array, no new dependency, no
- * bundle weight. The snippets are short and curated, so a pragmatic lexer
- * (not a full TS grammar) is plenty.
+ * bundle weight. The snippets are short and curated, so a pragmatic lexer (not
+ * a full TS grammar) is plenty.
  */
 
 export type Token = {
@@ -60,7 +60,8 @@ const isDigit = (c: string) => c >= "0" && c <= "9"
 const isIdentStart = (c: string) => /[A-Za-z_$]/.test(c)
 const isIdent = (c: string) => /[A-Za-z0-9_$]/.test(c)
 // `<` opens a JSX tag only in expression position — after `(`, `{`, `=>`, etc.
-// After an identifier/`)`/`]` (e.g. `collection<Todo>`) it's a generic/less-than.
+// After an identifier/`)`/ `]` (e.g. `collection<Todo>`) it's a
+// generic/less-than.
 const isExprPos = (prev: string) => prev === "" || !/[A-Za-z0-9_)\]]/.test(prev)
 
 export const highlight = (src: string): ReadonlyArray<Token> => {
@@ -81,7 +82,8 @@ export const highlight = (src: string): ReadonlyArray<Token> => {
       const ws = src.slice(i, j)
       push(ws, "plain")
       // A newline resets expression position: a `<` starting a fresh line is a
-      // JSX tag, not a less-than against the previous line's trailing `)`/ident.
+      // JSX tag, not a less-than against the previous line's trailing
+      // `)`/ident.
       if (ws.includes("\n")) prev = ""
       i = j
       continue

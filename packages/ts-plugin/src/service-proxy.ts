@@ -13,7 +13,10 @@ import {
 } from "./classify-references.ts"
 import { hintText, SUPPRESS_RE } from "./hint-text.ts"
 
-/** Diagnostic code for verrex's own (compiler) diagnostics; well outside TS's range. */
+/**
+ * Diagnostic code for verrex's own (compiler) diagnostics; well outside TS's
+ * range.
+ */
 const VERREX_DIAGNOSTIC_CODE = 90001
 
 // tsserver identifies scripts by file path strings — asFileName is identity.
@@ -21,12 +24,12 @@ const verrexLanguagePlugin = createVerrexLanguagePlugin<string>(
   (scriptId) => scriptId,
 )
 
-// Volar hands us the `Language` for this tsserver session via the `setup`
-// hook, which fires synchronously inside `volarModule.create(info)`. We stash
-// it here and immediately read it back into a per-`create` const below, before
-// any language-service method can run — so concurrent projects don't clobber
-// each other. The `Language` is the single source of truth for compiled `.vx`
-// files: we look the `VerrexVirtualCode` back up through it instead of keeping a
+// Volar hands us the `Language` for this tsserver session via the `setup` hook,
+// which fires synchronously inside `volarModule.create(info)`. We stash it here
+// and immediately read it back into a per-`create` const below, before any
+// language-service method can run — so concurrent projects don't clobber each
+// other. The `Language` is the single source of truth for compiled `.vx` files:
+// we look the `VerrexVirtualCode` back up through it instead of keeping a
 // side-channel cache.
 let pendingLanguage: Language<string> | undefined
 
@@ -79,9 +82,9 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
           getVerrexVirtualCode(verrexPath)?.jsxRanges,
       }
 
-      // Filter out h.ts definitions (runtime internals) - these appear due to h() calls.
-      // Cross-file path/offset rewriting isn't needed anymore: Volar maps virtual-code
-      // results back to source `.vx` coordinates natively.
+      // Filter out h.ts definitions (runtime internals) - these appear due to
+      // h() calls. Cross-file path/offset rewriting isn't needed anymore: Volar
+      // maps virtual-code results back to source `.vx` coordinates natively.
       const filterRuntimeHit = <T extends { fileName: string }>(
         def: T,
       ): T | null => {
@@ -161,7 +164,8 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
                 ).call(target, fileName, position, filesToSearch)
               }
 
-              // Whitespace at cursor → suppress; tsserver otherwise returns spurious empty hits
+              // Whitespace at cursor → suppress; tsserver otherwise returns
+              // spurious empty hits
               const vc = getVerrexVirtualCode(fileName)
               const charAtPos = vc?.source[position]
               if (charAtPos && /\s/.test(charAtPos)) {
@@ -202,13 +206,13 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
                 if (!fileName.endsWith(".vx") || !result) return result
                 const source = getVerrexVirtualCode(fileName)?.source
                 if (!source) return result
-                // Babel's errorRecovery turns mid-edit `count.\n...return` into a
-                // `count.return` MemberExpression — convenient for letting
+                // Babel's errorRecovery turns mid-edit `count.\n...return` into
+                // a `count.return` MemberExpression — convenient for letting
                 // tsserver enumerate `count`'s members, but the resulting
                 // replacementSpan covers `return` on the next line. If the
-                // editor applied it, picking `set` would delete `return`.
-                // Clamp any span that sits across a newline from the cursor to
-                // an insert-at-cursor (zero-width at position). Deliberately
+                // editor applied it, picking `set` would delete `return`. Clamp
+                // any span that sits across a newline from the cursor to an
+                // insert-at-cursor (zero-width at position). Deliberately
                 // coarse: we don't try to identify the synthesized property
                 // text — any cross-line span gets clamped. In practice, no
                 // legitimate completion wants to delete content from a
@@ -237,8 +241,9 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
                 const orig = result.optionalReplacementSpan
                 const clamped =
                   orig && crossesNewlineFromCursor(orig) ? insertAtCursor : orig
-                // Spread the optional field only when defined — exactOptionalPropertyTypes
-                // rejects `optionalReplacementSpan: undefined` as a value.
+                // Spread the optional field only when defined —
+                // exactOptionalPropertyTypes rejects
+                // `optionalReplacementSpan: undefined` as a value.
                 return clamped
                   ? { ...result, optionalReplacementSpan: clamped, entries }
                   : { ...result, entries }

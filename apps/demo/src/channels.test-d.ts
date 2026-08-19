@@ -565,8 +565,9 @@ assertEquals<typeof WithArray, Effect.Effect<View, HttpError, Http>>()
 
 declare const root: HTMLElement
 
-// Catch-all (function form) turns a failing subtree into a fully-discharged one.
-// The handler's cause is precisely typed — `Cause<HttpError>`, not `Cause<unknown>`.
+// Catch-all (function form) turns a failing subtree into a fully-discharged
+// one. The handler's cause is precisely typed — `Cause<HttpError>`, not
+// `Cause<unknown>`.
 const Caught = Catch({
   children: [UserPage({ userId: "42" })],
   Failure: (cause, reset) => {
@@ -584,7 +585,7 @@ assertEquals<
 >()
 
 // @ts-expect-error — UserPage's HttpError is undischarged: `mount` rejects it,
-// and the error names `HttpError` (not assignable to `never`). Forgot a boundary.
+// and the error names `HttpError` (not assignable to `never`).
 mount(UserPage({ userId: "42" }), root)
 
 // With the boundary, the same app mounts.
@@ -656,7 +657,7 @@ assertEquals<
 // @ts-expect-error — "Nope" is not one of the child's error tags
 Catch({ children: [TwoErrors], Nope: () => h("p", {}, "x") })
 
-// @ts-expect-error — ParseError is still undischarged; mount rejects it, naming it
+// @ts-expect-error — ParseError is still undischarged; mount rejects it
 mount(CaughtHttp, root)
 
 // Handle the remaining tag → fully discharged, mountable.
@@ -704,13 +705,13 @@ assertEquals<
 mount(TagThenAll, root)
 
 // ─── The LIVE half of the mount gate ────────────────────────────────────
-//     A View carrying a live error (`View<E≠never>`) is also rejected by `mount`,
-//     and `Catch` discharges it — the symmetric counterpart of the construction
-//     (Effect-E) gate above.
+//     A View carrying a live error (`View<E≠never>`) is also rejected by
+//     `mount`, and `Catch` discharges it — the symmetric counterpart of the
+//     construction (Effect-E) gate above.
 
 declare const liveOnly: Effect.Effect<View<HttpError>, never, never>
 
-// @ts-expect-error — the View can fail live with HttpError; mount requires View<never>.
+// @ts-expect-error — the View can fail live with HttpError; mount wants never
 mount(liveOnly, root)
 
 // catch-all discharges the live error → mountable.
@@ -732,14 +733,14 @@ mount(
 )
 
 // ─── atom: On picks the error's home ─────────────────────────────
-//     `atom(effect)` exposes `Atom<AsyncResult<A, E>>`; per site `On`
-//     either handles the failure at the leaf (a `Failure` arm → `View<never>`,
-//     nothing for a boundary to see) or — with no `Failure` arm — lets it
-//     BUBBLE BY DEFAULT: the unhandled failure is emitted as `Effect<never, E>`,
-//     the fold's phase switch puts `E` on the LIVE channel (`View<E>`), and
-//     the failure (initial fetch or refresh) routes to the nearest `Catch`. `atom` itself contributes the caller's `R` (minus the
-//     atom's own services) plus `AtomRegistry | Scope`; `mount` discharges the
-//     registry.
+//     `atom(effect)` exposes `Atom<AsyncResult<A, E>>`; per site `On` either
+//     handles the failure at the leaf (a `Failure` arm → `View<never>`, nothing
+//     for a boundary to see) or — with no `Failure` arm — lets it BUBBLE BY
+//     DEFAULT: the unhandled failure is emitted as `Effect<never, E>`, the
+//     fold's phase switch puts `E` on the LIVE channel (`View<E>`), and the
+//     failure (initial fetch or refresh) routes to the nearest `Catch`. `atom`
+//     itself contributes the caller's `R` (minus the atom's own services) plus
+//     `AtomRegistry | Scope`; `mount` discharges the registry.
 
 declare const getUser42: Effect.Effect<User, HttpError, Http>
 const userAtom = atom(getUser42)
@@ -801,7 +802,7 @@ mount(
   root,
 )
 
-// ─── Partial leaf handling: a `Failure` tag map handles a tag, the residual rides ─
+// ─── Partial leaf handling: a tag arm handles one tag, the residual rides ─
 //     A tag-map `Failure` narrows `E` like `Effect.catchTag`; the residual
 //     bubbles by default — `Exclude<E, { _tag }>` on the live channel, which
 //     must still meet a `Catch` before `mount`. Unknown tags (and unknown
@@ -847,7 +848,7 @@ On({
   Bogus: () => h("p", {}, "x"),
 })
 
-// @ts-expect-error — ParseError still rides the live channel; mount rejects it, naming it
+// @ts-expect-error — ParseError still rides the live channel; mount rejects it
 mount(TagMapAsync, root)
 
 // A boundary discharges the residual → mountable.

@@ -33,9 +33,9 @@ const { initial, afterAdd, afterRemove, beforeTeardown, afterTeardown } =
       const afterRemove = await read()
       console.log("after remove:", afterRemove)
 
-      // Phase 3: leave several rows mounted, trigger full teardown via __teardown.
-      // The fork-cascade through every row scope should fire each remaining
-      // row's unmount.
+      // Phase 3: leave several rows mounted, trigger full teardown via
+      // __teardown. The fork-cascade through every row scope should fire each
+      // remaining row's unmount.
       await page.locator(".lifecycle button", { hasText: "add row" }).click()
       await page.locator(".lifecycle button", { hasText: "add row" }).click()
       await page.waitForTimeout(50)

@@ -95,13 +95,13 @@ interface HandlerDeps {
 //   settles. Work that must outlive the click forks INTO a scope captured at
 //   construction (`const s = yield* Effect.scope`) or `forkDaemon`s.
 // - INTERRUPTION: the fiber is `forkIn(deps.ownerScope)` — the scope of the
-//   node that RAN the element's construction, not the element's build scope.
-//   Do NOT use the element's build scope as the owner — a handler would be
+//   node that RAN the element's construction, not the element's build scope. Do
+//   NOT use the element's build scope as the owner — a handler would be
 //   interrupted at its first suspension by the re-render its own write
-//   triggers. The owner survives those re-emits, so the pending→run→settle pattern completes, and
-//   the owner's own teardown still interrupts an in-flight handler. Which scope
-//   is the owner per node, and what still interrupts, is in AGENTS.md
-//   "Handler-scope semantics".
+//   triggers. The owner survives those re-emits, so the pending→run→settle
+//   pattern completes, and the owner's own teardown still interrupts an
+//   in-flight handler. Which scope is the owner per node, and what still
+//   interrupts, is in AGENTS.md "Handler-scope semantics".
 //
 // Every non-success exit routes to the sink — INCLUDING an interrupt-only
 // cause. Owner teardown interrupts an in-flight handler without running
@@ -541,8 +541,8 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
         if (row.indexRef.value !== index) row.indexRef.set(index)
       }
 
-      // The diff itself lives in the pure `plan` (see reconcile.ts); this is the
-      // interpreter — it just applies the ops to real DOM + scopes.
+      // The diff itself lives in the pure `plan` (see reconcile.ts); this is
+      // the interpreter — it just applies the ops to real DOM + scopes.
       const reconcile = (next: ReadonlyArray<unknown>): void => {
         for (const op of plan(snapshot, next)) {
           switch (op.op) {
@@ -624,10 +624,10 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
 
     case "Boundary": {
       // The child subtree renders with a sink that reports into THIS boundary
-      // (live failures flip its state to `error`); the fallback renders with the
-      // ambient `ctx` sink, so a failure in the fallback bubbles to the next
-      // boundary outward. `setAmbient` hands the boundary the parent sink so a
-      // tag-selective boundary can escalate a cause it doesn't handle.
+      // (live failures flip its state to `error`); the fallback renders with
+      // the ambient `ctx` sink, so a failure in the fallback bubbles to the
+      // next boundary outward. `setAmbient` hands the boundary the parent sink
+      // so a tag-selective boundary can escalate a cause it doesn't handle.
       // Same build-NEW → swap → close-OLD ordering as Reactive.
       view.setAmbient(ctx.sink)
       const childCtx: BuildCtx = { ...ctx, sink: view.report }
@@ -643,7 +643,8 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
         // Handler owner = the per-flip content scope, so a flip interrupts
         // prior-generation dispatches — a stale failure can't re-flip a reset
         // boundary. Boundary state flips only on report/reset, never on an
-        // ordinary handler write, so a handler is not interrupted by its own write.
+        // ordinary handler write, so a handler is not interrupted by its own
+        // write.
         const built =
           st._tag === "ok"
             ? buildScopedChild(st.view, scope, childCtx, "child")
@@ -724,7 +725,8 @@ export const RootSink = Context.Reference<
  * discharged: construction failures off the Effect `E` channel (via
  * `Effect.catchCause` or a `Catch` boundary) and live failures off the
  * `View<E>` channel (via `Catch`). A leftover error is a compile error here
- * that names it — the runtime counterpart of a forgotten `Layer` naming a service.
+ * that names it — the runtime counterpart of a forgotten `Layer` naming a
+ * service.
  */
 export const mount = <R>(
   app: Effect.Effect<View<never>, never, R>,

@@ -60,11 +60,15 @@ type RowR<F> = F extends (...args: any) => infer Ret
 
 /**
  * Keyed reactive list — the `<For>` component
- *. Two sources, one renderer shape:
+ * . Two sources, one renderer shape:
  *
  * ```tsx
- * <For each={todos}>{(todo) => <li>{todo.prop("title")}</li>}</For>            // AtomRef.Collection
- * <For each={users} key={(u) => u.id}>{(u) => <li>{Atom.map(u, x => x.name)}</li>}</For> // Atom<Array>
+ * // AtomRef.Collection — rows are AtomRef<T>
+ * <For each={todos}>{(todo) => <li>{todo.prop("title")}</li>}</For>
+ * // Atom<ReadonlyArray<T>> + key — rows are Atom<T>
+ * <For each={users} key={(u) => u.id}>
+ *   {(u) => <li>{Atom.map(u, (x) => x.name)}</li>}
+ * </For>
  * ```
  *
  * - `each: AtomRef.Collection<T>` — rows are the collection's `AtomRef<T>`s,
@@ -189,14 +193,15 @@ const taggedMatch = (
 // ─── Error boundary (Catch) ────────────────
 
 /**
- * Shared boundary machinery for `Catch`. `accepts`
- * decides which causes THIS boundary handles; a non-accepted cause re-raises at
- * construction (its residual rides the Effect channel → a parent boundary / fails
- * mount) and escalates to the ambient sink when live. The typed public wrappers
- * below cast the residual to its precise shape.
+ * Shared boundary machinery for `Catch`. `accepts` decides which causes THIS
+ * boundary handles; a non-accepted cause re-raises at construction (its
+ * residual rides the Effect channel → a parent boundary / fails mount) and
+ * escalates to the ambient sink when live. The typed public wrappers below cast
+ * the residual to its precise shape.
  */
-// The outcome of one child build: shown content (ok / accepted error) + the scope
-// its construction-time effects live in, or a cause this boundary doesn't accept.
+// The outcome of one child build: shown content (ok / accepted error) + the
+// scope its construction-time effects live in, or a cause this boundary doesn't
+// accept.
 type BuildOutcome =
   | { readonly content: BoundaryState; readonly scope: Scope.Closeable }
   | {
@@ -212,25 +217,26 @@ const makeBoundary = <R>(
   Effect.gen(function* () {
     const mountScope = yield* Effect.scope
     // Ambient (parent) sink — set by mount via the node's `setAmbient`. A cause
-    // this boundary doesn't `accept` escalates here. A catch-all never escalates.
+    // this boundary doesn't `accept` escalates here. A catch-all never
+    // escalates.
     let ambient: ErrorSink = () => {}
     const setAmbient = (sink: ErrorSink): void => {
       ambient = sink
     }
 
     // Monotonic generation: `AtomRef.set` dedups via `Equal.equals`, so a build
-    // that fails with a structurally-identical `Cause` would be `Equal`-equal to
-    // the current state and silently not notify (a dead retry). `gen` makes every
-    // emission distinct.
+    // that fails with a structurally-identical `Cause` would be `Equal`-equal
+    // to the current state and silently not notify (a dead retry). `gen` makes
+    // every emission distinct.
     let gen = 0
-    // Construction scope of the CURRENT content: a child's construction-time effects
-    // (an `atom` body's fibers + finalizers, `acquireRelease`, …) bind to a fresh
-    // scope forked from the mount scope, so they're released when we swap away or
-    // reset rather than leaking onto the mount scope. The fork cascade closes the
-    // live one on teardown; `adopt` closes the prior one mid-life. Error content
-    // holds no scope: a failed build renders nothing, so its scope closes the
-    // moment the failure is accepted — partial resources never idle behind the
-    // fallback.
+    // Construction scope of the CURRENT content: a child's construction-time
+    // effects (an `atom` body's fibers + finalizers, `acquireRelease`, …) bind
+    // to a fresh scope forked from the mount scope, so they're released when we
+    // swap away or reset rather than leaking onto the mount scope. The fork
+    // cascade closes the live one on teardown; `adopt` closes the prior one
+    // mid-life. Error content holds no scope: a failed build renders nothing,
+    // so its scope closes the moment the failure is accepted — partial
+    // resources never idle behind the fallback.
     let activeBuild: Scope.Closeable | null = null
     const close = (s: Scope.Closeable | null): void => {
       if (!s) return
@@ -242,10 +248,10 @@ const makeBoundary = <R>(
       activeBuild = s
     }
 
-    // Build `child` in a fresh scope. Returns content + that scope, or `{ rejected }`
-    // for a cause this boundary doesn't accept. Never fails. An interrupt-only cause
-    // (teardown) is treated as not-accepted, so a catch-all doesn't render a fallback
-    // for a build interrupted mid-flight.
+    // Build `child` in a fresh scope. Returns content + that scope, or
+    // `{ rejected }` for a cause this boundary doesn't accept. Never fails. An
+    // interrupt-only cause (teardown) is treated as not-accepted, so a
+    // catch-all doesn't render a fallback for a build interrupted mid-flight.
     const build = (): Effect.Effect<BuildOutcome, never, R> =>
       Effect.suspend(() => {
         const scope = Scope.forkUnsafe(mountScope, "sequential")
@@ -264,9 +270,9 @@ const makeBoundary = <R>(
         )
       })
 
-    // Initial build inline (folds R; no first-paint flash). A rejected cause here
-    // re-raises on the Effect channel — the residual rides `EC` to a parent boundary
-    // / fails `mount`.
+    // Initial build inline (folds R; no first-paint flash). A rejected cause
+    // here re-raises on the Effect channel — the residual rides `EC` to a
+    // parent boundary / fails `mount`.
     const first = yield* build()
     if ("rejected" in first) {
       close(first.scope)
@@ -283,11 +289,11 @@ const makeBoundary = <R>(
         }
     >()
 
-    // Live failures: accepted → error state (via the queue, off the render stack —
-    // a synchronous mutation would close the child scope mid-render); non-accepted
-    // → escalate to the ambient sink. An interrupt-only cause (a handler torn
-    // down mid-flight) is not an error, so it never flips the boundary;
-    // it escalates unchanged so the root sink can still observe it.
+    // Live failures: accepted → error state (via the queue, off the render
+    // stack — a synchronous mutation would close the child scope mid-render);
+    // non-accepted → escalate to the ambient sink. An interrupt-only cause (a
+    // handler torn down mid-flight) is not an error, so it never flips the
+    // boundary; it escalates unchanged so the root sink can still observe it.
     const report = (cause: Cause.Cause<unknown>): void => {
       if (Cause.hasInterruptsOnly(cause)) return ambient(cause)
       if (accepts(cause)) Queue.offerUnsafe(runs, { _tag: "error", cause })
@@ -302,7 +308,8 @@ const makeBoundary = <R>(
         while (true) {
           const msg = yield* Queue.take(runs)
           if (msg._tag === "error") {
-            // live error: tear down the current content's construction effects, swap.
+            // live error: tear down the current content's construction effects,
+            // swap.
             close(activeBuild)
             activeBuild = null
             state.set({ _tag: "error", cause: msg.cause, gen: gen++ })
@@ -364,8 +371,11 @@ const makeBoundary = <R>(
  *  - **catch-all** — `Failure` gets the precise `Cause<EC | EV>` of whatever
  *    no tag arm took, and discharges *every* error to `never` (mountable):
  *    ```tsx
- *    <Catch Failure={(cause, reset) =>
- *      <div class="err">{Cause.pretty(cause)}<button onclick={reset}>retry</button></div>}>
+ *    <Catch Failure={(cause, reset) => (
+ *      <div class="err">
+ *        {Cause.pretty(cause)}<button onclick={reset}>retry</button>
+ *      </div>
+ *    )}>
  *      <UserCard id={id} />
  *    </Catch>
  *    ```

@@ -249,12 +249,13 @@ describe("Catch — tag-selective (object)", () => {
 // ─── regression: reset, release, escalation ─────────────────────────────
 describe("Catch — lifecycle correctness", () => {
   it("reset re-renders even when the child fails IDENTICALLY (gen counter)", async () => {
-    // Without a generation stamp, AtomRef.set dedups the Equal-equal BoundaryState
-    // and the reset silently no-ops (the retry button is dead on a deterministic
-    // failure). Handler call count proves the fallback re-renders on each reset.
-    // The child must be SPAN-LESS (Effect.fnUntraced, not Effect.fn): a span
-    // annotation makes every Cause Equal-unequal, which would mask the dedup
-    // this test guards against — an Effect.fn child passes even with `gen` removed.
+    // Without a generation stamp, AtomRef.set dedups the Equal-equal
+    // BoundaryState and the reset silently no-ops (the retry button is dead on
+    // a deterministic failure). Handler call count proves the fallback
+    // re-renders on each reset. The child must be SPAN-LESS (Effect.fnUntraced,
+    // not Effect.fn): a span annotation makes every Cause Equal-unequal, which
+    // would mask the dedup this test guards against — an Effect.fn child passes
+    // even with `gen` removed.
     let handlerCalls = 0
     const AlwaysFails = Effect.fnUntraced(function* (_props: {} = {}) {
       yield* Effect.fail(new BoomError({ why: "always identical" }))
@@ -281,10 +282,10 @@ describe("Catch — lifecycle correctness", () => {
   })
 
   it("releases a failed build's construction-scope resources immediately (no leak)", async () => {
-    // A child's construction-time `acquireRelease` must bind to a per-build scope —
-    // not leaked to the mount scope. A FAILED build's scope closes as soon as the
-    // failure is accepted (nothing renders from it), so its resources never idle
-    // behind the fallback.
+    // A child's construction-time `acquireRelease` must bind to a per-build
+    // scope — not leaked to the mount scope. A FAILED build's scope closes as
+    // soon as the failure is accepted (nothing renders from it), so its
+    // resources never idle behind the fallback.
     let acquired = 0
     let released = 0
     const Leaky = Effect.fn("Leaky")(function* (_props: {} = {}) {
@@ -323,9 +324,10 @@ describe("Catch — lifecycle correctness", () => {
   })
 
   it("escalates a LIVE non-matching error to an outer boundary", async () => {
-    // `trip:false` keeps ParseError in Child's type (so the inner tag-map is valid)
-    // while the runtime failure is a LIVE HttpError from the button — which the
-    // inner tag-map rejects and escalates via the ambient sink to the outer catch-all.
+    // `trip:false` keeps ParseError in Child's type (so the inner tag-map is
+    // valid) while the runtime failure is a LIVE HttpError from the button —
+    // which the inner tag-map rejects and escalates via the ambient sink to the
+    // outer catch-all.
     const Child = Effect.fn("Child")(function* (props: {
       readonly trip: boolean
     }) {

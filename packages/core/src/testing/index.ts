@@ -13,24 +13,44 @@ import { mount, RootSink, type View } from "@verrex/core"
  */
 type Injected = AtomRegistry.AtomRegistry | Scope.Scope
 
-/** The component requirements you must provide — everything except what the harness injects. */
+/**
+ * The component requirements you must provide — everything except what the
+ * harness injects.
+ */
 type Required<R> = Exclude<R, Injected>
 
-/** Handle to a mounted component: query the DOM, fire events, settle async, tear down. */
+/**
+ * Handle to a mounted component: query the DOM, fire events, settle async, tear
+ * down.
+ */
 export interface RenderResult {
-  /** The container the component was mounted into (attached to `document.body`). */
+  /**
+   * The container the component was mounted into (attached to `document.body`).
+   */
   readonly container: HTMLElement
-  /** First match for `selector`, or throw if none (use when you expect it to exist). */
+  /**
+   * First match for `selector`, or throw if none (use when you expect it to
+   * exist).
+   */
   get(selector: string): HTMLElement
   /** First match for `selector`, or `null`. */
   query(selector: string): HTMLElement | null
   /** All matches for `selector`. */
   all(selector: string): HTMLElement[]
-  /** Trimmed `textContent` of the first match (or the container when `selector` is omitted). */
+  /**
+   * Trimmed `textContent` of the first match (or the container when `selector`
+   * is omitted).
+   */
   text(selector?: string): string
-  /** Dispatch a bubbling `click` at the first match — fires the component's `onclick`. */
+  /**
+   * Dispatch a bubbling `click` at the first match — fires the component's
+   * `onclick`.
+   */
   click(selector: string): void
-  /** Dispatch a bubbling event of `type` at the first match (e.g. `"input"`, `"submit"`). */
+  /**
+   * Dispatch a bubbling event of `type` at the first match (e.g. `"input"`,
+   * `"submit"`).
+   */
   fire(selector: string, type: string): void
   /** Flush microtasks + one macrotask so async/atom-driven updates settle. */
   tick(): Promise<void>
@@ -53,7 +73,10 @@ export interface RenderResult {
    * `RootSink`; a `RootSink` in the `layer` argument is not used.
    */
   readonly sinkCauses: ReadonlyArray<Cause.Cause<unknown>>
-  /** The mount's own `AtomRegistry` — write atoms from the test (`registry.set(a, v)`). */
+  /**
+   * The mount's own `AtomRegistry` — write atoms from the test
+   * (`registry.set(a, v)`).
+   */
   readonly registry: AtomRegistry.AtomRegistry
 }
 
@@ -68,13 +91,16 @@ const el = (container: HTMLElement, selector: string): HTMLElement => {
  * Mount a component into an in-process DOM and return a handle to drive it.
  *
  * `app` is a component result — `Component(props)`, what a component tag
- * compiles to — i.e. an `Effect<View, E, R>`. Provide a `layer` covering every service the
- * component needs (the harness adds the ambient `Scope`); omit it only
- * when the component requires nothing else. A missing service is a compile
+ * compiles to — i.e. an `Effect<View, E, R>`. Provide a `layer` covering every
+ * service the component needs (the harness adds the ambient `Scope`); omit it
+ * only when the component requires nothing else. A missing service is a compile
  * error, exactly as it would be at a real `mount`.
  *
  * ```ts
- * const ui = await render(UserPage({ userId: "42" }), Layer.mergeAll(HttpTest, ThemeTest))
+ * const ui = await render(
+ *   UserPage({ userId: "42" }),
+ *   Layer.mergeAll(HttpTest, ThemeTest),
+ * )
  * expect(ui.text(".user-card strong")).toBe("Ada Lovelace")
  * await ui.unmount()
  * ```

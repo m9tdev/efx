@@ -35,7 +35,10 @@ type FailureError<T> =
         ? E
         : never
 
-/** Does `T` carry a `waiting` flag (AsyncResult)? Then a `Waiting` arm is offered. */
+/**
+ * Does `T` carry a `waiting` flag (AsyncResult)? Then a `Waiting` arm is
+ * offered.
+ */
 type HasWaiting<T> = T extends { readonly waiting: boolean } ? true : never
 
 /**
@@ -49,7 +52,10 @@ type NarrowFailure<F, E2> = F extends { readonly cause: Cause.Cause<any> }
     ? Omit<F, "failure"> & { readonly failure: E2 }
     : F
 
-/** Every key `<On>` accepts for `T`: value tags, the failure's error tags, `Waiting`, and `value`. */
+/**
+ * Every key `<On>` accepts for `T`: value tags, the failure's error tags,
+ * `Waiting`, and `value`.
+ */
 type ArmKeys<T> =
   | Tags<T>
   | Types.Tags<FailureError<T>>
@@ -93,14 +99,19 @@ export type TagHandlers<T, K extends string = ArmKeys<T>> = {
             ) => unknown
 }
 
-/** What still bubbles after the arms `K` handled their part of `T`'s failure. */
+/**
+ * What still bubbles after the arms `K` handled their part of `T`'s failure.
+ */
 export type Residual<T, K extends string> = [FailureError<T>] extends [never]
   ? never
   : "Failure" extends K
     ? never
     : Exclude<FailureError<T>, { readonly _tag: K }>
 
-/** Handler returns (views, Effects) fold like any reactive emission: E is LIVE, R folds. */
+/**
+ * Handler returns (views, Effects) fold like any reactive emission: E is LIVE,
+ * R folds.
+ */
 type HandlerRet<H> = {
   // `value` is not an arm (a callable `Fn` there would otherwise fold its R).
   [K in Exclude<keyof H, "value">]: H[K] extends (...args: any) => infer R
@@ -209,7 +220,10 @@ const isFailureVariant = (v: Tagged): boolean => {
   return Cause.isCause(rec["cause"]) || Object.hasOwn(rec, "failure")
 }
 
-/** A `Failure` variant's cause: `cause` (AsyncResult, Exit) or a `Cause.fail(failure)` (Result). */
+/**
+ * A `Failure` variant's cause: `cause` (AsyncResult, Exit) or a
+ * `Cause.fail(failure)` (Result).
+ */
 const causeOf = (v: Tagged): Cause.Cause<unknown> => {
   const rec = v as unknown as Record<string, unknown>
   if (Cause.isCause(rec["cause"])) return rec["cause"] as Cause.Cause<unknown>

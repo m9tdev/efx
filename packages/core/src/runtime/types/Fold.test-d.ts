@@ -72,10 +72,11 @@ assertEquals<FoldR<readonly [string, Eff1, number]>, HttpService>()
 assertEquals<FoldE<readonly [ReadonlyArray<Eff1>]>, HttpError>()
 assertEquals<FoldR<readonly [ReadonlyArray<Eff2>]>, DbService>()
 
-// 6) AtomRef/Atom of an Effect: PHASE SWITCH. An emitted Effect runs at render time (mount re-coerces each
-//    emission), so its `E` is LIVE — `View<E>`, discharged by `Catch` — and
-//    construction `E` stays `never`. `R` still folds. This is how
-//    `.onFailure(Effect.failCause)` inside `Atom.map(result, …)` escalates.
+// 6) AtomRef/Atom of an Effect: PHASE SWITCH. An emitted Effect runs at render
+//    time (mount re-coerces each emission), so its `E` is LIVE — `View<E>`,
+//    discharged by `Catch` — and construction `E` stays `never`. `R` still
+//    folds. This is how `.onFailure(Effect.failCause)` inside
+//    `Atom.map(result, …)` escalates.
 type Ref = AtomRef.ReadonlyRef<Eff1>
 assertEquals<FoldE<readonly [Ref]>, never>()
 assertEquals<FoldLiveE<readonly [Ref]>, HttpError>()
@@ -97,7 +98,8 @@ type AtomView = Atom.Atom<View>
 assertEquals<FoldE<readonly [AtomView]>, never>()
 assertEquals<FoldR<readonly [AtomView]>, never>()
 
-// 8) Conditional render (`false | Effect<...>`) — false drops, effect contributes
+// 8) Conditional render (`false | Effect<...>`) — false drops, effect
+//    contributes
 type CondChild = false | Eff1
 assertEquals<FoldE<readonly [CondChild]>, HttpError>()
 assertEquals<FoldR<readonly [CondChild]>, HttpService>()
@@ -107,17 +109,18 @@ type EitherChild = Eff1 | Eff2
 assertEquals<FoldE<readonly [EitherChild]>, HttpError | NotFound>()
 assertEquals<FoldR<readonly [EitherChild]>, HttpService | DbService>()
 
-// ─── View<E> error channel: construction vs live split (the boundary thesis) ──
+// ─── View<E> error channel: construction vs live split (boundary thesis) ──
 
-// 10) A bare View<E> child: its live E rides the View; it's already built, so it
-//     contributes no construction error and no R.
+// 10) A bare View<E> child: its live E rides the View; it's already built, so
+//     it contributes no construction error and no R.
 type ViewErr = View<HttpError>
 assertEquals<ChildLiveE<ViewErr>, HttpError>()
 assertEquals<ChildE<ViewErr>, never>()
 assertEquals<ChildR<ViewErr>, never>()
 
-// 11) An Effect whose SUCCESS is a View<E>: construction and live errors land on
-//     different channels — Effect's own E is construction, the View's E is live.
+// 11) An Effect whose SUCCESS is a View<E>: construction and live errors land
+//     on different channels — Effect's own E is construction, the View's E is
+//     live.
 type EffLive = Effect.Effect<View<HttpError>, NotFound, DbService>
 assertEquals<ChildE<EffLive>, NotFound>()
 assertEquals<ChildLiveE<EffLive>, HttpError>()

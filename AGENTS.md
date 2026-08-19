@@ -197,7 +197,9 @@ Service plugins only by bare package name.
   extension list, no plugin API for file types), so `pnpm lint` /
   `pnpm format` also run
   [`scripts/vx-oxc.mjs`](./scripts/AGENTS.md#vx-oxcmjs--linting-and-formatting-vx),
-  which feeds `.vx` through a shadow tree of `.tsx` symlinks.
+  which feeds `.vx` through a shadow tree of `.tsx` symlinks; and
+  [`scripts/comment-width.mjs`](./scripts/AGENTS.md#comment-widthmjs--comment-line-width),
+  which keeps comment prose at 80 columns (`--fix` reflows).
 - Babel as the `.vx` parser (parser + traverse + generate
   directly, no `@babel/preset-*`).
 - Volar (`@volar/typescript`, `@volar/language-core`,
@@ -213,8 +215,8 @@ Service plugins only by bare package name.
 ## How to verify a change end-to-end
 
 ```
-pnpm lint            # oxlint, plus .vx via scripts/vx-oxc.mjs
-pnpm format:check    # oxfmt, same two passes (`pnpm format` to fix)
+pnpm lint            # oxlint, .vx via scripts/vx-oxc.mjs, comment width
+pnpm format:check    # oxfmt + .vx (`pnpm format` to fix; also reflows comments)
 pnpm -r test         # compiler tests + ts-plugin integration tests
 pnpm -r typecheck    # fans out: every package runs `tsc --noEmit`,
                      # apps/demo runs `@verrex/core/check` (the .vx-aware checker)

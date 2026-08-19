@@ -212,7 +212,8 @@ describe("On — failures bubble by default", () => {
       return yield* body
     })
     const ui = await render(App())
-    // Function handler receives even the interrupt failure — it opted in to all.
+    // Function handler receives even the interrupt failure — it opted in to
+    // all.
     expect(ui.text(".out")).toMatch(/failed/)
     await ui.unmount()
 
@@ -347,7 +348,8 @@ describe("On — types", () => {
     >()
     const none = On({ value: user, Failure: () => null })
     expectTypeOf(none).toEqualTypeOf<Effect.Effect<View<never>, never, never>>()
-    // an error-tag arm beside Failure NARROWS Failure's error (catchTag → catchCause)
+    // an error-tag arm beside Failure NARROWS Failure's error (catchTag →
+    // catchCause)
     const narrowed = On({
       value: user,
       NotFound: (e, f) => {

@@ -7,8 +7,8 @@ const errors = []
 
 await runProbe({
   onConsole: (msg) => {
-    // Ignore network-resource noise (e.g. the missing /favicon.ico 404) — we only
-    // care about real JS console errors and page errors.
+    // Ignore network-resource noise (e.g. the missing /favicon.ico 404) — we
+    // only care about real JS console errors and page errors.
     if (msg.type() === "error" && !/Failed to load resource/.test(msg.text())) {
       errors.push(msg.text())
     }
@@ -21,12 +21,13 @@ await runProbe({
     const demoText = async () =>
       (await demo.innerText()).replace(/\s+/g, " ").trim()
 
-    // 1) tag arm (`HttpError={…}`): the flaky request ~50% fails at construction with a
-    //    random tagged error (caught + unwrapped) and ~50% succeeds. On success the
-    //    subtree stays live — its button fails with an HttpError on click, which the
-    //    SAME tag-map catches (a LIVE error). Drive it via `retry` (from an error)
-    //    and `.ok .crash` (from a success) until all three are observed: a caught
-    //    construction error, a recovered success, and a caught live error.
+    // 1) tag arm (`HttpError={…}`): the flaky request ~50% fails at
+    //    construction with a random tagged error (caught + unwrapped) and ~50%
+    //    succeeds. On success the subtree stays live — its button fails with an
+    //    HttpError on click, which the SAME tag-map catches (a LIVE error).
+    //    Drive it via `retry` (from an error) and `.ok .crash` (from a success)
+    //    until all three are observed: a caught construction error, a recovered
+    //    success, and a caught live error.
     await waitForText(/HttpError \d+|succeeded/i).catch(() => {})
     const observe = async () => {
       const t = await demo.innerText()
@@ -75,12 +76,13 @@ await runProbe({
 
     console.log("\n[on load]\n" + (await demoText()))
 
-    // 2) catch-all (`Failure` arm): child rendered its working button (scoped to
-    //    `.crasher` — the tag-map's success view also has a `.crash`).
+    // 2) catch-all (`Failure` arm): child rendered its working button (scoped
+    //    to `.crasher` — the tag-map's success view also has a `.crash`).
     const crashBtn = demo.locator(".crasher .crash")
     const crashVisible = (await crashBtn.count()) > 0
 
-    // 3) Click "crash me" → the catch-all's handler Effect fails → fallback swaps in.
+    // 3) Click "crash me" → the catch-all's handler Effect fails → fallback
+    //    swaps in.
     await crashBtn.click()
     await waitForText(/catch-all caught/i).catch(() => {})
     const afterCrash = await demoText()
@@ -89,7 +91,8 @@ await runProbe({
       /catch-all caught/i.test(afterCrash) && /BoomError/i.test(afterCrash)
     const crashGone = (await demo.locator(".crasher .crash").count()) === 0
 
-    // 4) Reset → the catch-all re-runs construction; the working button returns.
+    // 4) Reset → the catch-all re-runs construction; the working button
+    //    returns.
     await demo.locator(".reset").first().click()
     await demo
       .locator(".crasher .crash")

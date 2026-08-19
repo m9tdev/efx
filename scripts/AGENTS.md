@@ -7,8 +7,9 @@ hand-picked input. They exist because the channel-fold type tests and
 unit suites prove the _contracts_ but cannot prove "Counter actually
 re-renders when you click +".
 
-The one exception is [`vx-oxc.mjs`](#vx-oxcmjs--linting-and-formatting-vx),
-which **is** wired into `pnpm lint` / `pnpm format` and therefore CI. It
+The exceptions are [`vx-oxc.mjs`](#vx-oxcmjs--linting-and-formatting-vx)
+and [`comment-width.mjs`](#comment-widthmjs--comment-line-width), which
+**are** wired into `pnpm lint` / `pnpm format` and therefore CI. It
 lives here rather than in a package because it is repo tooling, not
 shipped code.
 
@@ -65,6 +66,18 @@ The harness's `finally` only closes the browser.
 | Script              | What it does                                                                                                                                                                                                                                         |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `test-compiler.mjs` | Runs `transformVerrex` against an inline source string and prints the compiled output. Useful for "what does the compiler do with X" exploration without writing a vitest case. Not a substitute for `packages/core/src/compiler/transform.test.ts`. |
+
+## `comment-width.mjs` — comment line width
+
+oxfmt never reflows comment text and oxlint has no `max-len`, so this keeps
+`//` and `*` prose inside the same 80 columns as code. `pnpm lint` runs it
+as a check (exit 1 on offenders); `pnpm format` runs `--fix`, which reflows
+overflowing paragraphs in place — joining a paragraph's lines and re-wrapping
+at 80, list items with a hanging indent, indented sub-paragraphs with their
+indent. Never touched: URLs, `|` table rows, directives (`@ts-…`), `───`
+section headers, fenced code, and indented lines that look like code or
+diagrams; a backtick span is one unbreakable token. Those exempt lines are
+still reported when over 80 (they need a hand edit). Idempotent.
 
 ## `vx-oxc.mjs` — linting and formatting `.vx`
 

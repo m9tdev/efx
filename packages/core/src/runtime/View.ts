@@ -11,17 +11,19 @@ export type Props = Readonly<Record<string, unknown>>
  * re-render, an event-handler Effect), routed to the nearest `Catch`.
  *
  * Covariant via `() => E`, which gives exactly the variance the thesis needs:
- *  - `View<HttpError>` is NOT assignable to `View<never>`, so `mount` requiring
+ * - `View<HttpError>` is NOT assignable to `View<never>`, so `mount` requiring
  *    `View<never>` is a compile error until every error is discharged by a
- *    boundary (it names the error — the runtime counterpart of a forgotten Layer);
- *  - a phantom-free `ViewNode` (what the constructors produce) IS assignable to
- *    any `View<E>` (the marker is optional and absent), so construction needs no
- *    casts and `View.Empty()` stays a no-arg call.
+ *    boundary (it names the error — the runtime counterpart of a forgotten
+ *    Layer);
+ * - a phantom-free `ViewNode` (what the constructors produce) IS assignable to
+ *    any `View<E>` (the marker is optional and absent), so construction needs
+ *    no casts and `View.Empty()` stays a no-arg call.
  *
  * Kept off the variant interfaces (so `Data.taggedEnum` constructor args don't
- * gain a phantom field) and mixed in only via `View<E> = ViewNode & ViewErr<E>`.
- * The fold (`ChildE` in types/Fold.ts) reads it directly via `infer`; it does
- * not walk a View's children, so the recursion stays shallow.
+ * gain a phantom field) and mixed in only via
+ * `View<E> = ViewNode & ViewErr<E>`. The fold (`ChildE` in types/Fold.ts) reads
+ * it directly via `infer`; it does not walk a View's children, so the recursion
+ * stays shallow.
  */
 declare const ErrorTypeId: unique symbol
 export interface ViewErr<E> {
@@ -34,10 +36,11 @@ export interface ViewErr<E> {
  * `Catch` — construction sets the initial value, a live failure reported
  * from the child subtree flips it to `error`, and `reset` re-runs construction.
  *
- * `gen` is a monotonic generation stamp making every emission distinct: `AtomRef`
- * dedups via `Equal.equals`, and a reset that fails with a structurally-identical
- * `Cause` would otherwise be `Equal`-equal to the current state and silently not
- * notify (a dead retry button). `gen` guarantees the swap always fires.
+ * `gen` is a monotonic generation stamp making every emission distinct:
+ * `AtomRef` dedups via `Equal.equals`, and a reset that fails with a
+ * structurally-identical `Cause` would otherwise be `Equal`-equal to the
+ * current state and silently not notify (a dead retry button). `gen` guarantees
+ * the swap always fires.
  */
 export type BoundaryState =
   | { readonly _tag: "ok"; readonly view: ViewNode; readonly gen: number }
@@ -78,7 +81,8 @@ export interface ViewFragment {
 }
 export interface ViewReactive {
   readonly _tag: "Reactive"
-  // Source can carry any value; mount() normalizes it into a View at render time.
+  // Source can carry any value; mount() normalizes it into a View at render
+  // time.
   readonly source: Atom.Atom<unknown> | AtomRef.ReadonlyRef<unknown>
   /**
    * Ambient context captured at construction — every re-render of this node
@@ -120,7 +124,9 @@ export interface ViewList {
   // position into it on reorder/shift, so a row displaying it updates
   // without re-rendering.
   readonly render: (row: unknown, index: AtomRef.ReadonlyRef<number>) => unknown
-  /** Construction-captured context — rows build on it. See ViewReactive.context. */
+  /**
+   * Construction-captured context — rows build on it. See ViewReactive.context.
+   */
   readonly context?: Context.Context<never>
 }
 export interface ViewEmpty {
@@ -138,8 +144,8 @@ export interface ViewBoundary {
   readonly handler: (cause: Cause.Cause<unknown>, reset: () => void) => unknown
   readonly reset: () => void
   readonly report: (cause: Cause.Cause<unknown>) => void
-  // `mount` calls this with the ambient (parent) sink before rendering the child,
-  // so a tag-selective `Catch` (object form) can escalate a cause it
+  // `mount` calls this with the ambient (parent) sink before rendering the
+  // child, so a tag-selective `Catch` (object form) can escalate a cause it
   // doesn't handle to the next boundary outward. A catch-all never escalates.
   readonly setAmbient: (sink: (cause: Cause.Cause<unknown>) => void) => void
   /**

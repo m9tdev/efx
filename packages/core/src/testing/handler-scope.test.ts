@@ -6,14 +6,14 @@ import { Catch, For, h } from "@verrex/core"
 import { Step, stepLayer } from "./fixtures.ts"
 import { render, untracked } from "./index.ts"
 
-// The dispatch-scope pins (runtime/AGENTS.md "Handler-scope
-// semantics" under "mount internals — invariants"): every dispatch runs in its own child scope forked from the
-// OWNER scope — the scope of the dynamic node that ran the element's
-// construction — so (a) finalizers release per dispatch, (b) a handler whose
-// own ref write re-renders its subtree SURVIVES that re-render, and (c) the
-// owning subtree's teardown still interrupts an in-flight handler. The
-// per-node teardown discriminator lives in context-capture.test.ts; this file
-// pins the dispatch semantics.
+// The dispatch-scope pins (runtime/AGENTS.md "Handler-scope semantics" under
+// "mount internals — invariants"): every dispatch runs in its own child scope
+// forked from the OWNER scope — the scope of the dynamic node that ran the
+// element's construction — so (a) finalizers release per dispatch, (b) a
+// handler whose own ref write re-renders its subtree SURVIVES that re-render,
+// and (c) the owning subtree's teardown still interrupts an in-flight handler.
+// The per-node teardown discriminator lives in context-capture.test.ts; this
+// file pins the dispatch semantics.
 
 const openGate = (gate: Deferred.Deferred<void>): void => {
   Effect.runSync(Deferred.succeed(gate, void 0))
@@ -21,14 +21,14 @@ const openGate = (gate: Deferred.Deferred<void>): void => {
 
 describe("per-dispatch handler scope", () => {
   it("a handler survives the re-render its own write triggers", async () => {
-    // The pending→run→settle mutation pattern: the handler's FIRST action
-    // swaps its own subtree (hiding the button it was dispatched from), then
-    // awaits async work, then settles. The owner (the Reactive NODE's scope) survives
-    // the emit, so the work completes; forking into the build scope would
-    // drop everything after the first suspension. `sinkCauses` must stay EMPTY
-    // throughout: an interrupted handler reaches the sink, so this
-    // is the direct assertion that the continuation ran — not just that the
-    // first write landed.
+    // The pending→run→settle mutation pattern: the handler's FIRST action swaps
+    // its own subtree (hiding the button it was dispatched from), then awaits
+    // async work, then settles. The owner (the Reactive NODE's scope) survives
+    // the emit, so the work completes; forking into the build scope would drop
+    // everything after the first suspension. `sinkCauses` must stay EMPTY
+    // throughout: an interrupted handler reaches the sink, so this is the
+    // direct assertion that the continuation ran — not just that the first
+    // write landed.
     const gate = Deferred.makeUnsafe<void>()
     const done = AtomRef.make("no")
     const slot = AtomRef.make<unknown>(null)
