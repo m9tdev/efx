@@ -83,8 +83,8 @@
     </ul>
   )
 })
-// → keyed View.List; mount reconciles rows by ref identity
-// in TodoRow: <li class={get(item).done ? "done" : ""}>{item.prop("text")}</li>`,file:`Todos.vx`}),$h(`todos`)),$(`section`,{class:`tour`},Qh({step:`06`,title:`Per-component lifecycle`,concept:`Effect.acquireRelease registers a finalizer against the current Scope, so it rides Row's R — that's the inferred type shown. Each row mounts in its own Scope, so the release fires when that row's DOM is removed, not when the whole app unmounts. <For> supplies each row's Scope, so a parent that renders the list stays Scope-free. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Reset closes the demo's scope, firing every remaining row's finalizer at once.)`,type:`Effect<View, never, Scope>`,code:`const Row = Component.make(function* (props: {
+// → keyed View.List; mount reconciles rows by ref identity in TodoRow: <li
+// class={get(item).done ? "done" : ""}>{item.prop("text")}</li> `,file:`Todos.vx`}),$h(`todos`)),$(`section`,{class:`tour`},Qh({step:`06`,title:`Per-component lifecycle`,concept:`Effect.acquireRelease registers a finalizer against the current Scope, so it rides Row's R — that's the inferred type shown. Each row mounts in its own Scope, so the release fires when that row's DOM is removed, not when the whole app unmounts. <For> supplies each row's Scope, so a parent that renders the list stays Scope-free. Open devtools and watch the __lifecycle log: a paired unmount:N for every mount:N. (Reset closes the demo's scope, firing every remaining row's finalizer at once.)`,type:`Effect<View, never, Scope>`,code:`const Row = Component.make(function* (props: {
   item: AtomRef<Item>
 }) {
   const id = props.item.value.id
