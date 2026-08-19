@@ -10,3 +10,6 @@ dist/
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
+
+# Paseo (worktree tool) local config
+/paseo.json
