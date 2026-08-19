@@ -98,7 +98,7 @@ export interface ViewReactive {
  *   (`Atom.family` + `withEquality`, so an unchanged item costs one Equal
  *   check and no DOM write) and reconciles structure by key.
  */
-export type ListSource =
+type ListSource =
   | {
       readonly _tag: "Collection"
       readonly collection: AtomRef.Collection<unknown>
@@ -171,9 +171,15 @@ export type View<E = never> = ViewNode & ViewErr<E>
 
 export const View = Data.taggedEnum<ViewNode>()
 
-export const VIEW_TAGS: ReadonlySet<ViewNode["_tag"]> = new Set<
-  ViewNode["_tag"]
->(["Text", "Element", "Fragment", "Reactive", "List", "Boundary", "Empty"])
+const VIEW_TAGS: ReadonlySet<ViewNode["_tag"]> = new Set<ViewNode["_tag"]>([
+  "Text",
+  "Element",
+  "Fragment",
+  "Reactive",
+  "List",
+  "Boundary",
+  "Empty",
+])
 
 export const isView = (u: unknown): u is ViewNode =>
   typeof u === "object" &&

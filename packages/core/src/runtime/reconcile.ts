@@ -6,14 +6,8 @@
 // `reconcile.test.ts`) without mounting a real DOM. `mount`'s `List` case is the
 // *interpreter*: it applies the plan to real DOM nodes and per-row `Scope`s.
 //
-// The plan is behaviourally equivalent to the single-pass cursor reconcile that
-// used to live inline in `mount`: each `insert`/`move`/`remove` op drives
-// exactly one DOM mutation the old loop performed (`insertBefore`/`removeChild`)
-// in the same order, so the same nodes move. (The op *vocabulary* is richer —
-// the old loop conflated build-and-insert with reposition into one branch — but
-// the resulting mutations match.) The added `keep` op carries the row's new
-// index so the interpreter can push it into a reactive index ref; the old loop
-// left a moved/shifted row's index stale.
+// The `keep` op carries the row's new index so the interpreter can push it
+// into the reactive index ref.
 //
 // Precondition: keys are unique within a snapshot. The `List` source is an
 // `AtomRef.Collection` whose rows are distinct `AtomRef`s, so identity is

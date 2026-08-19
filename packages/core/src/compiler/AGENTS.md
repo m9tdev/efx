@@ -142,9 +142,9 @@ identifier (no alias) are skipped to avoid duplicates.
   direct-call component (generic over the children tuple, coerces raw
   children; see runtime AGENTS.md)
 
-The direct-call lowering (#71) is why generic components keep their type
-parameter at JSX call sites and why the `Tag*` fold families no longer
-exist — a component's channels are just its call's Effect type, folding
+Component tags lower to direct calls, which is why generic components keep
+their type parameter at JSX call sites and why there is no `Tag*` fold
+family — a component's channels are just its call's Effect type, folding
 into the surrounding `h()` as an ordinary child. Children pass RAW in the
 `children` array prop (coercion happens where the component embeds them);
 JSX children win over an explicit `children={...}` attr (React semantics
@@ -303,7 +303,7 @@ the most common mid-edit ones — `count.` at EOF, an unterminated tag
 following token exists to recover _into_ (`x.` followed by `return` parses
 as `x.return`). Callers that must survive the hard-throws wrap this call:
 the language plugin degrades to the file's last good compile
-(`onTransformError: "recover"`, #102). The build path passes
+(`onTransformError: "recover"`). The build path passes
 `errorRecovery: false` so a genuine syntax error throws loudly instead of
 shipping a recovered/garbage module.
 

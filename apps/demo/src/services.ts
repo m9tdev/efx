@@ -16,7 +16,7 @@ export interface User {
   readonly posts: ReadonlyArray<Post>
 }
 
-export interface Post {
+interface Post {
   readonly id: string
   readonly title: string
 }

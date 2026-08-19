@@ -12,7 +12,7 @@
 export const SUPPRESS_RE = /^(?:_?(?:tag|props|children)|_name|_read):?$/i
 
 /** The subset of an inlay hint we read a label string from. */
-export interface HintTextShape {
+interface HintTextShape {
   readonly text?: string | ReadonlyArray<{ readonly text: string }>
   readonly displayParts?: ReadonlyArray<{ readonly text: string }>
 }

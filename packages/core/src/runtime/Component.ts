@@ -46,8 +46,8 @@ type GenR<Eff> = [Eff] extends [never]
  *     a `_name:` label in the editor.
  *
  * If it ever grows beyond these three jobs, it's grown too much. (A runtime
- * brand was considered for #71's direct-call tag lowering and deliberately
- * left out until that issue proves the need.)
+ * brand for direct-call tag lowering is deliberately left out until a
+ * real need shows up.)
  *
  * The body takes at most one props object. A propless component takes no
  * parameter at all (`function* ()`): the compiler emits the zero-arg call

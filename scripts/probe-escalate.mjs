@@ -1,4 +1,4 @@
-// Probe for step 08 — `On` failure homes over `atom`s: the tag block's
+// Probe for AsyncEscalate — `On` failure homes over `atom`s: the tag block's
 // `HttpError` arm handles that tag at the leaf, the open block beside it has
 // no failure arm so everything bubbles, and the fake endpoint REALLY
 // rate-limits (2 requests/second across both atoms, counted at

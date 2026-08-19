@@ -1,4 +1,4 @@
-// Probe for step 07 — the `Catch` boundary demo (both forms).
+// Probe for CatchDemo — the `Catch` boundary demo (both forms).
 // Verifies the tag-map caught a typed HttpError on load, and the catch-all
 // catches a live event-handler failure on click + recovers on reset.
 import { runProbe, waitForText as waitForTextIn } from "./probe-harness.mjs"

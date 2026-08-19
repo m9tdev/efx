@@ -436,9 +436,9 @@ const jsxMemberToMember = (m: t.JSXMemberExpression): t.MemberExpression => {
  * on every line but the first, trailing spaces on every line but the last;
  * blank lines drop; surviving lines join with a single space.
  *
- * The load-bearing difference from the old newline-stripping regex: a newline
- * between two words collapses to one space, not to nothing — so multi-line prose
- * reads "whose point" instead of "whosepoint". Whitespace adjacent to an
+ * Load-bearing detail: a newline between two words collapses to one space,
+ * not to nothing — so multi-line prose reads "whose point" instead of
+ * "whosepoint". Whitespace adjacent to an
  * element/expression boundary still trims to nothing, so (exactly as in React)
  * a tag on its own line concatenates unless the source adds an explicit space.
  */
@@ -602,7 +602,7 @@ const isComponentTag = (
  *    `MyComp({ ...attrs })`, or `MyComp()` when there are no attrs and no
  *    children (so zero-param components stay callable)
  *  - fragment          → `Fragment({ children: [...] })` (Fragment is itself
- *    a component since #71; it coerces the raw children)
+ *    a component; it coerces the raw children)
  *
  * Direct calls are what let a generic component's type parameter infer at
  * the call site, and what makes the component's channels fold as an
@@ -743,7 +743,7 @@ export const transformVerrex = (
     },
   })
 
-  // Auto-inject the runtime imports the rewritten code now depends on.
+  // Auto-inject the runtime imports the rewritten code depends on.
   // Looks for an existing `import … from "@verrex/core"` and adds the
   // missing names there; otherwise prepends a new import. Keeps the user's
   // imports untouched and avoids duplicate specifiers. `h` is needed if the

@@ -18,9 +18,8 @@ import type { View } from "./View.ts"
 // Interrupt-only causes are dropped, not escalated (teardown, not an error),
 // and so is an unhandled failure whose retry is in flight (`waiting`) — it
 // renders nothing until it settles.
-// This is the escalation default the old `Async` arms had, generalized to any
-// tagged value and with no matching API of its own — the two failure shapes
-// are the only special case.
+// This escalation default applies to any tagged value and has no matching API
+// of its own — the two failure shapes are the only special case.
 
 type Tagged = { readonly _tag: string }
 type Tags<T> = T extends { readonly _tag: infer K extends string } ? K : never
@@ -51,7 +50,7 @@ type NarrowFailure<F, E2> = F extends { readonly cause: Cause.Cause<any> }
     : F
 
 /** Every key `<On>` accepts for `T`: value tags, the failure's error tags, `Waiting`, and `value`. */
-export type ArmKeys<T> =
+type ArmKeys<T> =
   | Tags<T>
   | Types.Tags<FailureError<T>>
   | "value"
@@ -221,7 +220,7 @@ const assertHandlers = (handlers: Record<string, unknown>): void => {
   const proto = Object.getPrototypeOf(handlers)
   if (proto !== Object.prototype && proto !== null) {
     throw new TypeError(
-      "On: arms must be a plain object — handlers on a prototype (class instance) never dispatch (#91)",
+      "On: arms must be a plain object — handlers on a prototype (class instance) never dispatch",
     )
   }
   for (const key of Object.keys(handlers)) {
@@ -229,7 +228,7 @@ const assertHandlers = (handlers: Record<string, unknown>): void => {
     const v = handlers[key]
     if (typeof v === "function") continue
     throw new TypeError(
-      `On: handler "${key}" is not a function — its tag was discharged from the type but would never dispatch (#91)`,
+      `On: handler "${key}" is not a function — its tag was discharged from the type but would never dispatch`,
     )
   }
 }

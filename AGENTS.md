@@ -17,7 +17,7 @@ channel is tracked wherever a rendered subtree can still fail: (1) an
 switch puts that `E` on `View<E>` (this is how an `atom(...)`'s failure
 escalates: `<On value={user} Success={…} />` with no failure arm; a tag arm
 or `Failure` handles it in place; partial handling narrows `E`, the residual
-rides); (2) _event handlers_ (#72): an intrinsic's `on*` prop returning
+rides); (2) _event handlers_: an intrinsic's `on*` prop returning
 `Effect<_, E, R>` stamps `E` on the element's `View<E>` and folds `R`; (3)
 `For` rows and `Catch` fallbacks fold their `E`/`R` too. `mount`'s
 `View<never>` gate makes a missing boundary a compile error naming `E`.
@@ -174,8 +174,7 @@ Service plugins only by bare package name.
   repos — search here when stuck on design questions or debugging
   integrations. Key references:
   - `effect/` — **Effect v4 internals** (the `Effect-TS/effect`
-    monorepo; the former `effect-smol` repo was archived and merged
-    into it in July 2026), especially
+    monorepo), especially
     `packages/effect/src/unstable/reactivity` (AtomRef, Atom,
     Collection). Search here first for reactivity patterns.
   - `volar/`, `vue-language-tools/` — Volar Language Service plugin
@@ -189,9 +188,8 @@ Service plugins only by bare package name.
 ## Tooling at a glance
 
 - pnpm workspace, 2 packages (`@verrex/core` + `@verrex/ts-plugin`) + demo + workspace root.
-- Effect v4 (currently `effect@4.0.0-rc.109`; developed in the
-  `Effect-TS/effect` monorepo — formerly the `effect-smol` repo,
-  archived July 2026).
+- Effect v4 (see `packages/core/package.json` for the pinned version;
+  developed in the `Effect-TS/effect` monorepo).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.
 - oxlint + oxfmt for linting and formatting, on stock config bar a few

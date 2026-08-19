@@ -82,8 +82,8 @@ LSP protocol.
   `.ts` (`channels.test-d.ts`, `flash.ts`, `highlight.ts`, `services.ts`).
 - **Diagnostics printed**: controlled by `--minimumSeverity`
   (`error` | `warning` | `hint`, each level including the ones before
-  it). Default `error` — the bare invocation stays a drop-in for the
-  `tsc --noEmit` flow we replaced. This is a _deliberate divergence_
+  it). Default `error` — the bare invocation is a drop-in for
+  `tsc --noEmit`. This is a _deliberate divergence_
   from `astro check` (which defaults to `hint`): the flag semantics
   match astro, only the default differs. Severities below the
   threshold are still _counted_ in `CheckResult` —

@@ -131,7 +131,7 @@ assertEquals<FoldLiveE<readonly [ViewErr, EffLive]>, HttpError>()
 assertEquals<ChildLiveE<View>, never>()
 assertEquals<ChildE<View>, never>()
 
-// ─── Props fold: typed event handlers (#72) ──────────────────────────────
+// ─── Props fold: typed event handlers ───────────────────────────────────
 
 // 14) An Effect-returning handler contributes its E (live) and R.
 type FailingClick = {
@@ -173,15 +173,14 @@ assertEquals<FoldPropsLiveE<OptionalClick>, HttpError>()
 assertEquals<FoldPropsR<OptionalClick>, HttpService>()
 
 // 19) An `unknown`-typed attr contributes nothing — the channels were already
-//     erased upstream, so the fold must not invent any. (History: the old
-//     `h.track` wrap once PRODUCED `unknown` (#159); this pins the general
-//     rule, and case 27 pins the reactive-handler shape instead.)
+//     erased upstream, so the fold must not invent any. (This pins the general
+//     rule; case 27 pins the reactive-handler shape.)
 type TrackedClick = { onclick: unknown }
 assertEquals<FoldPropsLiveE<TrackedClick>, never>()
 assertEquals<FoldPropsR<TrackedClick>, never>()
 
 // 20) The empty props object (`h("div", {})` — the compiler's no-attrs shape).
-//     Regression pin for the never-vacuous-conditional trap: `never extends
+//     The never-vacuous-conditional trap: `never extends
 //     [infer E, any]` is true with NO candidates, resolving E to `unknown` —
 //     these must stay literally `never`, not `unknown`.
 assertEquals<FoldPropsLiveE<{}>, never>()
@@ -256,7 +255,7 @@ assertEquals<
 //     caller never supplies. Mirrors `For`'s `Exclude<R, Scope>` on row
 //     channels. Other services still ride. (The exclusion is sound — a Scope
 //     really is provided: a PER-DISPATCH scope, closed when the handler
-//     settles (#160); see runHandlerEffect in mount.ts and the release-per-
+//     settles; see runHandlerEffect in mount.ts and the release-per-
 //     dispatch pin in testing/context-capture.test.ts.)
 type ScopedHandler = {
   onclick: (e: MouseEvent) => Effect.Effect<void, never, Scope.Scope>
@@ -269,11 +268,9 @@ type ScopedPlusService = {
 }
 assertEquals<FoldPropsR<ScopedPlusService>, HttpService>()
 
-// 27) A `T | Atom<T>` handler union folds (#159). History: the old `h.track`
-//     wrap returned `T` (nothing read) or `Atom<T>` (something read) — a
-//     union, not `unknown`; today the same shape is a hand-written reactive
-//     handler prop. The `unknown` erasure was #159: invisible on
-//     LISTED keys (it failed HandlerSlot loudly) and silent on UNLISTED ones,
+// 27) A `T | Atom<T>` handler union folds — the shape of a hand-written
+//     reactive handler prop. An `unknown` erasure here would be invisible on
+//     LISTED keys (it fails HandlerSlot loudly) and silent on UNLISTED ones,
 //     which pass through IntrinsicProps' `Record<string, unknown>` half.
 //     NOTE what this pin does and does NOT prove: `HandlerChannels`
 //     DISTRIBUTES over the union, and the plain-`T` member alone yields
@@ -295,7 +292,7 @@ assertEquals<FoldPropsR<{ ontimeupdate: RefWrappedHandler }>, HttpService>()
 //      That shape is reachable — `applyProp` unwraps an Atom-valued prop and
 //      attaches its value as a live listener, so a user holding an
 //      `Atom<handler>` gets it RUN; without the peel its `E`/`R` vanish while
-//      it runs, which is #159 in a different wrapper. Delete the peel and
+//      it runs — the same erasure in a different wrapper. Delete the peel and
 //      exactly these assertions fail.
 type BareAtomHandler = Atom.Atom<
   (e: Event) => Effect.Effect<void, HttpError, HttpService>

@@ -171,9 +171,8 @@ hand-rolled.
     imports. The "is this an import line?" decision needs to read the
     source file — `classifyRefs` does that **once** per distinct file
     before the sort, so the comparator only looks at precomputed
-    booleans. (Previously the comparator called `ts.sys.readFile`
-    inline, paying O(N log N) reads of the same handful of files; and
-    the policy itself was untestable inside the Proxy closure.)
+    booleans. Do NOT read source files from the comparator — it runs
+    O(N log N) times.
 
 ## Cross-file resolution
 

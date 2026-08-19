@@ -87,14 +87,14 @@ describe("h.reader", () => {
   })
 })
 
-describe("h() rejects function tags (post-#71 migration guard)", () => {
-  it("throws a TypeError naming the direct-call migration", () => {
+describe("h() rejects function tags", () => {
+  it("throws a TypeError pointing at direct calls", () => {
     const fakeComponent = () => "not a real component"
     expect(() =>
       (h as unknown as (...args: ReadonlyArray<unknown>) => unknown)(
         fakeComponent,
         {},
       ),
-    ).toThrowError(/direct calls since #71/)
+    ).toThrowError(/compile to direct calls/)
   })
 })

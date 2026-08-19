@@ -246,9 +246,9 @@ describe("Catch — tag-selective (object)", () => {
   })
 })
 
-// ─── regression: review findings (MF-1, MF-2, SF-5) ─────────────────────
+// ─── regression: reset, release, escalation ─────────────────────────────
 describe("Catch — lifecycle correctness", () => {
-  it("reset re-renders even when the child fails IDENTICALLY (gen counter, MF-1)", async () => {
+  it("reset re-renders even when the child fails IDENTICALLY (gen counter)", async () => {
     // Without a generation stamp, AtomRef.set dedups the Equal-equal BoundaryState
     // and the reset silently no-ops (the retry button is dead on a deterministic
     // failure). Handler call count proves the fallback re-renders on each reset.
@@ -280,7 +280,7 @@ describe("Catch — lifecycle correctness", () => {
     await ui.unmount()
   })
 
-  it("releases a failed build's construction-scope resources immediately (no leak, MF-2)", async () => {
+  it("releases a failed build's construction-scope resources immediately (no leak)", async () => {
     // A child's construction-time `acquireRelease` must bind to a per-build scope —
     // not leaked to the mount scope. A FAILED build's scope closes as soon as the
     // failure is accepted (nothing renders from it), so its resources never idle
@@ -315,14 +315,14 @@ describe("Catch — lifecycle correctness", () => {
     ui.click(".retry")
     await ui.tick()
     // Every failed build released its own resource immediately — the leak
-    // (released stuck at 0 until unmount) is what MF-2 fixes.
+    // (released stuck at 0 until unmount) is the leak this pins against.
     expect(acquired).toBe(3)
     expect(released).toBe(3)
     await ui.unmount()
     expect(released).toBe(acquired) // nothing left for teardown to find
   })
 
-  it("escalates a LIVE non-matching error to an outer boundary (SF-5)", async () => {
+  it("escalates a LIVE non-matching error to an outer boundary", async () => {
     // `trip:false` keeps ParseError in Child's type (so the inner tag-map is valid)
     // while the runtime failure is a LIVE HttpError from the button — which the
     // inner tag-map rejects and escalates via the ambient sink to the outer catch-all.

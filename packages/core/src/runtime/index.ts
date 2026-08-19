@@ -123,7 +123,7 @@ export function For(props: {
 type Tagged = { readonly _tag: string }
 
 /**
- * Construction-time guard for tag-map handler objects (#91): the type level
+ * Construction-time guard for tag-map handler objects: the type level
  * discharges every `keyof Handlers`, but dispatch only honors OWN,
  * function-valued keys — so reject, loudly and at the call site, the two
  * shapes that would silently over-discharge: prototype-keyed objects (class
@@ -140,14 +140,14 @@ const assertHandlerMap = (
   const proto = Object.getPrototypeOf(handlers)
   if (proto !== Object.prototype && proto !== null) {
     throw new TypeError(
-      `${surface}: a tag-map of handlers must be a plain object — handlers on a prototype (class instance) never dispatch (#91)`,
+      `${surface}: a tag-map of handlers must be a plain object — handlers on a prototype (class instance) never dispatch`,
     )
   }
   for (const key of Object.keys(handlers)) {
     if (key === "children") continue
     if (typeof handlers[key] !== "function") {
       throw new TypeError(
-        `${surface}: tag-map handler "${key}" is not a function — its tag was discharged from the type but would never dispatch (#91)`,
+        `${surface}: tag-map handler "${key}" is not a function — its tag was discharged from the type but would never dispatch`,
       )
     }
   }
@@ -157,7 +157,8 @@ const assertHandlerMap = (
  * The handler matching the cause's first error, when that error is tagged and
  * `handlers` carries an OWN, function-valued key for it (non-plain maps and
  * non-function slots are rejected up front by `assertHandlerMap`; the
- * remaining erasure gap is #91).
+ * remaining erasure gap is a pre-built map whose TYPE declares keys the
+ * value lacks).
  * Dispatch is on the cause's FIRST error — if it is untagged, no handler
  * matches even when a later error's tag is mapped; the design assumes a single
  * failure per cause. Returns the handler together with the error it matched
@@ -285,7 +286,7 @@ const makeBoundary = <R>(
     // Live failures: accepted → error state (via the queue, off the render stack —
     // a synchronous mutation would close the child scope mid-render); non-accepted
     // → escalate to the ambient sink. An interrupt-only cause (a handler torn
-    // down mid-flight, #186) is not an error, so it never flips the boundary;
+    // down mid-flight) is not an error, so it never flips the boundary;
     // it escalates unchanged so the root sink can still observe it.
     const report = (cause: Cause.Cause<unknown>): void => {
       if (Cause.hasInterruptsOnly(cause)) return ambient(cause)
@@ -372,7 +373,7 @@ const makeBoundary = <R>(
  * Catches both phases — **construction** (a child's build Effect fails) and
  * **live** (a post-mount reactive re-render or event-handler Effect). `reset()`
  * re-runs construction. The children's `R` folds (construction + every reset
- * run on the mount fiber); the arms' `R` folds too (#120 — they render on
+ * run on the mount fiber); the arms' `R` folds too (they render on
  * the captured context, so their services must be provided at `mount`), while
  * their own `E` is not: an arm must produce `View<never>` — like `On`'s
  * arms. Tag arms only catch errors in the *type*; an untyped
@@ -389,7 +390,7 @@ const makeBoundary = <R>(
  * Prototype-keyed objects and explicit-`undefined` slots are
  * rejected at construction by `assertHandlerMap`; pre-built maps whose TYPE
  * declares keys the value doesn't carry can still over-discharge — invisible
- * at runtime (erasure), documented limitation (#91).
+ * at runtime (erasure), documented limitation.
  */
 // One mapped type keyed by the arms ACTUALLY PRESENT (`K`, inferred from
 // the props' keys), not by every tag of `E`: that is what lets `Failure` see
@@ -466,7 +467,7 @@ export function Catch(
  * Fragment component — the compile target for JSX `<>...</>` syntax.
  *
  * `<>...</>` lowers to the direct call `Fragment({ children: [...] })`
- * (component tags don't route through `h` since #71). Children arrive RAW —
+ * (component tags don't route through `h`). Children arrive RAW —
  * any child shape `h` accepts — and are coerced here exactly as `h` coerces
  * its variadic children.
  *

@@ -20,7 +20,7 @@ interface BuildCtx {
   readonly context: Context.Context<never>
   readonly sink: ErrorSink
   // The scope that OWNS handler dispatches from elements built under this ctx
-  // (#160/#161): the scope of the dynamic node that ran their construction —
+  // — the scope of the dynamic node that ran their construction —
   // NOT the element build `scope`, which a re-render closes and reforks. Set
   // per call site via `withOwner` (mount root, Reactive, List, Boundary — the
   // table lives in AGENTS.md "Handler-scope semantics"). Consumed only by
@@ -81,7 +81,7 @@ interface HandlerDeps {
   readonly ownerScope: Scope.Scope
 }
 
-// Fire-and-forget an event-handler Effect (#160/#161). Runs on the element's
+// Fire-and-forget an event-handler Effect. Runs on the element's
 // captured context (the services ambient at construction — incl. a mid-tree
 // Effect.provide).
 //
@@ -89,28 +89,28 @@ interface HandlerDeps {
 // - RESOURCES: a fresh per-dispatch child of `deps.ownerScope`, provided into
 //   the handler and closed when it exits — `Scope.use` (onExit-based, so it
 //   also closes on interruption). `acquireRelease` inside a handler therefore
-//   releases per dispatch (#160), and rapid dispatches don't share a scope.
+//   releases per dispatch, and rapid dispatches don't share a scope.
 //   Corollary: the handler's Scope is DISPATCH-lifetime — `forkScoped`, or an
 //   `atom`/`fn` created inside a handler, dies when the dispatch
 //   settles. Work that must outlive the click forks INTO a scope captured at
 //   construction (`const s = yield* Effect.scope`) or `forkDaemon`s.
 // - INTERRUPTION: the fiber is `forkIn(deps.ownerScope)` — the scope of the
 //   node that RAN the element's construction, not the element's build scope.
-//   The old `forkIn(buildScope)` interrupted a handler at its first suspension
-//   whenever its own ref write re-rendered its subtree (#161); the owner
-//   survives those re-emits, so the pending→run→settle pattern completes, and
+//   Do NOT use the element's build scope as the owner — a handler would be
+//   interrupted at its first suspension by the re-render its own write
+//   triggers. The owner survives those re-emits, so the pending→run→settle pattern completes, and
 //   the owner's own teardown still interrupts an in-flight handler. Which scope
 //   is the owner per node, and what still interrupts, is in AGENTS.md
 //   "Handler-scope semantics".
 //
 // Every non-success exit routes to the sink — INCLUDING an interrupt-only
-// cause (#186). Owner teardown interrupts an in-flight handler without running
+// cause. Owner teardown interrupts an in-flight handler without running
 // `matchCause`, so the observation point is `onExit` (a finalizer, which does
 // run). An interrupt is not an error. `Catch.report` does not flip on it; it
 // escalates it to the ambient sink. Mount's default `RootSink` logs it at
 // debug level. This exists to make one symptom visible: "the handler never
-// finished and nothing said so" (#160). The testing harness collects it on
-// `ui.sinkCauses` (#127).
+// finished and nothing said so". The testing harness collects it on
+// `ui.sinkCauses`.
 const runHandlerEffect = (
   effect: Effect.Effect<unknown, unknown, never>,
   deps: HandlerDeps,
@@ -362,7 +362,7 @@ const applyProps = (
 // this subtree (BuildCtx.ownerScope): `"child"` = the freshly forked scope —
 // its own close must interrupt them (List rows, Boundary content);
 // `"inherit"` = the caller's owner — Reactive emissions, whose owner is the
-// NODE so a handler survives the re-emit it triggers (#161).
+// NODE so a handler survives the re-emit it triggers.
 const buildScopedChild = (
   value: unknown,
   parent: Scope.Scope,
@@ -445,7 +445,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       // (mid-tree provides reach REBUILDS, not just first paint). Once per
       // node, reused per emission. Handler owner = `scope`, the scope THIS
       // node was built in (its lifetime) — not the per-emit child — so a
-      // handler survives the re-emit its own write triggers (#161).
+      // handler survives the re-emit its own write triggers.
       const nodeCtx = withOwner(withContext(ctx, view.context), scope)
 
       const render = (next: unknown): void => {
@@ -643,7 +643,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
         // Handler owner = the per-flip content scope, so a flip interrupts
         // prior-generation dispatches — a stale failure can't re-flip a reset
         // boundary. Boundary state flips only on report/reset, never on an
-        // ordinary handler write, so this doesn't reintroduce #161.
+        // ordinary handler write, so a handler is not interrupted by its own write.
         const built =
           st._tag === "ok"
             ? buildScopedChild(st.view, scope, childCtx, "child")
@@ -672,7 +672,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
  * The root error sink, as a `Context.Reference` (a service with a default, so
  * it never shows up in `R`). It receives every live `Cause` no `Catch`
  * boundary caught — a failing handler or re-render — and the interrupt-only
- * cause of a handler torn down mid-flight (#186). The default logs: errors via
+ * cause of a handler torn down mid-flight. The default logs: errors via
  * `Effect.logError`, interrupts via `Effect.logDebug` with a hint (below the
  * default `Info` level; raise it to see them).
  *

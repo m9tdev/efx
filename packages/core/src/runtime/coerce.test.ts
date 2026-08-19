@@ -84,8 +84,8 @@ describe("coerceAsync — Effect / Array peeling (Effect's value containers are 
     () =>
       Effect.gen(function* () {
         // Deliberate: the author maps these explicitly (`Option.getOrNull`,
-        // `Result.match`, `Chunk.toReadonlyArray`). An implicit peel hid a
-        // channel — a `Result.Failure` used to render nothing, error dropped.
+        // `Result.match`, `Chunk.toReadonlyArray`). An implicit peel would hide
+        // a channel — a `Result.Failure` would render nothing, error dropped.
         const o = yield* coerceAsync(Option.some("x"))
         const r = yield* coerceAsync(Result.succeed("y"))
         const c = yield* coerceAsync(Chunk.make("z"))
@@ -241,7 +241,7 @@ describe("coerceSync — Effect handling", () => {
           (c) => caught.push(c),
           runSync,
         )
-        // No longer stringified into the DOM as `[effect failed: …]`.
+        // Never stringified into the DOM.
         expect(result).toEqual(View.Empty())
         expect(caught).toHaveLength(1)
         expect(Cause.squash(caught[0]!)).toBe("boom")

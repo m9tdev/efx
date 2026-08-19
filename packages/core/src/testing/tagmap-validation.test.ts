@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 /**
- * Construction-time validation of tag-map handler objects (#91). The type
+ * Construction-time validation of tag-map handler objects. The type
  * level discharges every `keyof Handlers` but dispatch honors only OWN,
  * function-valued keys — `assertHandlerMap` turns the two runtime-detectable
  * mismatches (prototype-keyed objects, non-function slots) into a TypeError
  * at the `Catch()` call site instead of a silently-dead handler.
  * (The third gap — a pre-built map whose TYPE declares keys the value doesn't
- * carry — is invisible at runtime and stays documented in #91.)
+ * carry — is invisible at runtime and stays a documented limitation.)
  */
 import { describe, it, expect } from "vitest"
 import { Effect } from "effect"
@@ -35,7 +35,7 @@ class ProtoHandlers {
   }
 }
 
-describe("On arm validation (#91)", () => {
+describe("On arm validation", () => {
   it("rejects a prototype-keyed props object and a non-function arm", () => {
     const value = { _tag: "NotFound" as const }
     expect(() =>
@@ -47,7 +47,7 @@ describe("On arm validation (#91)", () => {
   })
 })
 
-describe("tag-map construction validation (#91)", () => {
+describe("tag-map construction validation", () => {
   it("Catch rejects a prototype-keyed handler object at the call site", () => {
     expect(() =>
       Catch(Object.assign(new ProtoHandlers(), { children: [child] })),

@@ -1,4 +1,4 @@
-// AsyncUserPage probe — the `Await` boundary (once form) on a real `.vx` file.
+// AsyncUserPage probe — `atom(effect)` + `On` on a real `.vx` file.
 // Unlike UserPage (in-component fetch, blocking), AsyncUserPage shows a pending
 // placeholder then swaps in the user body. Asserts the resolved success arm.
 import { runProbe } from "./probe-harness.mjs"
@@ -21,7 +21,7 @@ await runProbe({
     console.log("post count:", posts)
     console.log(
       name === "Ada Lovelace" && posts === 3
-        ? "PASS: AsyncUserPage Await boundary resolved to the success arm"
+        ? "PASS: AsyncUserPage On resolved to the Success arm"
         : "FAIL: unexpected AsyncUserPage content",
     )
   },

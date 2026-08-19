@@ -36,7 +36,7 @@ export type Child =
 //    `View<E>` success). `R` unifies (one Layer set serves both phases), so
 //    there is a single `ChildR`.
 // A `Catch` boundary discharges both; `mount` requires both `never`.
-// Component tags need no fold family of their own: since #71 the compiler
+// Component tags need no fold family of their own: the compiler
 // lowers `<MyComp/>` to a direct `MyComp({...})` call, so a component's
 // channels surface as an ordinary Effect CHILD of the surrounding `h()`.
 
@@ -122,7 +122,7 @@ export type FoldLiveE<Cs extends readonly unknown[]> = ChildLiveE<Cs[number]>
 /** Fold a tuple of children to the union of their `R` channels. */
 export type FoldR<Cs extends readonly unknown[]> = ChildR<Cs[number]>
 
-// ─── Props fold: typed event handlers (#72) ────────────────────────────────
+// ─── Props fold: typed event handlers ─────────────────────────────────────
 //
 // An event handler is where most LIVE errors are born: the element is already
 // rendered when the handler runs, so its failure has no construction channel
@@ -156,7 +156,7 @@ type IsAny<T> = 0 extends 1 & T ? true : false
  * coalesces to `never` one fold up (ChildLiveE's phantom-free escape) —
  * swallowing SIBLING handlers' typed errors — and the `unknown` R poisons
  * the whole tree's requirements into an undischargeable blob. Inert matches
- * the pre-#72 status quo for untyped handler bodies.
+ * the status quo for untyped handler bodies.
  */
 type HandlerChannels<H> =
   IsAny<H> extends true
@@ -217,7 +217,7 @@ export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
  * a `Scope` into the handler effect, so a handler's `Scope` is already
  * satisfied by the runtime. Surfacing it would demand a `Scope` the caller
  * never has to supply — the same lie, in the opposite direction, that the rest
- * of this fold exists to remove. The provided scope is PER-DISPATCH (#160):
+ * of this fold exists to remove. The provided scope is PER-DISPATCH:
  * opened when the handler fires, closed when it settles — `acquireRelease`
  * inside a handler releases per dispatch, and anything `forkScoped` there
  * dies with the dispatch. Lifetime/interruption contract: runtime AGENTS.md
@@ -225,7 +225,7 @@ export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
  */
 export type FoldPropsR<P> = Exclude<PairR<FoldPropsChannels<P>>, Scope.Scope>
 
-// ─── Arms fold: `On` arms, `Catch` arms (#120) ───────
+// ─── Arms fold: `On` arms, `Catch` arms ──────────────
 //
 // An arm/fallback renders on the node's construction-captured context, so a
 // service it (or a handler inside it) needs must be in that context — i.e.

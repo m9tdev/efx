@@ -567,7 +567,7 @@ describe("Component.make name injection", () => {
   })
 })
 
-describe("component-tag lowering (direct calls, #71)", () => {
+describe("component-tag lowering (direct calls)", () => {
   it("no attrs, no children → zero-arg call (propless components stay callable)", () => {
     expect(compile(`const x = <Counter />`)).toContain(`Counter()`)
   })

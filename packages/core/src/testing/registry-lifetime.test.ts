@@ -4,16 +4,8 @@ import { Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { get, h, mount } from "@verrex/core"
 
-// Regression pins for #167: `mount` owns its AtomRegistry.
-//
-// History: before this change the registry rode `mount`'s R, and the natural
-// `mount(...).pipe(Effect.provide(VerrexLive))` (VerrexLive was the
-// then-exported `Layer<AtomRegistry>`, since removed) scoped the layer to the
-// mount effect — which completes as soon as the DOM attaches, disposing the
-// registry out from under the live UI. Everything rendered once, then
-// silently froze. Now mount creates, provides, and disposes the registry
-// itself, so the footgun shape is a no-op and NO registry provision is
-// needed at all.
+// `mount` owns its AtomRegistry: it creates, provides, and disposes the
+// registry itself, so NO registry provision is needed at all.
 
 const trackedSpan = (dep: AtomRef.AtomRef<string>) =>
   Effect.gen(function* () {
@@ -36,7 +28,7 @@ const mountHeld = async <R>(
   return () => Effect.runPromise(Scope.close(scope, Exit.void))
 }
 
-describe("mount owns the AtomRegistry (#167)", () => {
+describe("mount owns the AtomRegistry", () => {
   it("mounts and stays reactive with no registry provided", async () => {
     const dep = AtomRef.make("a")
     const el = document.createElement("div")

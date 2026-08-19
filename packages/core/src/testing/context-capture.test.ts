@@ -6,7 +6,7 @@ import { Catch, For, h } from "@verrex/core"
 import { Step, stepClick, stepLayer } from "./fixtures.ts"
 import { render } from "./index.ts"
 
-// THE runtime pins for per-NODE context capture (#72, runtime/AGENTS.md
+// THE runtime pins for per-NODE context capture (runtime/AGENTS.md
 // "Per-NODE context capture"): every path that runs user code after
 // construction — handlers, reactive rebuilds, list rows, Catch fallbacks —
 // must run it on the context that was ambient where the node was
@@ -199,11 +199,11 @@ describe("per-node context capture", () => {
     await ui.unmount()
   })
 
-  it("a settled handler's acquireRelease releases per dispatch (#160)", async () => {
+  it("a settled handler's acquireRelease releases per dispatch", async () => {
     // runHandlerEffect forks a per-DISPATCH scope from the owner and closes it
     // when the handler settles — so a handler that acquires and completes
     // releases at settle time, per click, NOT at subtree/app teardown. This is
-    // the flipped #160 pin (it used to assert accumulate-until-teardown).
+    // the per-dispatch release pin.
     const log: string[] = []
     const App = Effect.fn("StaticScopedHandler")(function* (_props: {} = {}) {
       return yield* h(
@@ -232,11 +232,10 @@ describe("per-node context capture", () => {
     expect(log).toEqual(["acquire", "release", "acquire", "release"])
   })
 
-  it("an IN-FLIGHT handler is interrupted (and releases) when its OWNING node is torn down — but not by its node's own re-emit (#160/#161)", async () => {
+  it("an IN-FLIGHT handler is interrupted (and releases) when its OWNING node is torn down — but not by its node's own re-emit", async () => {
     // The owner of a handler dispatched from a Reactive emission is the
     // NODE's scope, not the per-emit child. So: swapping the node's CONTENT
-    // (a re-emit) must NOT interrupt an in-flight handler — that is the #161
-    // fix — while tearing down the node ITSELF (here: the outer slot swaps
+    // (a re-emit) must NOT interrupt an in-flight handler — while tearing down the node ITSELF (here: the outer slot swaps
     // the whole inner node away) must interrupt it and fire its release.
     // The discriminating shape: inner slot nested in an outer slot. This also
     // rules out the degenerate implementation ownerScope=mount-root, which

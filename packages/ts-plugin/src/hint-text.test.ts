@@ -18,8 +18,7 @@ describe("hintText", () => {
     ).toBe("_children:")
   })
 
-  // The bug this extraction fixes: an empty `displayParts` must not clobber a
-  // label already found in `text`. The old inline version overwrote it.
+  // An empty `displayParts` must not clobber a label already found in `text`.
   it("keeps `text` when `displayParts` is present but empty", () => {
     expect(hintText({ text: "_tag:", displayParts: [] })).toBe("_tag:")
   })

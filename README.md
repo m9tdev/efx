@@ -154,7 +154,8 @@ packages/
     src/testing/        export `@verrex/core/testing`
   ts-plugin/   publishes as `@verrex/ts-plugin` — TS Language Service plugin (editor)
 apps/
-  demo/               Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle, CatchDemo, AsyncEscalate
+  demo/               Guided tour — one .vx per step: Counter, UserPage, AsyncUserPage, LiveUser, SaveButton,
+                      TypedHandlers, Clock, Todos, Lifecycle, CatchDemo, AsyncEscalate
 ```
 
 ## The primitives
@@ -202,16 +203,15 @@ Installs from npm do not have this problem — pnpm hoists one `effect`.
 | `dist/index.html`        | 12.97 kB  | 3.46 kB      |
 | `dist/assets/index-*.js` | 132.75 kB | **44.75 kB** |
 
-The JS bundle contains: the `effect@4.0.0-rc.109` runtime,
+The JS bundle contains: the `effect` runtime,
 `effect/unstable/reactivity` (`AtomRef`, `Atom`,
 `AtomRegistry`, `AsyncResult`), the `verrex` runtime (a few kB gzipped),
 plus all eleven demo components (`Counter`,
 `UserPage`, `AsyncUserPage`, `LiveUser`, `SaveButton`, `TypedHandlers`,
 `Clock`, `Todos`, `Lifecycle`, `CatchDemo`, `AsyncEscalate`), the guided-tour
 shell (a small dependency-free TSX highlighter + reactivity-flash visualizer),
-and their mock services. Verified interactive after build — Counter increments,
-the async demos load then resolve, Todos add/remove/toggle, Lifecycle's
-per-row scope fires releases on row removal.
+and their mock services. The production bundle is exercised end-to-end by
+`scripts/probe-prod.mjs`.
 
 Vite serves `.vx` files directly through `@verrex/core/vite` at dev time;
 type-checking goes through `@verrex/core/check`, which feeds `.vx` to tsc as virtual

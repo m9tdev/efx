@@ -3,7 +3,7 @@ import { Atom } from "effect/unstable/reactivity"
 import { Catch, Component } from "@verrex/core"
 import { Http } from "./services.ts"
 
-// #72: the handler IS the program. Nothing in this component's body yields a
+// The handler IS the program. Nothing in this component's body yields a
 // service or fails — both channels enter through `onclick` alone. A handler
 // returning `Effect<_, E, R>` stamps `E` on the element's LIVE channel (the
 // element is already rendered when a click runs, so `View<E>` is the only

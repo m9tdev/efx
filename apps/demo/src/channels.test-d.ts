@@ -73,7 +73,7 @@ assertEquals<
   Effect.Effect<View, never, Http | AtomRegistry.AtomRegistry | Scope.Scope>
 >()
 
-// ─── TypedHandlers: both channels enter through `onclick` alone (#72). The
+// ─── TypedHandlers: both channels enter through `onclick` alone. The
 //     inner Loader stamps Effect<View<HttpError>, never, Http | AtomRegistry>
 //     (the handler's `Atom.set` needs the registry); the tag-map Catch
 //     discharges the live HttpError, the handler's Http rides R out.
@@ -148,7 +148,7 @@ type WithListType = typeof WithList
 assertEquals<WithListType, Effect.Effect<View, HttpError, Http | Theme>>()
 
 // ─── <Component /> form: the compiler lowers component tags to DIRECT calls
-//     (#71) — `<UserPage userId="42"/>` is `UserPage({ userId: "42" })` in the
+//     — `<UserPage userId="42"/>` is `UserPage({ userId: "42" })` in the
 //     emitted code, so the component's E/R is just the call's Effect type and
 //     folds into a surrounding h() as an ordinary child. (These direct calls
 //     ARE the compiled form of the JSX tags.)
@@ -177,9 +177,8 @@ assertEquals<
   Effect.Effect<View, HttpError, Http | Theme | AtomRegistry.AtomRegistry>
 >()
 
-// ─── Generic components survive JSX tags (#71's acceptance) ─────────────
-//     Direct calls infer the type parameter natively — the old h()-mediated
-//     higher-rank erasure is gone.
+// ─── Generic components survive JSX tags ────────────────────────────────
+//     Direct calls infer the type parameter natively.
 
 declare const GenericRow: <T>(props: {
   item: T
@@ -229,7 +228,7 @@ h("button", { onclick: () => {} })
 // Arbitrary attributes still pass through (intersection with index signature)
 h("div", { "data-id": "x", "aria-hidden": "true", customX: 42 })
 
-// ─── Typed event handlers: the live channel is born at the leaf (#72) ────
+// ─── Typed event handlers: the live channel is born at the leaf ─────────
 //     Handlers are where most live errors are born — the element is already
 //     rendered when one runs, so its failure can only ride the LIVE channel.
 //     An Effect-returning handler stamps its `E` on the element's `View<E>`
@@ -362,7 +361,7 @@ const KeyedRows = For({
 assertEquals<typeof KeyedRows, Effect.Effect<View, never, never>>()
 
 // An Atom child's emitted Effects FOLD `R` (the phase switch keeps E live,
-// #120's rule for arms now applies to whatever an atom emits): a handler
+// the rule for arms applies to whatever an atom emits): a handler
 // inside a On arm needing a service the fetch does not folds onto the
 // element's requirements — a missing Layer there is the same compile error
 // as anywhere else, not a click-time Service-not-found defect. `Scope` is
@@ -379,7 +378,7 @@ const ArmFoldsR = h(
 )
 assertEquals<typeof ArmFoldsR, Effect.Effect<View<HttpError>, never, Theme>>()
 // Providing only Http leaves Theme on the requirements — a forgotten Layer
-// for an arm's handler is a compile error, no longer a click-time defect.
+// for an arm's handler is a compile error.
 declare const withHttp: Effect.Effect<View<HttpError>, never, Http | Theme>
 const ArmProvidedHttp = Effect.provide(withHttp, HttpLive)
 assertEquals<
@@ -594,11 +593,10 @@ mount(Caught, root)
 // A pure component needs no boundary — it's already `View<never>`, `never`.
 mount(Counter(), root)
 
-// ─── mount owns the AtomRegistry (#167) ─────────────────────────────────
+// ─── mount owns the AtomRegistry ────────────────────────────────────────
 //     A component that resolves `yield* AtomRegistry` carries it on R, and
-//     mount DISCHARGES it — the result needs no registry layer. This is the
-//     type-level half of the fix: the registry no longer rides `mount`'s R,
-//     so it can no longer be provided with the wrong lifetime.
+//     mount DISCHARGES AtomRegistry from R — the result needs no registry
+//     layer, so it cannot be provided with the wrong lifetime.
 
 const RegistryUser = Effect.gen(function* () {
   const registry = yield* AtomRegistry.AtomRegistry
@@ -934,13 +932,12 @@ assertEquals<typeof SaveState, Effect.Effect<View<HttpError>, never, never>>()
 // The `@ts-expect-error` assertions above prove props are type-checked at
 // JSX call sites, and that a forgotten error boundary fails to compile.
 
-// ─── #159: a reactive handler on an UNLISTED `on*` key keeps its channels ──
+// ─── A reactive handler on an UNLISTED `on*` key keeps its channels ───────
 //     A handler chosen reactively (`h.reader(() => get(flag) ? saveA :
-//     saveB)`) is an `Atom<handler>`. That used to return `unknown`, which
-//     the `Record<string, unknown>` half of IntrinsicProps swallowed silently
-//     — so the handler ran at runtime with its `E`/`R` erased, past mount's
-//     gate, with no Catch and no Layer. The fold now peels the Atom, so the
-//     handler's channels ride. (In `.vx`, `get` inside an `on*` attribute is
+//     saveB)`) is an `Atom<handler>`. The fold peels the Atom so the
+//     handler's `E`/`R` ride; an `unknown` there would slip through the
+//     `Record<string, unknown>` half of IntrinsicProps past mount's gate,
+//     with no Catch and no Layer. (In `.vx`, `get` inside an `on*` attribute is
 //     a compile error — a listener is not a reactive expression — so this
 //     shape is only reachable through an explicit `h.reader`.)
 

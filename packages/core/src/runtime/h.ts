@@ -110,7 +110,7 @@ const readerImpl = <A>(_read: () => A): Atom.Atom<A> =>
   })
 
 /**
- * The view factory — **intrinsic elements only** since #71. Component tags
+ * The view factory — **intrinsic elements only**. Component tags
  * (`<MyComp/>`) are lowered by the compiler to direct calls
  * (`MyComp({...})`), so a component's channels surface as an ordinary
  * Effect child of the surrounding `h()` — no tag-fold machinery.
@@ -126,13 +126,13 @@ const _h = (
   props: Props,
   ...children: ReadonlyArray<unknown>
 ): Effect.Effect<View<any>, any, any> => {
-  // Stale pre-#71 compiled output (a bundler cache, a version-skewed
+  // Stale compiled output (a bundler cache, a version-skewed
   // artifact) still calls h(Component, props). Without this guard it builds
   // View.Element({ tag: fn }) and dies much later in mount with a cryptic
   // createElement DOMException — fail loud at the call instead.
   if (typeof (tag as unknown) === "function") {
     throw new TypeError(
-      "h() takes intrinsic tag names only — component tags compile to direct calls since #71. " +
+      "h() takes intrinsic tag names only — component tags compile to direct calls. " +
         "A function tag means stale compiled output: clear the bundler cache and recompile the .vx sources.",
     )
   }
@@ -175,7 +175,7 @@ const hasHandlerProp = (props: Props): boolean => {
 // rendered subtree can still produce). `mount` requires both `never`;
 // `Catch` discharges both. The position encodes the phase.
 //
-// Props fold too (#72): `_props` is generic so an Effect-returning event
+// Props fold too: `_props` is generic so an Effect-returning event
 // handler's channels survive — its `E` joins the LIVE channel (the handler
 // runs after the element is built; `View<E>` is the only honest home) and
 // its `R` joins the element's requirements. The `IntrinsicProps` constraint

@@ -1,9 +1,8 @@
-// Save-button probe (#160/#161) — the pending → run → settle mutation
+// Save-button probe — the pending → run → settle mutation
 // pattern in a real browser event loop, three phases:
 //   1. Click save: the handler's first action swaps its own button for a
-//      spinner, then awaits the 600ms Http call. Pre-#161 the swap interrupted
-//      the handler at that await: the spinner stayed forever and `saved`
-//      never moved. Now: spinner shows, then the button returns and `saved`
+//      spinner, then awaits the 600ms Http call. The swap must not interrupt
+//      the handler at that await: spinner shows, then the button returns and `saved`
 //      is 1.
 //   2. Click save (fails): the same shape ending in a typed HttpError, which
 //      must reach the Catch AFTER the self-triggered re-render.

@@ -3,7 +3,7 @@ import { Atom } from "effect/unstable/reactivity"
 import { Catch, Component, fn, On } from "@verrex/core"
 import { Http } from "./services.ts"
 
-// #160/#161: the pending → run → settle mutation pattern, as `fn` — the
+// The pending → run → settle mutation pattern, as `fn` — the
 // state of a function call. `save(id)` runs the body on the fn's own fiber
 // (mounted on the component's Scope, so ↻ reset mid-flight interrupts it —
 // no leak, no stale write); `get(save)` is its `AsyncResult`: waiting swaps
@@ -52,7 +52,7 @@ const Saver = Component.make(function* () {
   )
 })
 
-/** The discharged wrapper the demo mounts — mirrors step 09's Catch form. */
+/** The discharged wrapper the demo mounts — mirrors TypedHandlers' Catch form. */
 export const SaveButton = Component.make(function* () {
   return yield* (
     <Catch
