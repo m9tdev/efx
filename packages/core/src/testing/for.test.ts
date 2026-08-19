@@ -5,7 +5,7 @@ import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { For, h, type View } from "@verrex/core"
 import { render } from "./index.ts"
 
-// `<For>` (docs/reactivity-migration.md step 4b) — one keyed list, two
+// `<For>` — one keyed list, two
 // sources. After compile `<For each={x} key={k}>{fn}</For>` is
 // `For({ each: x, key: k, children: [fn] })`, which is what these tests call.
 

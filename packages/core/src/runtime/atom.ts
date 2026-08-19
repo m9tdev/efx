@@ -2,8 +2,8 @@ import { Cause, Context, Effect, Scope, Stream } from "effect"
 import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity"
 
 // `atom` / `fn` — effect-atom's `Atom.make` / `Atom.fn`, with `R` and `E`
-// owned by the CALLER (the component). See docs/reactivity-migration.md
-// "New public surface". There is no `Atom.runtime(layer)`: the wrapper
+// owned by the CALLER (the component). See AGENTS.md "Reactivity model".
+// There is no `Atom.runtime(layer)`: the wrapper
 // captures the constructing fiber's Context and provides it UNDER the atom's
 // own services (`Scope`, `AtomRegistry`, `Scheduler` — `Context.merge(ctx,
 // own)`, `own` wins), so an atom-body resource belongs to the atom, not the

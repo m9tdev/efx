@@ -14,8 +14,7 @@ import { type Props, View } from "./View.ts"
 // ─── h.reader + get — the reactive expression ────────────────────────────
 //
 // The compiler lowers a JSX expression containing a call to verrex's `get`
-// to `h.reader(() => expr)` (docs/reactivity-migration.md "One dialect";
-// compiler AGENTS.md). `h.reader` is `Atom.readable` under the hood: a
+// to `h.reader(() => expr)`. `h.reader` is `Atom.readable` under the hood: a
 // demand-driven derived that re-runs `expr` per dep change, whose lifecycle
 // the registry owns by refcount (never mounted → never subscribes; unmount →
 // released). `get` is a REAL exported function (auto-imported like `h`) — so

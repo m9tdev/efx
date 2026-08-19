@@ -144,8 +144,7 @@ interface RewriteState {
 }
 
 /**
- * The `get(...)` reactive expression (docs/reactivity-migration.md "One
- * dialect").
+ * The `get(...)` reactive expression.
  *
  * A JSX expression — an intrinsic/component child, or an attribute that is
  * not an `on*` handler — that calls VERREX'S `get(...)` at its top level is

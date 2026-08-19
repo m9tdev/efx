@@ -72,8 +72,7 @@ assertEquals<FoldR<readonly [string, Eff1, number]>, HttpService>()
 assertEquals<FoldE<readonly [ReadonlyArray<Eff1>]>, HttpError>()
 assertEquals<FoldR<readonly [ReadonlyArray<Eff2>]>, DbService>()
 
-// 6) AtomRef/Atom of an Effect: PHASE SWITCH (docs/reactivity-migration.md
-//    "Errors"). An emitted Effect runs at render time (mount re-coerces each
+// 6) AtomRef/Atom of an Effect: PHASE SWITCH. An emitted Effect runs at render time (mount re-coerces each
 //    emission), so its `E` is LIVE — `View<E>`, discharged by `Catch` — and
 //    construction `E` stays `never`. `R` still folds. This is how
 //    `.onFailure(Effect.failCause)` inside `Atom.map(result, …)` escalates.
@@ -321,7 +320,7 @@ assertEquals<FoldE<readonly [TrackedChild]>, HttpError>()
 assertEquals<FoldLiveE<readonly [TrackedChild]>, HttpError>()
 assertEquals<FoldR<readonly [TrackedChild]>, HttpService>()
 
-// 29) Reactive HANDLER SLOTS (docs/reactivity-migration.md step 3): a typed
+// 29) Reactive HANDLER SLOTS: a typed
 //     lowercase `on*` key accepts an `Atom`/`AtomRef` holding the handler, the
 //     event stays contextually typed inside a plain function, and the wrapped
 //     handler's channels fold through `h`. Before this, only `Record<string,

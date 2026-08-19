@@ -22,7 +22,7 @@ rides); (2) _event handlers_ (#72): an intrinsic's `on*` prop returning
 `For` rows and `Catch` fallbacks fold their `E`/`R` too. `mount`'s
 `View<never>` gate makes a missing boundary a compile error naming `E`.
 Reactivity is effect-atom's API with `R`/`E` owned by the caller — see
-[`docs/reactivity-migration.md`](./docs/reactivity-migration.md).
+"Reactivity model" in [`src/runtime/AGENTS.md`](./packages/core/src/runtime/AGENTS.md).
 
 **The name** is built from the channels of an `Effect<View, E, R>`:
 **V** (View — the `A`, always the `View` here), **E** (Error), **R**

@@ -6,7 +6,7 @@ import { h } from "@verrex/core"
 import { render } from "./index.ts"
 
 // Handler dispatch runs its synchronous prefix inside `Atom.batch`
-// (docs/reactivity-migration.md step 1). Pin: a diamond `a → b, a → c,
+//. Pin: a diamond `a → b, a → c,
 // d = b + c` written from a handler recomputes `d` ONCE per click. Without
 // the batch (or without `startImmediately`) the registry pushes `b` and `c`
 // eagerly and `d` runs twice, the first time with an inconsistent pair.

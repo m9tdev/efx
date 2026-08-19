@@ -5,7 +5,7 @@ import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import { h } from "@verrex/core"
 import { render } from "./index.ts"
 
-// Reactive props (docs/reactivity-migration.md step 3): ANY prop may be an
+// Reactive props: ANY prop may be an
 // `Atom` or `AtomRef` — attributes, form props and typed lowercase `on*`
 // handlers alike. `applyProp` subscribes and re-applies the current value.
 // The Atom-attr and AtomRef-handler (`onClick`) cases were already pinned

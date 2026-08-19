@@ -116,7 +116,7 @@ const runHandlerEffect = (
   deps: HandlerDeps,
 ): void => {
   const dispatchScope = Scope.forkUnsafe(deps.ownerScope, "sequential")
-  // BATCHING (docs/reactivity-migration.md step 1): the handler's SYNCHRONOUS
+  // BATCHING: the handler's SYNCHRONOUS
   // prefix runs inside `Atom.batch`, so a write that fans out through the
   // registry graph (a diamond `a → b, a → c, d = b + c`) recomputes `d` once
   // and writes the DOM once. Two load-bearing details:

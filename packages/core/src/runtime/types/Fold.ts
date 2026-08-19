@@ -85,7 +85,7 @@ export type ChildLiveE<C> =
         // here — `Atom<Effect<View, E>>` → `View<E>`. This is how
         // `.onFailure(Effect.failCause)` inside `Atom.map(result, …)`
         // escalates a typed failure to the nearest `Catch`
-        // (docs/reactivity-migration.md "Errors").
+        //.
         C extends Atom.Atom<infer T>
         ? ChildE<T> | ChildLiveE<T>
         : C extends AtomRef.ReadonlyRef<infer T>

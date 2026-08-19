@@ -90,7 +90,7 @@ export interface ViewReactive {
   readonly context?: Context.Context<never>
 }
 /**
- * What a keyed list renders from (docs/reactivity-migration.md step 4b).
+ * What a keyed list renders from.
  * - `Collection`: rows ARE `AtomRef`s, keyed by ref identity — no key fn, no
  *   value diffing; per-cell reactivity via `row.prop`/`row.map`.
  * - `Keyed`: any `Atom<ReadonlyArray<T>>` (a cell, `atom(...)`, `Atom.pull`,

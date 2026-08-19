@@ -9,7 +9,7 @@ Public surface (from `index.ts`):
 - `Component` — `Component.make`, the canonical component constructor
   (a thin seam over `Effect.fn`; see "`Component.make`" below)
 - `atom` / `fn` — effect-atom's `Atom.make` / `Atom.fn` with `R`/`E` owned by
-  the CALLER (`atom.ts`; docs/reactivity-migration.md step 2). No
+  the CALLER (`atom.ts`). No
   `Atom.runtime(layer)`: the wrapper captures the constructing fiber's
   Context and provides it UNDER the atom's own services (`Context.merge(ctx,
 own)` — the atom keeps its own `Scope`/`AtomRegistry`, so an atom-body
@@ -33,8 +33,7 @@ own)` — the atom keeps its own `Scope`/`AtomRegistry`, so an atom-body
   latest, span parent).
 - `mount` — DOM renderer. **Requires `Effect<View<never>, never, R>`** (every
   error discharged), returns `Effect<void, never, R | AtomRegistry | Scope>`
-- `For` — the keyed reactive list component (docs/reactivity-migration.md
-  step 4b; `View.List` IR node, `ListSource` = `Collection` | `Keyed`). Two
+- `For` — the keyed reactive list component (`View.List` IR node, `ListSource` = `Collection` | `Keyed`). Two
   overloads: `each: AtomRef.Collection<T>` (rows are the refs, keyed by
   identity, no `key`) and `each: Atom<ReadonlyArray<T>>` + `key` (rows are
   per-key `Atom<T>`s: `Atom.family` over an index-Map atom, `withEquality(
@@ -105,8 +104,7 @@ THROUGH to the inner function (applyProp's AtomRef branch unwraps and
 re-applies it live). Extracted handlers should be annotated with the
 exported `EventHandler<Ev, E, R>` — a wider hand annotation erases the
 channels (see Html.ts).
-**Phase switch at the Atom/AtomRef boundary** (docs/reactivity-migration.md
-step 4): whatever an `Atom`/`AtomRef` EMITS runs after construction — mount
+**Phase switch at the Atom/AtomRef boundary**: whatever an `Atom`/`AtomRef` EMITS runs after construction — mount
 re-coerces each emission and executes an emitted Effect at render time via
 `coerceSync` — so `ChildE<Atom<T>> = never` and `ChildLiveE<Atom<T>> =
 ChildE<T> | ChildLiveE<T>`. An `Atom<Effect<View, E>>` child is a `View<E>`.
@@ -195,7 +193,26 @@ Pinned in `Component.test-d.ts`.
 ## Reactivity model
 
 Reactivity is `effect/unstable/reactivity`, used as effect-atom is used —
-see docs/reactivity-migration.md for the full rationale.
+`Atom.make`, `Atom.fn`, `Atom.readable`, `Atom.family`, `AsyncResult`,
+`Atom.Interrupt`/`Reset` are the vocabulary. The one thing verrex changes:
+**`R` and `E` are the caller's responsibility.** There is no
+`Atom.runtime(layer)`: a component captures its own `Context` and provides
+it to the atoms it builds (`atom.ts`), so `R` rides the component's Effect to
+`mount`, and an atom's failure rides `View<E>` (the phase switch) to the
+nearest `Catch`. This replaced verrex's earlier `Async`/`asyncRef`/`list`
+primitives (August 2026); the alternatives weighed then, so nobody re-spikes
+them: an **own signal core** (solves nothing the atom API doesn't, and
+verrex would own a scheduler), a **fiber/Stream per hole** (`zipLatest`
+joins land on `setImmediate`, diamonds glitch), and a **keys/cache
+`Reactivity` layer now** (deferred — when wanted it is `Atom.family` +
+`Reactivity`, no new concept).
+
+Not now, additive later: **`View<E, R>` for resumable SSR.** Re-execution
+hydration needs nothing new (construction re-runs on the client; effect-atom
+`Hydration`/`Atom.serializable` carry data). Resumable SSR (no client re-run)
+is the one case where live code has requirements no construction discharges
+— then `View<E, R = never>` (a second covariant phantom, a `ChildLiveR` fold
+mirroring `ChildLiveE`) and `resume(view, el): Effect<void, never, R_live>`.
 
 - `Atom.make(x)` — the DEFAULT cell (a `Writable`; writes are
   `Atom.set/update` Effects; `mount` provides the `AtomRegistry`). Derived:
@@ -543,8 +560,7 @@ dispatcher after the batch closed), and the batch opens ONLY when none is
 open (`batchState.depth === 0`, an `@internal` runtime export read loosely) —
 `Registry.batch` does not restore its phase in `finally`, so a batch opened
 during an outer batch's COMMIT strands invalidations. Writes past the first
-suspension, from atom bodies, streams or timers stay unbatched (see
-`docs/reactivity-migration.md`).
+suspension, from atom bodies, streams or timers stay unbatched.
 
 **Handler-scope semantics (#160/#161) — the canonical statement; code
 comments point here.** A dispatch has two lifetimes:

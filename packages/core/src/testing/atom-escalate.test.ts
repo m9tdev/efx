@@ -5,8 +5,7 @@ import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity"
 import { atom, Catch, h, mount, type View } from "@verrex/core"
 import { render } from "./index.ts"
 
-// Escalation with no extra boundary primitive (docs/reactivity-migration.md
-// step 4): an atom that EMITS an `Effect<View, E>` at render time puts `E` on
+// Escalation with no extra boundary primitive: an atom that EMITS an `Effect<View, E>` at render time puts `E` on
 // the LIVE channel (`View<E>`, Fold.ts phase switch), so an unhandled `On`
 // failure — or, the escape hatch pinned here, `.onFailure(Effect.failCause)`
 // inside `Atom.map(result, …)` — routes a typed failure to the nearest `Catch` —

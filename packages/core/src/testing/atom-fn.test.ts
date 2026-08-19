@@ -5,7 +5,7 @@ import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity"
 import { atom, fn, h } from "@verrex/core"
 import { render } from "./index.ts"
 
-// `atom` / `fn` (docs/reactivity-migration.md step 2). Pins:
+// `atom` / `fn`. Pins:
 // - the body runs with the COMPONENT's services (R rides to the root) but the
 //   ATOM's own Scope (an atom-body resource dies with the atom, not the
 //   component);

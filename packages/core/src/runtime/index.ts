@@ -60,7 +60,7 @@ type RowR<F> = F extends (...args: any) => infer Ret
 
 /**
  * Keyed reactive list — the `<For>` component
- * (docs/reactivity-migration.md step 4b). Two sources, one renderer shape:
+ *. Two sources, one renderer shape:
  *
  * ```tsx
  * <For each={todos}>{(todo) => <li>{todo.prop("title")}</li>}</For>            // AtomRef.Collection

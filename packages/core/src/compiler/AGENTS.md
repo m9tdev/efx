@@ -42,8 +42,8 @@ local AST rewrite.
 
 ## The one reactive rewrite: `get(...)` → `h.reader`
 
-(docs/reactivity-migration.md "One dialect"; `wrapReader` / `hasVerrexGet`
-in `transform.ts`.) A JSX expression `{…}` — an intrinsic or component
+(`wrapReader` / `hasVerrexGet` in `transform.ts`.) A JSX expression `{…}` —
+an intrinsic or component
 child, or an attribute that is not an `on*` handler — that calls VERREX'S
 `get(...)` at its top level is lowered to `h.reader(() => expr)`. That is
 `Atom.readable` under the hood with an ambient reader: the expression
@@ -95,7 +95,7 @@ Rules, all name/scope-based (no types, no atom analysis):
   declarations and `type` specifiers are ignored when deciding what is
   already imported (a type import satisfies nothing at runtime).
 
-Gone with this (docs/reactivity-migration.md steps 5/6): the `.value` →
+Gone with this: the `.value` →
 `h.read` rewrite, the `h.track` wrap, the whole-body `.value` pass, the
 `.value.map → list` sugar and its `isSelfTrackingCall` skip set. `.value`
 is now plain member access the compiler never touches.

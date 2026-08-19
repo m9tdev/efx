@@ -96,7 +96,7 @@ describe("JSX → h() rewrites", () => {
   })
 })
 
-describe("get(...) reactive expressions (docs/reactivity-migration.md)", () => {
+describe("get(...) reactive expressions", () => {
   it("wraps a child expression that calls verrex's get(...) in h.reader(() => …) and auto-imports get", () => {
     const out = compile(`
       const x = <div>{get(count) * 2}</div>
