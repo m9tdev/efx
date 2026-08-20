@@ -1,4 +1,5 @@
-import { Cause, Effect, Option, type Types } from "effect"
+import { assertHandlerMap, matchTagArm, type Tagged } from "./tag-dispatch.ts"
+import { Cause, Effect, type Types } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
 import { bridgeAtom, isAtomRef } from "./coerce.ts"
 import type { ChildE, ChildLiveE, ChildR } from "./types/Fold.ts"
@@ -21,7 +22,6 @@ import type { View } from "./View.ts"
 // This escalation default applies to any tagged value and has no matching API
 // of its own — the two failure shapes are the only special case.
 
-type Tagged = { readonly _tag: string }
 type Tags<T> = T extends { readonly _tag: infer K extends string } ? K : never
 type Variant<T, K extends string> = Extract<T, { readonly _tag: K }>
 
@@ -145,7 +145,7 @@ export function On(
   props: { readonly value: unknown } & Record<string, unknown>,
 ): Effect.Effect<View<any>, never, any> {
   // Validate the PROPS object (a rest-spread would hide its prototype).
-  assertHandlers(props)
+  assertHandlerMap(props, "On", ["value"])
   const { value: on, ...handlers } = props
   const failure = handlers["Failure"]
   const waiting = handlers["Waiting"]
@@ -189,17 +189,10 @@ const dispatch = (
   if (tag === "Failure" && isFailureVariant(value)) {
     const cause = causeOf(value)
     // Error-tag arm first (the more specific), then the whole-variant arm.
-    const err = Option.getOrUndefined(Cause.findErrorOption(cause))
-    const t =
-      typeof err === "object" && err !== null && "_tag" in err
-        ? (err as Tagged)._tag
-        : undefined
     // (an error tagged "Failure" itself has no error-tag arm: that key IS
-    // the whole-variant arm)
-    if (t !== undefined && t !== "Failure" && Object.hasOwn(handlers, t)) {
-      const fn = handlers[t]
-      if (typeof fn === "function") return fn(err, value)
-    }
+    // the whole-variant arm — hence the skipped tag.)
+    const m = matchTagArm(handlers, cause, "Failure")
+    if (m) return m.handler(m.error, value)
     if (typeof failure === "function") return failure(value)
     // Unhandled: escalate — unless it is teardown, or a retry is in flight
     // (`waiting`, AsyncResult): re-escalating a stale failure while its
@@ -228,21 +221,4 @@ const causeOf = (v: Tagged): Cause.Cause<unknown> => {
   const rec = v as unknown as Record<string, unknown>
   if (Cause.isCause(rec["cause"])) return rec["cause"] as Cause.Cause<unknown>
   return Cause.fail(rec["failure"])
-}
-
-const assertHandlers = (handlers: Record<string, unknown>): void => {
-  const proto = Object.getPrototypeOf(handlers)
-  if (proto !== Object.prototype && proto !== null) {
-    throw new TypeError(
-      "On: arms must be a plain object — handlers on a prototype (class instance) never dispatch",
-    )
-  }
-  for (const key of Object.keys(handlers)) {
-    if (key === "value") continue
-    const v = handlers[key]
-    if (typeof v === "function") continue
-    throw new TypeError(
-      `On: handler "${key}" is not a function — its tag was discharged from the type but would never dispatch`,
-    )
-  }
 }

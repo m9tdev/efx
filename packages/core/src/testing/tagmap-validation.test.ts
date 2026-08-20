@@ -40,9 +40,9 @@ describe("On arm validation", () => {
     const value = { _tag: "NotFound" as const }
     expect(() =>
       On(Object.assign(new ProtoHandlers(), { value }) as never),
-    ).toThrow(/On: arms must be a plain object/)
+    ).toThrow(/On: a tag-map of handlers must be a plain object/)
     expect(() => On({ value, NotFound: undefined } as never)).toThrow(
-      /On: handler "NotFound" is not a function/,
+      /On: tag-map handler "NotFound" is not a function/,
     )
   })
 })

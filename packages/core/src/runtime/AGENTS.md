@@ -421,8 +421,11 @@ is the children, the handling is the arm props — one prop per error `_tag`, pl
   `setupDemo<E>`) resolvable. `On` uses the same scheme (`TagHandlers<T, K>`,
   `Residual<T, K>`, `NarrowFailure` for the variant's `cause`/`failure`).
 
-Dispatch order: tag arm first, then `Failure`, else escalate. `assertHandlerMap`
-runs on the props object itself (a rest-spread would hide its prototype).
+Dispatch order: tag arm first, then `Failure`, else escalate. The tag-matching
+rule (`matchTagArm`) and the handler-map guard (`assertHandlerMap`) live in
+`tag-dispatch.ts`, shared verbatim by `Catch` and `On` (On skips the
+`"Failure"` tag — that key is its whole-variant arm). The guard runs on the
+props object itself (a rest-spread would hide its prototype).
 
 `Catch` runs over the internal `makeBoundary(child, accepts, handler)` (builds the
 `Boundary` node, drives `state`); `accepts` is `Failure` present = always,

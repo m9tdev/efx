@@ -1,6 +1,7 @@
-import { Cause, Effect, Exit, Option, Queue, Scope, type Types } from "effect"
+import { Cause, Effect, Exit, Queue, Scope, type Types } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
 import { coerceAsync, type ErrorSink } from "./coerce.ts"
+import { assertHandlerMap, matchTagArm } from "./tag-dispatch.ts"
 import type {
   ChildE,
   ChildLiveE,
@@ -122,72 +123,6 @@ export function For(props: {
       render,
     }),
   )
-}
-
-type Tagged = { readonly _tag: string }
-
-/**
- * Construction-time guard for tag-map handler objects: the type level
- * discharges every `keyof Handlers`, but dispatch only honors OWN,
- * function-valued keys — so reject, loudly and at the call site, the two
- * shapes that would silently over-discharge: prototype-keyed objects (class
- * instances, whose methods never dispatch) and non-function slots
- * (`Tag: undefined`, which compiles for consumers without
- * `exactOptionalPropertyTypes`). The third gap — pre-built maps whose TYPE
- * declares keys the value doesn't carry — is invisible at runtime (erasure)
- * and stays a documented limitation.
- */
-const assertHandlerMap = (
-  handlers: Record<string, unknown>,
-  surface: string,
-): void => {
-  const proto = Object.getPrototypeOf(handlers)
-  if (proto !== Object.prototype && proto !== null) {
-    throw new TypeError(
-      `${surface}: a tag-map of handlers must be a plain object — handlers on a prototype (class instance) never dispatch`,
-    )
-  }
-  for (const key of Object.keys(handlers)) {
-    if (key === "children") continue
-    if (typeof handlers[key] !== "function") {
-      throw new TypeError(
-        `${surface}: tag-map handler "${key}" is not a function — its tag was discharged from the type but would never dispatch`,
-      )
-    }
-  }
-}
-
-/**
- * The handler matching the cause's first error, when that error is tagged and
- * `handlers` carries an OWN, function-valued key for it (non-plain maps and
- * non-function slots are rejected up front by `assertHandlerMap`; the
- * remaining erasure gap is a pre-built map whose TYPE declares keys the
- * value lacks).
- * Dispatch is on the cause's FIRST error — if it is untagged, no handler
- * matches even when a later error's tag is mapped; the design assumes a single
- * failure per cause. Returns the handler together with the error it matched
- * on, so dispatch tag and handler argument can't drift apart across the two
- * tag-map surfaces.
- */
-const taggedMatch = (
-  handlers: Record<string, unknown>,
-  cause: Cause.Cause<unknown>,
-):
-  | {
-      readonly handler: (error: any, extra: () => void) => unknown
-      readonly error: unknown
-    }
-  | undefined => {
-  const err = Option.getOrUndefined(Cause.findErrorOption(cause))
-  const t =
-    typeof err === "object" && err !== null && "_tag" in err
-      ? (err as Tagged)._tag
-      : undefined
-  if (t === undefined || !Object.hasOwn(handlers, t)) return undefined
-  const fn = handlers[t]
-  return typeof fn === "function"
-    ? { handler: fn as (error: any, extra: () => void) => unknown, error: err }
-    : undefined
 }
 
 // ─── Error boundary (Catch) ────────────────
@@ -452,7 +387,7 @@ export function Catch(
   >,
 ): Effect.Effect<View<never>, unknown, unknown> {
   // Validate the PROPS object (a rest-spread would hide its prototype).
-  assertHandlerMap(props, "Catch")
+  assertHandlerMap(props, "Catch", ["children"])
   const { children, Failure: failure, ...tags } = props
   const child: Effect.Effect<View<any>, any, any> = children.length === 1 &&
   Effect.isEffect(children[0])
@@ -462,12 +397,12 @@ export function Catch(
     | ((cause: Cause.Cause<unknown>, reset: () => void) => unknown)
     | undefined
   // Dispatch: tag arm first (own function-valued key, first-error routing —
-  // `taggedMatch`, shared with On), then the catch-all, else escalate.
+  // `matchTagArm`, shared with On), then the catch-all, else escalate.
   return makeBoundary(
     child,
-    (cause) => catchAll !== undefined || taggedMatch(tags, cause) !== undefined,
+    (cause) => catchAll !== undefined || matchTagArm(tags, cause) !== undefined,
     (cause, reset) => {
-      const m = taggedMatch(tags, cause)
+      const m = matchTagArm(tags, cause)
       return m ? m.handler(m.error, reset) : catchAll!(cause, reset)
     },
   )

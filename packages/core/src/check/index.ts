@@ -6,14 +6,10 @@ import { URI } from "vscode-uri"
 import {
   createVerrexLanguagePlugin,
   createVerrexServicePlugin,
+  SEVERITY_ERROR,
+  SEVERITY_HINT,
+  SEVERITY_WARNING,
 } from "@verrex/core/language"
-
-// LSP DiagnosticSeverity constants (stable wire protocol).
-// `@volar/language-service` re-exports the type but not the values, so we
-// inline these to avoid pulling in another package just for the enum.
-const SEVERITY_ERROR = 1
-const SEVERITY_WARNING = 2
-const SEVERITY_HINT = 4
 
 /**
  * Severity threshold names, matching `astro check`'s flag vocabulary. `"error"`
