@@ -1,4 +1,4 @@
-import type { Chunk, Effect, Option, Result, Scope } from "effect"
+import type { Effect, Scope } from "effect"
 import type { Atom, AtomRef } from "effect/unstable/reactivity"
 import type { View } from "../View.ts"
 
@@ -11,7 +11,7 @@ import type { View } from "../View.ts"
  * via `infer` inside conditional types, which TS does support.
  *
  * This set must stay in lockstep with the containers `coerceAsync` peels in
- * `../coerce.ts` (Effect, Option, Result, Chunk, Atom, AtomRef, array). A
+ * `../coerce.ts` (Effect, Atom, AtomRef, array). A
  * shape listed here but not peeled there makes the channel fold *lie* — the
  * type claims an E/R the runtime never produces (it would `String(v)` the
  * value instead). `apps/demo/src/channels.test-d.ts` pins this parity.
@@ -24,9 +24,6 @@ export type Child =
   | boolean
   | null
   | undefined
-  | Option.Option<unknown>
-  | Result.Result<unknown, any>
-  | Chunk.Chunk<unknown>
   | Atom.Atom<unknown>
   | AtomRef.ReadonlyRef<unknown>
   | ReadonlyArray<unknown>
@@ -39,66 +36,64 @@ export type Child =
 //    `View<E>` success). `R` unifies (one Layer set serves both phases), so
 //    there is a single `ChildR`.
 // A `Catch` boundary discharges both; `mount` requires both `never`.
-// Component tags need no fold family of their own: since #71 the compiler
+// Component tags need no fold family of their own: the compiler
 // lowers `<MyComp/>` to a direct `MyComp({...})` call, so a component's
 // channels surface as an ordinary Effect CHILD of the surrounding `h()`.
 
 /**
  * Walk a single child's type, extracting the union of every **construction**
  * `E` — an Effect child's own error channel. A bare `View<E>` child is already
- * built, so it contributes no construction error (its live `E` is `ChildLiveE`'s
- * job). Distributes over unions automatically.
+ * built, so it contributes no construction error (its live `E` is
+ * `ChildLiveE`'s job). Distributes over unions automatically.
  */
 export type ChildE<C> =
   C extends Effect.Effect<any, infer E, any>
     ? E
     : C extends View<any>
       ? never
-      : C extends Option.Option<infer T>
-        ? ChildE<T>
-        : C extends Result.Result<infer A, any>
-          ? ChildE<A>
-          : C extends Chunk.Chunk<infer T>
+      : // PHASE SWITCH: whatever an Atom/AtomRef EMITS runs after
+        // construction (mount re-coerces each emission — an emitted
+        // Effect is executed at render time via `coerceSync`), so none of
+        // it is a construction error. Its channels move to `ChildLiveE`.
+        C extends Atom.Atom<any>
+        ? never
+        : C extends AtomRef.ReadonlyRef<any>
+          ? never
+          : C extends ReadonlyArray<infer T>
             ? ChildE<T>
-            : C extends Atom.Atom<infer T>
-              ? ChildE<T>
-              : C extends AtomRef.ReadonlyRef<infer T>
-                ? ChildE<T>
-                : C extends ReadonlyArray<infer T>
-                  ? ChildE<T>
-                  : never
+            : never
 
 /**
  * Walk a single child's type, extracting the union of every **live** `E` — the
  * error a rendered subtree can still produce after construction. It reads the
- * phantom `E` off a bare `View<E>` child, and recurses into an Effect's *success*
- * (where a `View<E>` rides) — ignoring the Effect's own `E`, which is
- * construction (`ChildE`'s job). One `infer` at the `View` leaf, no walk into the
- * View's children, so the recursion stays shallow.
+ * phantom `E` off a bare `View<E>` child, and recurses into an Effect's
+ * *success* (where a `View<E>` rides) — ignoring the Effect's own `E`, which is
+ * construction (`ChildE`'s job). One `infer` at the `View` leaf, no walk into
+ * the View's children, so the recursion stays shallow.
  */
 export type ChildLiveE<C> =
   C extends Effect.Effect<infer A, any, any>
     ? ChildLiveE<A>
     : // Coalesce `unknown`→`never`: a phantom-free `ViewNode` (no `ViewErr`) matches
-      // `View<infer VE>` with `VE = unknown`; treat it as no live error rather than
-      // poisoning the fold. (Latent — `ViewNode` isn't part of the public child shapes.)
+      // `View<infer VE>` with `VE = unknown`; treat it as no live error rather
+      // than poisoning the fold. (Latent — `ViewNode` isn't part of the public
+      // child shapes.)
       C extends View<infer VE>
       ? [unknown] extends [VE]
         ? never
         : VE
-      : C extends Option.Option<infer T>
-        ? ChildLiveE<T>
-        : C extends Result.Result<infer A, any>
-          ? ChildLiveE<A>
-          : C extends Chunk.Chunk<infer T>
+      : // PHASE SWITCH (see ChildE): an emitted Effect's OWN `E` is live
+        // here — `Atom<Effect<View, E>>` → `View<E>`. This is how
+        // `.onFailure(Effect.failCause)` inside `Atom.map(result, …)`
+        // escalates a typed failure to the nearest `Catch`
+        // .
+        C extends Atom.Atom<infer T>
+        ? ChildE<T> | ChildLiveE<T>
+        : C extends AtomRef.ReadonlyRef<infer T>
+          ? ChildE<T> | ChildLiveE<T>
+          : C extends ReadonlyArray<infer T>
             ? ChildLiveE<T>
-            : C extends Atom.Atom<infer T>
-              ? ChildLiveE<T>
-              : C extends AtomRef.ReadonlyRef<infer T>
-                ? ChildLiveE<T>
-                : C extends ReadonlyArray<infer T>
-                  ? ChildLiveE<T>
-                  : never
+            : never
 
 /**
  * Walk a single child's type, extracting the union of every `R` channel.
@@ -111,30 +106,26 @@ export type ChildR<C> =
     ? R
     : C extends View<any>
       ? never
-      : C extends Option.Option<infer T>
+      : C extends Atom.Atom<infer T>
         ? ChildR<T>
-        : C extends Result.Result<infer A, any>
-          ? ChildR<A>
-          : C extends Chunk.Chunk<infer T>
+        : C extends AtomRef.ReadonlyRef<infer T>
+          ? ChildR<T>
+          : C extends ReadonlyArray<infer T>
             ? ChildR<T>
-            : C extends Atom.Atom<infer T>
-              ? ChildR<T>
-              : C extends AtomRef.ReadonlyRef<infer T>
-                ? ChildR<T>
-                : C extends ReadonlyArray<infer T>
-                  ? ChildR<T>
-                  : never
+            : never
 
 /** Fold a tuple of children to the union of their construction `E` channels. */
 export type FoldE<Cs extends readonly unknown[]> = ChildE<Cs[number]>
 
-/** Fold a tuple of children to the union of their live `E` channels (`View<E>`). */
+/**
+ * Fold a tuple of children to the union of their live `E` channels (`View<E>`).
+ */
 export type FoldLiveE<Cs extends readonly unknown[]> = ChildLiveE<Cs[number]>
 
 /** Fold a tuple of children to the union of their `R` channels. */
 export type FoldR<Cs extends readonly unknown[]> = ChildR<Cs[number]>
 
-// ─── Props fold: typed event handlers (#72) ────────────────────────────────
+// ─── Props fold: typed event handlers ─────────────────────────────────────
 //
 // An event handler is where most LIVE errors are born: the element is already
 // rendered when the handler runs, so its failure has no construction channel
@@ -151,12 +142,15 @@ export type FoldR<Cs extends readonly unknown[]> = ChildR<Cs[number]>
 // function-valued attr is stringified into an attribute and never invoked —
 // folding it would make the type claim an `E` that can never fire. (The same
 // parity rule as `Child` ↔ `coerceAsync`.) A reactive-valued handler prop
-// (Atom — what a `h.track` derived is — or AtomRef) folds through to the
+// (Atom — e.g. a compiler-emitted `h.reader` — or AtomRef) folds through to the
 // inner function: `applyProp`'s reactive branch unwraps the source and
 // re-applies its value as a live listener, so the channels must survive
 // the wrapper.
 
-/** `true` for exactly `any` — the one type that matches both conditional branches. */
+/**
+ * `true` for exactly `any` — the one type that matches both conditional
+ * branches.
+ */
 type IsAny<T> = 0 extends 1 & T ? true : false
 
 /**
@@ -168,7 +162,7 @@ type IsAny<T> = 0 extends 1 & T ? true : false
  * coalesces to `never` one fold up (ChildLiveE's phantom-free escape) —
  * swallowing SIBLING handlers' typed errors — and the `unknown` R poisons
  * the whole tree's requirements into an undischargeable blob. Inert matches
- * the pre-#72 status quo for untyped handler bodies.
+ * the status quo for untyped handler bodies.
  */
 type HandlerChannels<H> =
   IsAny<H> extends true
@@ -219,17 +213,19 @@ type FoldPropsChannels<P> = P extends unknown
 type PairE<T> = T extends [infer E, any] ? E : never
 type PairR<T> = T extends [any, infer R] ? R : never
 
-/** Fold a props object to the union of its `on*` handlers' live `E` channels. */
+/**
+ * Fold a props object to the union of its `on*` handlers' live `E` channels.
+ */
 export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
 
 /**
  * Fold a props object to the union of its `on*` handlers' `R` channels.
  *
- * `Scope` is EXCLUDED, mirroring `list`'s row fold: `runHandlerEffect` provides
+ * `Scope` is EXCLUDED, mirroring `For`'s row fold: `runHandlerEffect` provides
  * a `Scope` into the handler effect, so a handler's `Scope` is already
  * satisfied by the runtime. Surfacing it would demand a `Scope` the caller
  * never has to supply — the same lie, in the opposite direction, that the rest
- * of this fold exists to remove. The provided scope is PER-DISPATCH (#160):
+ * of this fold exists to remove. The provided scope is PER-DISPATCH:
  * opened when the handler fires, closed when it settles — `acquireRelease`
  * inside a handler releases per dispatch, and anything `forkScoped` there
  * dies with the dispatch. Lifetime/interruption contract: runtime AGENTS.md
@@ -237,14 +233,14 @@ export type FoldPropsLiveE<P> = PairE<FoldPropsChannels<P>>
  */
 export type FoldPropsR<P> = Exclude<PairR<FoldPropsChannels<P>>, Scope.Scope>
 
-// ─── Arms fold: Async arms, Catch fallbacks, tag-map handlers (#120) ───────
+// ─── Arms fold: `On` arms, `Catch` arms ──────────────
 //
 // An arm/fallback renders on the node's construction-captured context, so a
 // service it (or a handler inside it) needs must be in that context — i.e.
 // provided at `mount`. Folding the arm's `R` onto the boundary's result makes
 // a missing Layer there the same compile error as everywhere else, instead
 // of a click-time Service-not-found defect. `Scope` is excluded: the arm
-// renders under the node scope (`coerceSync` provides it), like `list` rows
+// renders under the node scope (`coerceSync` provides it), like `For` rows
 // and handlers. Only `R` folds — an arm's OWN Effect `E` stays permissive and
 // its success stays `View<never>` (a typed failing handler inside an arm is
 // rejected at the arm; discharge it with a nested `Catch`).

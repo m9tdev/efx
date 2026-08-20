@@ -3,19 +3,18 @@ import * as ts from "typescript"
 import * as kit from "@volar/kit"
 import { create as createTypeScriptServices } from "volar-service-typescript"
 import { URI } from "vscode-uri"
-import { createVerrexLanguagePlugin } from "@verrex/core/language"
-
-// LSP DiagnosticSeverity constants (stable wire protocol). `@volar/language-service`
-// re-exports the type but not the values, so we inline these to avoid pulling in
-// another package just for the enum.
-const SEVERITY_ERROR = 1
-const SEVERITY_WARNING = 2
-const SEVERITY_HINT = 4
+import {
+  createVerrexLanguagePlugin,
+  createVerrexServicePlugin,
+  SEVERITY_ERROR,
+  SEVERITY_HINT,
+  SEVERITY_WARNING,
+} from "@verrex/core/language"
 
 /**
- * Severity threshold names, matching `astro check`'s flag vocabulary.
- * `"error"` < `"warning"` < `"hint"` — each level includes the ones before it
- * (`"hint"` also admits LSP Information, like astro's `severity <= Hint` filter).
+ * Severity threshold names, matching `astro check`'s flag vocabulary. `"error"`
+ * < `"warning"` < `"hint"` — each level includes the ones before it (`"hint"`
+ * also admits LSP Information, like astro's `severity <= Hint` filter).
  */
 export const SEVERITIES = ["error", "warning", "hint"] as const
 export type Severity = (typeof SEVERITIES)[number]
@@ -69,7 +68,10 @@ export interface VerrexChecker {
    * superseded results themselves).
    */
   check(options?: { cancel?: () => boolean }): Promise<CheckResult>
-  /** Notify the checker of a created file (re-expands the tsconfig include globs). */
+  /**
+   * Notify the checker of a created file (re-expands the tsconfig include
+   * globs).
+   */
   fileCreated(fileName: string): void
   /**
    * Notify the checker of an in-place edit (bumps the project version; content
@@ -77,7 +79,9 @@ export interface VerrexChecker {
    * stale instead — compiler options and include globs are re-parsed.
    */
   fileUpdated(fileName: string): void
-  /** Notify the checker of a deletion (re-expands the tsconfig include globs). */
+  /**
+   * Notify the checker of a deletion (re-expands the tsconfig include globs).
+   */
   fileDeleted(fileName: string): void
   /** Current root file names (re-resolved after create/delete events). */
   getRootFileNames(): string[]
@@ -169,7 +173,9 @@ export function createChecker(options: CheckOptions = {}): VerrexChecker {
     const tsServices = createTypeScriptServices(ts)
     return kit.createTypeScriptChecker(
       [trackingPlugin, languagePlugin],
-      tsServices,
+      // + the compiler's own diagnostics (a nested `get(...)`), reported at
+      // their source position like any TS error.
+      [...tsServices, createVerrexServicePlugin()],
       tsconfigPath,
     )
   }

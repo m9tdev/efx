@@ -12,22 +12,17 @@ produce ride the `View<E>` success — one `Catch` boundary discharges both.
 
 **Honest scope today:** the _construction_ channel is fully type-tracked —
 a forgotten boundary on a failing build is a compile error. The _live_
-channel is tracked at two leaves. (1) `Async` _without_ a `failure` arm (or
-with a _partial_ tag map, whose residual rides), typed
-`Effect<View<E>, never, R | Scope>`. Its failures (initial fetch or refetch)
-ride `View<E>` to the nearest `Catch`, and `mount`'s `View<never>` gate makes
-a missing boundary a compile error naming `E`. The `failure` arm mirrors
-`Catch`'s two forms: a function handles everything at the leaf
-(`View<never>`); a tag map handles matched tags at the leaf — keeping the
-fetch loop live, so a dep change can recover the view — while the residual
-rides `View<Exclude<E, { _tag }>>`. (2) _Event handlers_ (#72): an intrinsic's
-`on*` prop returning `Effect<_, E, R>` stamps `E` on the element's `View<E>`
-and folds `R` into its requirements — a forgotten boundary or Layer for a
-handler is the same compile error as for construction. Since #120, `Async` arms
-and `Catch` fallbacks fold their `R` too, so a handler inside an arm is covered. The remaining
-untracked live surface: a _reactive re-render_ whose Effect fails (an
-`AtomRef`-driven child re-emitting a failing Effect) is still caught only at
-_runtime_ by `Catch`'s sink, not typed.
+channel is tracked wherever a rendered subtree can still fail: (1) an
+`Atom`/`AtomRef` child that EMITS an `Effect<View, E>` — the fold's phase
+switch puts that `E` on `View<E>` (this is how an `atom(...)`'s failure
+escalates: `<On value={user} Success={…} />` with no failure arm; a tag arm
+or `Failure` handles it in place; partial handling narrows `E`, the residual
+rides); (2) _event handlers_: an intrinsic's `on*` prop returning
+`Effect<_, E, R>` stamps `E` on the element's `View<E>` and folds `R`; (3)
+`For` rows and `Catch` fallbacks fold their `E`/`R` too. `mount`'s
+`View<never>` gate makes a missing boundary a compile error naming `E`.
+Reactivity is effect-atom's API with `R`/`E` owned by the caller — see
+"Reactivity model" in [`src/runtime/AGENTS.md`](./packages/core/src/runtime/AGENTS.md).
 
 **The name** is built from the channels of an `Effect<View, E, R>`:
 **V** (View — the `A`, always the `View` here), **E** (Error), **R**
@@ -100,12 +95,13 @@ editor plugin is the one separate package, because tsserver resolves Language
 Service plugins only by bare package name.
 
 - **[`src/runtime/`](./packages/core/src/runtime/AGENTS.md)** — export `@verrex/core`. `h`,
-  `mount`, `Async`, `asyncRef` (returning `AsyncHandle`), `list`, `Catch`, the View IR (mount switches on it),
-  reactivity wiring, channel-fold types. The thing components import from.
+  `mount`, `atom`, `fn`, `get`, `For`, `On`, `Catch`, `Fragment`, `Component.make`, the
+  View IR (mount switches on it), channel-fold types. The thing components
+  import from.
 - **[`src/compiler/`](./packages/core/src/compiler/AGENTS.md)** — export
   `@verrex/core/compiler`. The Babel transform: intrinsic JSX → `h()`,
-  component tags → direct calls (`MyComp({...})`), `.value` → `h.read()`,
-  `<expr>.value.map(arrow → JSX)` → `list(<expr>, arrow)`. Smart-skip wrap.
+  component tags → direct calls (`MyComp({...})`), a JSX expression with a
+  free `get(...)` → `h.reader((get) => …)`, `Component.make` name slot.
 - **[`src/language/`](./packages/core/src/language/AGENTS.md)** — export
   `@verrex/core/language`. The Volar `LanguagePlugin` describing `.vx` files (file id,
   virtual code, source-map conversion, JSX region tagging). Bridges
@@ -178,8 +174,7 @@ Service plugins only by bare package name.
   repos — search here when stuck on design questions or debugging
   integrations. Key references:
   - `effect/` — **Effect v4 internals** (the `Effect-TS/effect`
-    monorepo; the former `effect-smol` repo was archived and merged
-    into it in July 2026), especially
+    monorepo), especially
     `packages/effect/src/unstable/reactivity` (AtomRef, Atom,
     Collection). Search here first for reactivity patterns.
   - `volar/`, `vue-language-tools/` — Volar Language Service plugin
@@ -193,9 +188,8 @@ Service plugins only by bare package name.
 ## Tooling at a glance
 
 - pnpm workspace, 2 packages (`@verrex/core` + `@verrex/ts-plugin`) + demo + workspace root.
-- Effect v4 (currently `effect@4.0.0-beta.102`; developed in the
-  `Effect-TS/effect` monorepo — formerly the `effect-smol` repo,
-  archived July 2026).
+- Effect v4 (see `packages/core/package.json` for the pinned version;
+  developed in the `Effect-TS/effect` monorepo).
 - Vitest — compiler tests use plain `vitest`; runtime channel-fold
   type-tests via `expectTypeOf` at typecheck time.
 - oxlint + oxfmt for linting and formatting, on stock config bar a few
@@ -203,7 +197,9 @@ Service plugins only by bare package name.
   extension list, no plugin API for file types), so `pnpm lint` /
   `pnpm format` also run
   [`scripts/vx-oxc.mjs`](./scripts/AGENTS.md#vx-oxcmjs--linting-and-formatting-vx),
-  which feeds `.vx` through a shadow tree of `.tsx` symlinks.
+  which feeds `.vx` through a shadow tree of `.tsx` symlinks; and
+  [`scripts/comment-width.mjs`](./scripts/AGENTS.md#comment-widthmjs--comment-line-width),
+  which keeps comment prose at 80 columns (`--fix` reflows).
 - Babel as the `.vx` parser (parser + traverse + generate
   directly, no `@babel/preset-*`).
 - Volar (`@volar/typescript`, `@volar/language-core`,
@@ -219,8 +215,8 @@ Service plugins only by bare package name.
 ## How to verify a change end-to-end
 
 ```
-pnpm lint            # oxlint, plus .vx via scripts/vx-oxc.mjs
-pnpm format:check    # oxfmt, same two passes (`pnpm format` to fix)
+pnpm lint            # oxlint, .vx via scripts/vx-oxc.mjs, comment width
+pnpm format:check    # oxfmt + .vx (`pnpm format` to fix; also reflows comments)
 pnpm -r test         # compiler tests + ts-plugin integration tests
 pnpm -r typecheck    # fans out: every package runs `tsc --noEmit`,
                      # apps/demo runs `@verrex/core/check` (the .vx-aware checker)

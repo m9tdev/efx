@@ -58,7 +58,9 @@ await runProbe({
       console.error("\nFAIL", results)
       process.exitCode = 1
     } else {
-      console.log("\nPASS — asyncRef refetches and recovers on trigger change")
+      console.log(
+        "\nPASS — dependent atom refetches and recovers on dep change",
+      )
     }
   },
 })

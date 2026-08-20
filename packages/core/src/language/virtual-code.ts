@@ -1,6 +1,6 @@
 import type { CodeInformation, VirtualCode } from "@volar/language-core"
 import type { Mapping } from "@volar/source-map"
-import type { JsxRange } from "@verrex/core/compiler"
+import type { JsxRange, TransformDiagnostic } from "@verrex/core/compiler"
 import type * as ts from "typescript"
 
 /**
@@ -28,6 +28,13 @@ export class VerrexVirtualCode implements VirtualCode {
   readonly compiled: string
   readonly mappings: Mapping<CodeInformation>[]
   readonly jsxRanges: ReadonlyArray<JsxRange>
+  /**
+   * Compiler diagnostics for this compile, in SOURCE (`.vx`) offsets — e.g. a
+   * verrex `get(...)` inside a nested function. Surfaced by the ts-plugin
+   * (`getSemanticDiagnostics`) and by `createVerrexServicePlugin`
+   * (verrex-check). Empty when the compile is a recovery fallback.
+   */
+  readonly diagnostics: ReadonlyArray<TransformDiagnostic>
 
   // Fields are declared explicitly rather than via constructor parameter
   // properties so Node's `--experimental-strip-types` (used by verrex-check and
@@ -39,11 +46,13 @@ export class VerrexVirtualCode implements VirtualCode {
     compiled: string,
     mappings: Mapping<CodeInformation>[],
     jsxRanges: ReadonlyArray<JsxRange>,
+    diagnostics: ReadonlyArray<TransformDiagnostic> = [],
   ) {
     this.source = source
     this.compiled = compiled
     this.mappings = mappings
     this.jsxRanges = jsxRanges
+    this.diagnostics = diagnostics
     this.snapshot = {
       getText: (start, end) => compiled.slice(start, end),
       getLength: () => compiled.length,

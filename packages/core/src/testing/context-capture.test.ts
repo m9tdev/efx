@@ -2,11 +2,11 @@
 import { describe, expect, it } from "vitest"
 import { Deferred, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { Catch, h, list } from "@verrex/core"
+import { Catch, For, h } from "@verrex/core"
 import { Step, stepClick, stepLayer } from "./fixtures.ts"
 import { render } from "./index.ts"
 
-// THE runtime pins for per-NODE context capture (#72, runtime/AGENTS.md
+// THE runtime pins for per-NODE context capture (runtime/AGENTS.md
 // "Per-NODE context capture"): every path that runs user code after
 // construction — handlers, reactive rebuilds, list rows, Catch fallbacks —
 // must run it on the context that was ambient where the node was
@@ -24,16 +24,24 @@ const makeRows = (
   h(
     "ul",
     {},
-    list(coll, (item) =>
-      Effect.gen(function* () {
-        yield* Step // construction-time read — must resolve in rows
-        return yield* h(
-          "li",
-          {},
-          h("button", { class: "row-btn", onClick: stepClick(count) }, item),
-        )
-      }),
-    ),
+    For({
+      each: coll,
+      children: [
+        (item) =>
+          Effect.gen(function* () {
+            yield* Step // construction-time read — must resolve in rows
+            return yield* h(
+              "li",
+              {},
+              h(
+                "button",
+                { class: "row-btn", onClick: stepClick(count) },
+                item,
+              ),
+            )
+          }),
+      ],
+    }),
     h("span", { class: "total" }, "total: ", count),
   )
 
@@ -64,7 +72,7 @@ describe("per-node context capture", () => {
   })
 
   it("a mid-tree Effect.provide reaches LIST ROWS — construction and handler", async () => {
-    // list() captures its construction context (ViewList.context) and every
+    // For() captures its construction context (View.List.context) and every
     // row builds on it — without the capture, rows materialize at reconcile
     // time on mount's ROOT context and this whole test type-checks but dies
     // at runtime (the round-2 review hole).
@@ -163,16 +171,18 @@ describe("per-node context capture", () => {
     // The boundary captures its construction context (ViewBoundary.context)
     // and the fallback builds on it — without the capture, the fallback's
     // handler ran on mount's root context and died with ServiceNotFound,
-    // while the same handler in the ok content (or an Async arm) worked.
+    // while the same handler in the ok content (or an `On` arm) worked.
     const count = AtomRef.make(0)
     const Failing = Effect.fn("Failing")(function* (_props: {} = {}) {
       return yield* Effect.fail(new Error("construction boom"))
     })
 
     const Provided = Effect.fn("ProvidedFallback")(function* (_props: {} = {}) {
-      const guarded = Catch(Failing(), (_cause, _reset) =>
-        h("button", { class: "retry", onClick: stepClick(count) }, "retry"),
-      )
+      const guarded = Catch({
+        children: [Failing()],
+        Failure: (_cause, _reset) =>
+          h("button", { class: "retry", onClick: stepClick(count) }, "retry"),
+      })
       return yield* h(
         "div",
         {},
@@ -189,11 +199,11 @@ describe("per-node context capture", () => {
     await ui.unmount()
   })
 
-  it("a settled handler's acquireRelease releases per dispatch (#160)", async () => {
+  it("a settled handler's acquireRelease releases per dispatch", async () => {
     // runHandlerEffect forks a per-DISPATCH scope from the owner and closes it
     // when the handler settles — so a handler that acquires and completes
     // releases at settle time, per click, NOT at subtree/app teardown. This is
-    // the flipped #160 pin (it used to assert accumulate-until-teardown).
+    // the per-dispatch release pin.
     const log: string[] = []
     const App = Effect.fn("StaticScopedHandler")(function* (_props: {} = {}) {
       return yield* h(
@@ -222,15 +232,15 @@ describe("per-node context capture", () => {
     expect(log).toEqual(["acquire", "release", "acquire", "release"])
   })
 
-  it("an IN-FLIGHT handler is interrupted (and releases) when its OWNING node is torn down — but not by its node's own re-emit (#160/#161)", async () => {
-    // The owner of a handler dispatched from a Reactive emission is the
-    // NODE's scope, not the per-emit child. So: swapping the node's CONTENT
-    // (a re-emit) must NOT interrupt an in-flight handler — that is the #161
-    // fix — while tearing down the node ITSELF (here: the outer slot swaps
-    // the whole inner node away) must interrupt it and fire its release.
-    // The discriminating shape: inner slot nested in an outer slot. This also
-    // rules out the degenerate implementation ownerScope=mount-root, which
-    // would keep the handler alive past the node teardown.
+  it("an IN-FLIGHT handler is interrupted (and releases) when its OWNING node is torn down — but not by its node's own re-emit", async () => {
+    // The owner of a handler dispatched from a Reactive emission is the NODE's
+    // scope, not the per-emit child. So: swapping the node's CONTENT (a
+    // re-emit) must NOT interrupt an in-flight handler — while tearing down the
+    // node ITSELF (here: the outer slot swaps the whole inner node away) must
+    // interrupt it and fire its release. The discriminating shape: inner slot
+    // nested in an outer slot. This also rules out the degenerate
+    // implementation ownerScope=mount-root, which would keep the handler alive
+    // past the node teardown.
     const log: string[] = []
     const gate = Deferred.makeUnsafe<void>()
     const makeButton = () =>

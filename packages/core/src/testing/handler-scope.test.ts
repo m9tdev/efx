@@ -2,34 +2,33 @@
 import { describe, expect, it } from "vitest"
 import { Cause, Data, Deferred, Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { Catch, h, list } from "@verrex/core"
+import { Catch, For, h } from "@verrex/core"
 import { Step, stepLayer } from "./fixtures.ts"
 import { render, untracked } from "./index.ts"
 
-// The dispatch-scope pins (#160/#161, runtime/AGENTS.md "Handler-scope
-// semantics" under "mount internals — invariants"): every dispatch runs in its own child scope forked from the
-// OWNER scope — the scope of the dynamic node that ran the element's
-// construction — so (a) finalizers release per dispatch, (b) a handler whose
-// own ref write re-renders its subtree SURVIVES that re-render, and (c) the
-// owning subtree's teardown still interrupts an in-flight handler. The
-// per-node teardown discriminator lives in context-capture.test.ts; this file
-// pins the dispatch semantics.
+// The dispatch-scope pins (runtime/AGENTS.md "Handler-scope semantics" under
+// "mount internals — invariants"): every dispatch runs in its own child scope
+// forked from the OWNER scope — the scope of the dynamic node that ran the
+// element's construction — so (a) finalizers release per dispatch, (b) a
+// handler whose own ref write re-renders its subtree SURVIVES that re-render,
+// and (c) the owning subtree's teardown still interrupts an in-flight handler.
+// The per-node teardown discriminator lives in context-capture.test.ts; this
+// file pins the dispatch semantics.
 
 const openGate = (gate: Deferred.Deferred<void>): void => {
   Effect.runSync(Deferred.succeed(gate, void 0))
 }
 
 describe("per-dispatch handler scope", () => {
-  it("a handler survives the re-render its own write triggers (#161)", async () => {
-    // The pending→run→settle mutation pattern: the handler's FIRST action
-    // swaps its own subtree (hiding the button it was dispatched from), then
-    // awaits async work, then settles. Pre-#161 the swap closed the build
-    // scope the fiber was forked into — everything after the first suspension
-    // was silently dropped. Now the owner (the Reactive NODE's scope)
-    // survives the emit, so the work completes. `sinkCauses` must stay EMPTY
-    // throughout: an interrupted handler now reaches the sink (#186), so this
-    // is the direct assertion that the continuation ran — not just that the
-    // first write landed.
+  it("a handler survives the re-render its own write triggers", async () => {
+    // The pending→run→settle mutation pattern: the handler's FIRST action swaps
+    // its own subtree (hiding the button it was dispatched from), then awaits
+    // async work, then settles. The owner (the Reactive NODE's scope) survives
+    // the emit, so the work completes; forking into the build scope would drop
+    // everything after the first suspension. `sinkCauses` must stay EMPTY
+    // throughout: an interrupted handler reaches the sink, so this is the
+    // direct assertion that the continuation ran — not just that the first
+    // write landed.
     const gate = Deferred.makeUnsafe<void>()
     const done = AtomRef.make("no")
     const slot = AtomRef.make<unknown>(null)
@@ -75,12 +74,11 @@ describe("per-dispatch handler scope", () => {
     await ui.unmount()
   })
 
-  it("a handler's typed failure reaches Catch even after its own re-render (#161)", async () => {
+  it("a handler's typed failure reaches Catch even after its own re-render", async () => {
     // The error-channel corollary: a handler that first re-renders its own
     // subtree and THEN fails must still deliver that failure to the enclosing
-    // boundary. Pre-#161 the interrupt won the race and the boundary never
-    // fired — the user declared the error, added the boundary, and got
-    // silence.
+    // boundary — the interrupt must not win the race and leave the boundary
+    // silent.
     class SaveError extends Data.TaggedError("SaveError") {}
     const gate = Deferred.makeUnsafe<void>()
     const slot = AtomRef.make<unknown>(null)
@@ -108,9 +106,10 @@ describe("per-dispatch handler scope", () => {
       )
     })
     const App = Effect.fn("Bounded")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (_cause) =>
-        h("p", { class: "fallback" }, "save failed"),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (_cause) => h("p", { class: "fallback" }, "save failed"),
+      })
     })
 
     const ui = await render(App())
@@ -124,7 +123,7 @@ describe("per-dispatch handler scope", () => {
     await ui.unmount()
   })
 
-  it("the continuation after a self-triggered re-render still runs on the captured context (#72 × #161)", async () => {
+  it("the continuation after a self-triggered re-render still runs on the captured context ", async () => {
     // Per-node context capture must extend past the re-render: the handler's
     // post-suspension half resolves Step on the context ambient where its
     // element was CONSTRUCTED — even though that element's build scope is
@@ -180,7 +179,7 @@ describe("per-dispatch handler scope", () => {
     await ui.unmount()
   })
 
-  it("a FAILING handler still releases its per-dispatch finalizers (#160)", async () => {
+  it("a FAILING handler still releases its per-dispatch finalizers", async () => {
     // The close rides the dispatch's exit — success and failure alike.
     const log: string[] = []
     const App = Effect.fn("FailRelease")(function* (_props: {} = {}) {
@@ -211,7 +210,7 @@ describe("per-dispatch handler scope", () => {
     expect(log).toEqual(["acquire", "release"])
   })
 
-  it("rapid re-dispatches get independent scopes (#160)", async () => {
+  it("rapid re-dispatches get independent scopes", async () => {
     // Two in-flight dispatches of the SAME handler: each parks on its own
     // gate; settling one releases only its own finalizer.
     const log: string[] = []
@@ -254,7 +253,7 @@ describe("per-dispatch handler scope", () => {
     await ui.unmount()
   })
 
-  it("app unmount interrupts an in-flight handler and releases exactly once — visibly (#186)", async () => {
+  it("app unmount interrupts an in-flight handler and releases exactly once — visibly", async () => {
     // Also pins the interrupt routing: a teardown interrupt is NOT an error,
     // but it DOES reach the sink as an interrupt-only cause, so a test (or a
     // dev-mode log) can see the handler never completed.
@@ -295,7 +294,7 @@ describe("per-dispatch handler scope", () => {
     expect(Cause.hasInterruptsOnly(ui.sinkCauses[0]!)).toBe(true)
   })
 
-  it("a handler that interrupts ITSELF still releases, and the interrupt is visible (#160, #186)", async () => {
+  it("a handler that interrupts ITSELF still releases, and the interrupt is visible", async () => {
     // Pins two things the owner-teardown tests can't (there the owner→child
     // cascade would close the dispatch scope anyway): (1) the dispatch-scope
     // close (`Scope.use`, onExit-based) runs on an INTERRUPT exit too — the
@@ -331,7 +330,7 @@ describe("per-dispatch handler scope", () => {
     expect(log).toEqual(["acquire", "release"])
   })
 
-  it("a handler interrupted under a Catch still reaches the root sink (#186)", async () => {
+  it("a handler interrupted under a Catch still reaches the root sink", async () => {
     // Catch.report must not swallow the interrupt: it is not an error (the
     // boundary must not flip), but "the handler never finished" has to stay
     // observable through a boundary — else `sinkCauses` lies for any app
@@ -339,22 +338,24 @@ describe("per-dispatch handler scope", () => {
     const gate = Deferred.makeUnsafe<void>()
     const log: string[] = []
     const App = Effect.fn("CatchInterrupt")(function* (_props: {} = {}) {
-      return yield* Catch(
-        h(
-          "button",
-          {
-            class: "btn",
-            onClick: () =>
-              Effect.gen(function* () {
-                log.push("start")
-                yield* Deferred.await(gate)
-                log.push("done")
-              }),
-          },
-          "go",
-        ),
-        () => h("p", { class: "fallback" }, "failed"),
-      )
+      return yield* Catch({
+        children: [
+          h(
+            "button",
+            {
+              class: "btn",
+              onClick: () =>
+                Effect.gen(function* () {
+                  log.push("start")
+                  yield* Deferred.await(gate)
+                  log.push("done")
+                }),
+            },
+            "go",
+          ),
+        ],
+        Failure: () => h("p", { class: "fallback" }, "failed"),
+      })
     })
 
     const ui = await render(App())
@@ -375,8 +376,7 @@ describe("per-dispatch handler scope", () => {
     // An AtomRef-valued `onClick` re-applies under a rolling child scope: the
     // LISTENER is swapped per binding, but a dispatch is owned by the node,
     // not the binding — so a handler already in flight when the prop re-binds
-    // runs to completion, while new clicks go to the new handler. (Pre-#161
-    // the re-bind interrupted it.)
+    // runs to completion, while new clicks go to the new handler.
     const gate = Deferred.makeUnsafe<void>()
     const log: string[] = []
     const first = () =>
@@ -411,7 +411,7 @@ describe("per-dispatch handler scope", () => {
 
   it("the handler's Scope is DISPATCH-lifetime: forkScoped work dies at settle; forkIn a captured scope survives", async () => {
     // Corollary of per-dispatch scopes: `Effect.forkScoped` (and an
-    // `asyncRef`/`streamRef` created inside a handler — same mechanism) attach
+    // `atom`/`fn` created inside a handler — same mechanism) attach
     // to the dispatch scope and are torn down the moment the handler returns.
     // Work that must outlive the click forks INTO a scope captured at
     // construction. Documented in runtime/AGENTS.md "Handler-scope semantics".
@@ -473,28 +473,32 @@ describe("per-dispatch handler scope", () => {
       return yield* h(
         "ul",
         {},
-        list(coll, (item) =>
-          h(
-            "li",
-            {},
-            h(
-              "button",
-              {
-                class: "row-btn",
-                onClick: () =>
-                  Effect.gen(function* () {
-                    yield* Effect.acquireRelease(
-                      Effect.sync(() => log.push("acquire")),
-                      () => Effect.sync(() => log.push("release")),
-                    )
-                    yield* Deferred.await(gate)
-                    log.push("done") // must never run
-                  }),
-              },
-              item,
-            ),
-          ),
-        ),
+        For({
+          each: coll,
+          children: [
+            (item) =>
+              h(
+                "li",
+                {},
+                h(
+                  "button",
+                  {
+                    class: "row-btn",
+                    onClick: () =>
+                      Effect.gen(function* () {
+                        yield* Effect.acquireRelease(
+                          Effect.sync(() => log.push("acquire")),
+                          () => Effect.sync(() => log.push("release")),
+                        )
+                        yield* Deferred.await(gate)
+                        log.push("done") // must never run
+                      }),
+                  },
+                  item,
+                ),
+              ),
+          ],
+        }),
       )
     })
 
@@ -557,9 +561,11 @@ describe("per-dispatch handler scope", () => {
       )
     })
     const App = Effect.fn("ResetBoundary")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (_cause, reset) =>
-        h("button", { class: "retry", onClick: reset }, "retry"),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (_cause, reset) =>
+          h("button", { class: "retry", onClick: reset }, "retry"),
+      })
     })
 
     const ui = await render(App())

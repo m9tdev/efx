@@ -1,63 +1,75 @@
 import { Effect } from "effect"
-import { AtomRef } from "effect/unstable/reactivity"
-import { Catch, Component } from "@verrex/core"
+import { Atom } from "effect/unstable/reactivity"
+import { Catch, Component, fn, On } from "@verrex/core"
 import { Http } from "./services.ts"
 
-// #160/#161: the pending → run → settle mutation pattern. The handler's FIRST
-// action flips `saving`, which swaps its own button for a spinner — the very
-// element the click came from is gone before the first `yield*`. Then it
-// awaits the (600ms) Http call and settles.
+// The pending → run → settle mutation pattern, as `fn` — the
+// state of a function call. `save(id)` runs the body on the fn's own fiber
+// (mounted on the component's Scope, so ↻ reset mid-flight interrupts it —
+// no leak, no stale write); `get(save)` is its `AsyncResult`: waiting swaps
+// the buttons for a spinner — the very element the click came from is gone
+// while the (600ms) Http call runs — success settles back to the buttons, and
+// a failure is escalated (`<On>` with no failure arm) so the typed
+// HttpError rides the LIVE channel to the `Catch`.
 //
-// It works because a dispatch is owned by the node that RAN the button's
-// construction (the `saving` branch's Reactive node), which survives its own
-// re-emits — the contract is in runtime/AGENTS.md "Handler-scope semantics".
-//
-//   Saver : Effect<View<HttpError>, never, Http>   (same live shape as step 09)
+//   Saver : Effect<View<HttpError>, never, Http | AtomRegistry | Scope>
 const Saver = Component.make(function* () {
-  const saving = AtomRef.make(false)
-  const saved = AtomRef.make(0)
+  const saved = Atom.make(0)
 
-  const save = Effect.fn(function* (id: string) {
-    saving.set(true) // optimistic: hides THIS button — pre-#161 fatal
-    const http = yield* Http
-    yield* http.getUser(id) // 600ms; #999 → HttpError, LIVE
-    saved.set(saved.value + 1)
-    saving.set(false)
-  })
+  const save = yield* fn((id: string) =>
+    Effect.gen(function* () {
+      const http = yield* Http
+      yield* http.getUser(id) // 600ms; #999 → HttpError
+      yield* Atom.update(saved, (n) => n + 1)
+    }),
+  )
+
+  const buttons = (
+    <span>
+      <button class="save" onclick={() => save("42")}>
+        save
+      </button>{" "}
+      <button class="save-fail" onclick={() => save("999")}>
+        save (fails)
+      </button>
+    </span>
+  )
 
   return yield* (
     <div class="save-button">
       <p>
         saved: <strong class="saved">{saved}</strong>
       </p>
-      {saving.value ? (
-        <span class="saving">saving…</span>
-      ) : (
-        <span>
-          <button class="save" onclick={() => save("42")}>
-            save
-          </button>{" "}
-          <button class="save-fail" onclick={() => save("999")}>
-            save (fails)
-          </button>
-        </span>
-      )}
+      <On
+        value={save}
+        Waiting={() => <span class="saving">saving…</span>}
+        // Initial and Success (settled) both show the buttons; a failure has
+        // no arm here → HttpError bubbles (live channel) to the Catch.
+        Initial={() => buttons}
+        Success={() => buttons}
+      />
     </div>
   )
 })
 
-/** The discharged wrapper the demo mounts — mirrors step 09's Catch form. */
+/**
+ * The discharged wrapper the demo mounts — mirrors TypedHandlers' Catch form.
+ */
 export const SaveButton = Component.make(function* () {
-  return yield* Catch(<Saver />, {
-    HttpError: (e, reset) => (
-      <div class="boundary-fallback">
-        <p class="caught">
-          save failed after the re-render: HttpError {e.status} — {e.message}
-        </p>
-        <button class="reset" onclick={reset}>
-          reset
-        </button>
-      </div>
-    ),
-  })
+  return yield* (
+    <Catch
+      HttpError={(e, reset) => (
+        <div class="boundary-fallback">
+          <p class="caught">
+            save failed after the re-render: HttpError {e.status} — {e.message}
+          </p>
+          <button class="reset" onclick={reset}>
+            reset
+          </button>
+        </div>
+      )}
+    >
+      <Saver />
+    </Catch>
+  )
 })

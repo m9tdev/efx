@@ -2,24 +2,17 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Exit, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
-import { h, mount, VerrexLive } from "@verrex/core"
+import { get, h, mount } from "@verrex/core"
 
-// Regression pins for #167: `mount` owns its AtomRegistry.
-//
-// Before this change the registry rode `mount`'s R, and the natural
-// `mount(...).pipe(Effect.provide(VerrexLive))` scoped the layer to the
-// mount effect — which completes as soon as the DOM attaches, disposing the
-// registry out from under the live UI. Everything rendered once, then
-// silently froze. Now mount creates, provides, and disposes the registry
-// itself, so the footgun shape is a no-op and NO registry provision is
-// needed at all.
+// `mount` owns its AtomRegistry: it creates, provides, and disposes the
+// registry itself, so NO registry provision is needed at all.
 
 const trackedSpan = (dep: AtomRef.AtomRef<string>) =>
   Effect.gen(function* () {
     return yield* h(
       "span",
       {},
-      h.track(() => h.read(dep)),
+      h.reader(() => get(dep)),
     )
   })
 
@@ -35,25 +28,11 @@ const mountHeld = async <R>(
   return () => Effect.runPromise(Scope.close(scope, Exit.void))
 }
 
-describe("mount owns the AtomRegistry (#167)", () => {
+describe("mount owns the AtomRegistry", () => {
   it("mounts and stays reactive with no registry provided", async () => {
     const dep = AtomRef.make("a")
     const el = document.createElement("div")
     const close = await mountHeld(mount(trackedSpan(dep), el))
-    expect(el.querySelector("span")!.textContent).toBe("a")
-    dep.set("b")
-    expect(el.querySelector("span")!.textContent).toBe("b")
-    await close()
-  })
-
-  it("the old footgun shape — Effect.provide(VerrexLive) around mount — is now a no-op", async () => {
-    const dep = AtomRef.make("a")
-    const el = document.createElement("div")
-    // The provided registry dies when the mount effect completes; the UI
-    // must keep reacting because it lives on mount's OWN registry.
-    const close = await mountHeld(
-      mount(trackedSpan(dep), el).pipe(Effect.provide(VerrexLive)),
-    )
     expect(el.querySelector("span")!.textContent).toBe("a")
     dep.set("b")
     expect(el.querySelector("span")!.textContent).toBe("b")
@@ -92,7 +71,7 @@ describe("mount owns the AtomRegistry (#167)", () => {
           return yield* h(
             "span",
             {},
-            h.track(() => h.read(dep)),
+            h.reader(() => get(dep)),
           )
         }),
         el,

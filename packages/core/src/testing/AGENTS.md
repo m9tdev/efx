@@ -29,7 +29,7 @@ await ui.unmount()
 ```
 
 - `render(app, layer?)` — `app` is a component result (`Component(props)`,
-  what a component tag compiles to since #71), i.e. an `Effect<View, E, R>`. Creates a
+  what a component tag compiles to), i.e. an `Effect<View, E, R>`. Creates a
   container on `document.body`, makes a Closeable `Scope`, and runs
   `mount(app, container)` with the caller's layer + that scope
   provided. Returns once the DOM is attached. The layer is built INTO
@@ -40,14 +40,16 @@ await ui.unmount()
   invariant in the runtime AGENTS.md).
 - `RenderResult` — `get`/`query`/`all`/`text` (DOM queries),
   `click`/`fire` (dispatch bubbling events that hit the component's
-  handlers — an `onClick` returning an `Effect` is forked on the mount
+  handlers — an `onclick` returning an `Effect` is forked on the mount
   context with its services, and its failures route to the error sink, so
   a failing handler is contained rather than thrown; `event-handlers.test.ts`
   pins this), `tick()` (flush a macrotask so async/atom updates settle),
   `unmount()` (close the scope → fire every finalizer → detach),
   `sinkCauses` (every `Cause` the root sink received, via `mount`'s
   `RootSink` reference: uncaught live failures AND handlers interrupted
-  mid-flight, #127/#186).
+  mid-flight), `registry` (the mount's own `AtomRegistry`, so a
+  test writes atoms directly — `ui.registry.set(a, v)` — instead of
+  smuggling the registry out of the component).
 - **Assert the continuation, not the stub.** A test that only checks a
   stub's side effect (`sink.push` inside `http.send`) goes green even when
   the handler is interrupted right after its first `yield*` — the stub ran
@@ -100,27 +102,13 @@ the component down before you could drive it.
 
 ## Shared fixtures (`fixtures.ts`)
 
-Test-only scaffolds for the Async/asyncRef suites (#98) — **not** exported
-from the package and excluded in `tsconfig.build.json`, so it never reaches
-`dist`. `makeUsersFixture(tagPrefix)` returns a fresh `Users` service per
-suite — a factory, not module constants, because suites customize the getter
-(gating, call counting, recovery flips) and a per-suite tag keeps service
-identity distinct. It returns:
-
-- `usersWith(get)` — a layer over a custom getter; build these **per test**
-  over test-local state (the shape #95 settled on), never a shared mutable db.
-- `UsersLive` — the canonical db-backed layer: `"42"`→Ada, `"7"`→Grace,
-  `"slow"` fails `Timeout`, anything else fails `NotFound`.
-
-The errors are module-level exports so they work as types too: `NotFound`
-(a `Data.TaggedError`) and `Timeout` (deliberately a plain hand-rolled `_tag`
-class — tag maps key on `_tag` alone, and both shapes must keep working).
-The fixture also exports `Step`/`stepLayer`/`stepClick` (#72): a one-field
+Test-only scaffolds — **not** exported from the package and excluded in
+`tsconfig.build.json`, so it never reaches `dist`. It exports `Step`/`stepLayer`/`stepClick`: a one-field
 service whose resolution proves WHICH context a handler or row construction
 ran on — shared by `event-handlers.test.ts` (dispatch pins),
 `context-capture.test.ts` (THE per-node capture pins, one per
 capture-consuming path in the runtime AGENTS variant matrix), and
-`handler-scope.test.ts` (the per-dispatch scope pins, #160/#161: a handler
+`handler-scope.test.ts` (the per-dispatch scope pins: a handler
 survives its own re-render, releases per dispatch, and is interrupted by its
 OWNER's teardown — in-flight suspension is expressed with
 `Deferred.makeUnsafe` gates, never `Effect.sleep` + tick timing).
@@ -143,11 +131,9 @@ map handle one tag and let the residual ride to a boundary.
 
 - Don't add a `waitFor(predicate)` variant until a test needs it; the
   selector-based `waitFor` plus `tick()` covers the current cases (a test
-  needing text-level polling keeps a local helper, see
-  `async-refetch-regression.test.ts`).
-- Don't re-declare a per-suite `Users`/db scaffold in a test file — take it
-  from `fixtures.ts` (`makeUsersFixture`), and add to the fixture only what
-  at least two suites share.
+  needing text-level polling keeps a local helper).
+- Add to `fixtures.ts` only what at least two suites share; a suite-local
+  service or error class stays in its test file.
 - Don't provide the component's real production layers here by default —
   tests pass their own (often test doubles). The harness only injects the
   ambient scope (and `mount` brings its own registry).

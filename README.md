@@ -26,25 +26,39 @@ the running component (with a reset button) on the right.
   root through every intervening `<div>`, `<Fragment>`, conditional, list,
   and component. The root must provide a `Layer` covering the entire `R`, or
   it fails to compile.
-- **Reactive values in JSX expressions.** `{loading.value ? <Spinner /> : <Content />}`
-  works against `loading: AtomRef<boolean>` — you write `.value` explicitly and
-  the compiler rewrites that read into a tracked one, wrapping the surrounding
-  expression in a tracking scope so it re-renders when `loading` changes.
-- **Effect-native async boundary.** `Async(() => http.getUser(id), { initial, failure, success })`
-  runs an effect and renders initial → success/failure, folding the effect's `R`
-  into the component (a forgotten `Layer` is still a compile error). The thunk
-  auto-tracks any `.value` it reads, so it refetches when they change.
-- **Effect-native error boundary.** `Catch(child, (cause, reset) => fallback)` (or
-  `Catch(child, { HttpError: … })` for tag-selective) recovers the failure side of
+- **effect-atom's API, with `R`/`E` owned by the caller.** State is
+  `Atom.make(x)`; async data is `yield* atom((get) => http.getUser(get(id)))`,
+  the state of a function call is `yield* fn((u) => http.save(u))` — the
+  same `Atom.make` / `Atom.fn` / `AsyncResult` you know from effect-atom,
+  minus `Atom.runtime`: the component's own services ride to `mount`, so a
+  forgotten `Layer` is a compile error at the root.
+- **Reactive values in JSX.** An atom IS a value: `{count}`, `value={prompt}`.
+  Expressions read with `get(...)`: `{get(loading) ? <Spinner /> : <Content />}`
+  — the compiler lowers it to `h.reader(() => …)` (an `Atom.readable`), one
+  word shared with atom bodies. No `get` → the expression stays static.
+- **Errors escalate as values.** `<On value={user} Waiting={…}
+Success={(s) => …} NotFound={(e) => … } />` renders a tagged
+  value by tag and BUBBLES any unhandled failure — the residual `E` rides
+  `View<E>` to the nearest `Catch`. Works for `Option`, `Result`,
+  `AsyncResult`, `Exit`, your own tagged unions. Two gotchas: a non-failure
+  tag with no arm renders nothing; `Waiting` wins over `Success` while a
+  refetch is in flight — omit `Waiting` and read `s.waiting` inside `Success`
+  to keep stale data visible.
+- **Effect-native error boundary.** `<Catch Failure={(cause, reset) => fallback}>`
+  (or `<Catch HttpError={(e, reset) => …}>` for tag-selective — the same arm
+  keys as `On`, but `Catch` handlers get `(error, reset)` / `(cause, reset)`
+  where `On`'s get `(error, variant)` / `(variant)`) recovers the failure side of
   a view subtree, mirroring Effect's `catch*`. `mount` requires every error
   discharged, so a forgotten boundary is a compile error that names the unhandled
   error — the runtime counterpart of a forgotten `Layer`.
-- **Effect v4 primitives all the way down.** `AtomRef`/`Atom`/`AtomRegistry`
+- **Effect v4 primitives all the way down.** `Atom`/`AtomRef`/`AtomRegistry`
   from `effect/unstable/reactivity` are the reactivity layer; we don't build
   our own. `AsyncResult` is the loading/success/failure shape.
-- **Keyed reactive lists.** `{todos.value.map(item => <Row item={item} />)}`
-  is compiled to a keyed list that reconciles by `AtomRef` identity — adding,
-  removing, or toggling one item never tears down the others.
+- **Keyed reactive lists.** `<For each={todos}>{(todo) => <Row item={todo} />}</For>`
+  over an `AtomRef.Collection` (rows are refs, keyed by identity) or
+  `<For each={users} key={(u) => u.id}>` over any array atom (rows are
+  per-key atoms) — adding, removing, or toggling one item never tears down
+  the others.
 - **Custom file extension.** `.vx` files are compiled by Babel to plain
   TypeScript before `tsc` ever sees them, so TypeScript's JSX type checker
   is never engaged — that's how channels survive instead of collapsing to
@@ -61,7 +75,7 @@ pnpm dev
 ```
 
 The demo is a guided tour that exercises every primitive — reactive counter,
-blocking and `Async`-boundary data fetches, auto-tracking refetch, keyed
+blocking and `atom`-driven data fetches, dependency-driven refetch, keyed
 reactive list, and per-component lifecycle — each with a reset button. It's
 also deployed at [m9tdev.github.io/verrex](https://m9tdev.github.io/verrex/).
 
@@ -86,19 +100,26 @@ minor versions.
 
 ```tsx
 // Counter.vx
-import { AtomRef } from "effect/unstable/reactivity"
+import { Atom } from "effect/unstable/reactivity"
 import { Component } from "@verrex/core"
 
 export const Counter = Component.make(function* () {
-  const count = AtomRef.make(0)
+  const count = Atom.make(0) // the default local cell
   return yield* (
     <div>
-      <button onclick={() => count.update((n) => n + 1)}>+</button>
-      <span> {count} clicks </span>
-      <button onclick={() => count.set(0)}>reset</button>
+      <button onclick={() => Atom.update(count, (n) => n + 1)}>+</button>
+      <span>
+        {" "}
+        {count} clicks, {get(count) * 2} half-clicks{" "}
+      </span>
+      <button onclick={() => Atom.set(count, 0)}>reset</button>
     </div>
   )
 })
+// Inferred: Effect<View, never, AtomRegistry> — the handlers' writes need the
+// registry; `mount` owns one and discharges it. An atom in JSX renders live;
+// `get(atom)` inside a JSX expression tracks it. (`AtomRef` is only the
+// `Collection` row model — reading `.value` in JSX is not tracked.)
 ```
 
 ```ts
@@ -125,7 +146,7 @@ together, so the UI and its reactivity always die at the same moment.
 ```
 packages/
   core/               one package (`@verrex/core`), subpath exports:
-    src/runtime/        export `@verrex/core`     — View IR, h(), mount(), Async(), list()
+    src/runtime/        export `@verrex/core`     — View IR, h(), get, mount(), atom(), fn(), For, On, Catch
     src/compiler/       export `@verrex/core/compiler` — .vx → plain TypeScript (Babel)
     src/language/       export `@verrex/core/language` — Volar language plugin
     src/check/          export `@verrex/core/check`, bin `verrex-check`
@@ -133,21 +154,22 @@ packages/
     src/testing/        export `@verrex/core/testing`
   ts-plugin/   publishes as `@verrex/ts-plugin` — TS Language Service plugin (editor)
 apps/
-  demo/               Counter, UserPage, AsyncUserPage, LiveUser, Todos, Lifecycle, CatchDemo, AsyncEscalate
+  demo/               Guided tour — one .vx per step: Counter, UserPage, AsyncUserPage, LiveUser, SaveButton,
+                      TypedHandlers, Clock, Todos, Lifecycle, CatchDemo, AsyncEscalate
 ```
 
 ## The primitives
 
-| You import from              | What you get                                                                                                     |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `@verrex/core`               | `h`, `mount`, `Component`, `Async`, `asyncRef`, `AsyncHandle`, `Catch`, `list`, `Fragment`, `View`, `VerrexLive` |
-| `effect`                     | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, …                         |
-| `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                                                 |
+| You import from              | What you get                                                                             |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| `@verrex/core`               | `h`, `get`, `mount`, `Component`, `atom`, `fn`, `For`, `On`, `Catch`, `Fragment`, `View` |
+| `effect`                     | `Effect`, `Layer`, `Context.Service`, `Data.TaggedError`, `Cause`, `Option`, `Result`, … |
+| `effect/unstable/reactivity` | `AtomRef`, `Atom`, `AtomRegistry`, `AsyncResult`                                         |
 
-`h.track` / `h.read` are compiler-emitted; you generally never write them
-by hand. Reactive reads are always explicit through `.value` — the compiler
-rewrites those calls into tracked reads under the hood, and the surrounding
-JSX expression is automatically wrapped in a tracking scope.
+`h.reader` is compiler-emitted; you never write it by hand. Reactive reads
+in JSX are always explicit through `get(...)` — the compiler wraps the
+surrounding expression in a reader (an `Atom.readable`) — or by passing the
+atom itself as a child/prop.
 
 ## Workflow
 
@@ -178,19 +200,18 @@ Installs from npm do not have this problem — pnpm hoists one `effect`.
 
 | Asset                    | Raw       | Gzipped      |
 | ------------------------ | --------- | ------------ |
-| `dist/index.html`        | 11.66 kB  | 3.06 kB      |
-| `dist/assets/index-*.js` | 117.45 kB | **39.64 kB** |
+| `dist/index.html`        | 12.97 kB  | 3.46 kB      |
+| `dist/assets/index-*.js` | 132.75 kB | **44.75 kB** |
 
-The JS bundle contains: `effect@4.0.0-beta.78` runtime (~6 kB gzipped per
-upstream docs), `effect/unstable/reactivity` (`AtomRef`, `Atom`,
-`AtomRegistry`, `AsyncResult`), the `verrex` runtime (~600 LOC,
-contributes single-digit kB), plus all eight demo components (`Counter`,
-`UserPage`, `AsyncUserPage`, `LiveUser`, `Todos`, `Lifecycle`, `CatchDemo`,
-`AsyncEscalate`), the guided-tour
+The JS bundle contains: the `effect` runtime,
+`effect/unstable/reactivity` (`AtomRef`, `Atom`,
+`AtomRegistry`, `AsyncResult`), the `verrex` runtime (a few kB gzipped),
+plus all eleven demo components (`Counter`,
+`UserPage`, `AsyncUserPage`, `LiveUser`, `SaveButton`, `TypedHandlers`,
+`Clock`, `Todos`, `Lifecycle`, `CatchDemo`, `AsyncEscalate`), the guided-tour
 shell (a small dependency-free TSX highlighter + reactivity-flash visualizer),
-and their mock services. Verified interactive after build — Counter increments,
-the `Async` boundaries load then resolve, Todos add/remove/toggle, Lifecycle's
-per-row scope fires releases on row removal.
+and their mock services. The production bundle is exercised end-to-end by
+`scripts/probe-prod.mjs`.
 
 Vite serves `.vx` files directly through `@verrex/core/vite` at dev time;
 type-checking goes through `@verrex/core/check`, which feeds `.vx` to tsc as virtual

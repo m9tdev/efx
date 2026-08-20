@@ -173,21 +173,34 @@ async function main() {
     }
   }
 
+  // Positions are located by scanning the source (tsserver is 1-based), so
+  // the probes survive demo edits. `find(needle, token)` → { line, offset } of
+  // `token` on the first line containing `needle`.
+  const counterLines = readFileSync(counterVerrex, "utf-8").split("\n")
+  const find = (needle, token = needle) => {
+    const i = counterLines.findIndex((l) => l.includes(needle))
+    if (i < 0)
+      throw new Error(`integration: Counter.vx no longer contains ${needle}`)
+    return { line: i + 1, offset: counterLines[i].indexOf(token) + 1 }
+  }
+
   console.log("\n5. Test hover (quickinfo) on 'count' variable...")
-  // In Counter.vx, line 15 is: const count = AtomRef.make(0)
-  // 'count' starts at column 9
+  const countDecl = find("const count = Atom.make(0)", "count")
   const hoverResponse = await client.send("quickinfo", {
     file: counterVerrex,
-    line: 15,
-    offset: 9,
+    ...countDecl,
   })
   if (hoverResponse.body?.displayString) {
     console.log("   Hover result:", hoverResponse.body.displayString)
-    if (hoverResponse.body.displayString.includes("AtomRef")) {
-      console.log("   PASS: Got AtomRef type info")
+    if (/Writable|Atom/.test(hoverResponse.body.displayString)) {
+      console.log("   PASS: Got Atom type info")
+    } else {
+      console.log("   FAIL: hover is not the Atom cell")
+      process.exitCode = 1
     }
   } else {
-    console.log("   No hover info returned (position mapping may be off)")
+    console.log("   FAIL: No hover info returned (position mapping may be off)")
+    process.exitCode = 1
   }
 
   console.log("\n6. Test inlay hints...")
@@ -212,7 +225,8 @@ async function main() {
   }
   const hParamHints = hints.filter((h) => {
     const text = typeof h.text === "string" ? h.text : JSON.stringify(h.text)
-    // Check for h() parameter hints (tag/props/children, including underscore-prefixed)
+    // Check for h() parameter hints (tag/props/children, including
+    // underscore-prefixed)
     return h.kind === "Parameter" && /^_?(tag|props|children):?$/i.test(text)
   })
   if (hParamHints.length > 0) {
@@ -223,29 +237,35 @@ async function main() {
     console.log("   PASS: No h() parameter hints")
   }
 
-  // Counter.vx line 19 has: `<button onclick={() => count.update((n) => n + 1)}>+</button>`
-  // With `includeInlayFunctionParameterTypeHints` on, tsserver emits a Type hint
+  // Counter.vx's handler line:
+  // `onclick={() => Atom.update(count, (n) => n + 1)}`. With
+  // `includeInlayFunctionParameterTypeHints` on, tsserver emits a Type hint
   // `: number` for the `n` parameter. It must render IMMEDIATELY AFTER the `n`
-  // (column 45 = the `)` position), not at column 44 = the `n` position itself —
-  // that would render as `( : numbern)` instead of `(n: number)`. Stale source-map
-  // mappings without `generatedLengths` produce the wrong column. See
-  // `verrex/language/src/source-map.ts`.
+  // (the `)` position), not at the `n` position itself — that would render as
+  // `( : numbern)` instead of `(n: number)`. Stale source-map mappings without
+  // `generatedLengths` produce the wrong column. See `language/source-map.ts`.
+  const nParam = find("(n) => n + 1", "(n)")
+  const expectedCol = nParam.offset + 2 // just past the `n`
   const paramTypeHint = hints.find((h) => {
     const text = typeof h.text === "string" ? h.text : JSON.stringify(h.text)
     return (
-      h.kind === "Type" && /^:\s*number/.test(text) && h.position?.line === 19
+      h.kind === "Type" &&
+      /^:\s*number/.test(text) &&
+      h.position?.line === nParam.line
     )
   })
   if (!paramTypeHint) {
     console.log(
-      "   FAIL: missing ': number' Type hint on line 19's `n` parameter",
+      `   FAIL: missing ': number' Type hint on line ${nParam.line}'s \`n\` parameter`,
     )
     process.exitCode = 1
-  } else if (paramTypeHint.position.offset === 45) {
-    console.log("   PASS: ': number' hint at line 19 column 45 (after the `n`)")
+  } else if (paramTypeHint.position.offset === expectedCol) {
+    console.log(
+      `   PASS: ': number' hint at line ${nParam.line} column ${expectedCol} (after the \`n\`)`,
+    )
   } else {
     console.log(
-      `   FAIL: ': number' hint at line 19 column ${paramTypeHint.position.offset} — expected 45 (after the n)`,
+      `   FAIL: ': number' hint at line ${nParam.line} column ${paramTypeHint.position.offset} — expected ${expectedCol} (after the n)`,
     )
     process.exitCode = 1
   }
@@ -318,11 +338,11 @@ async function main() {
   }
 
   console.log("\n8. Test find-references on Counter (from Counter.vx)...")
-  // Find references to Counter from its definition - matches user's exact scenario
+  // Find references to Counter from its definition - matches user's exact
+  // scenario
   const refsResponse = await client.send("references", {
     file: counterVerrex,
-    line: 14,
-    offset: 14, // Counter identifier in "export const Counter"
+    ...find("export const Counter", "Counter"),
   })
   const refs = refsResponse.body?.refs || []
   console.log(`   Found ${refs.length} references:`)
@@ -346,6 +366,7 @@ async function main() {
     )
   } else {
     console.log("   FAIL: No references found")
+    process.exitCode = 1
   }
 
   console.log("\n9. Check project files (looking for .vx files)...")
@@ -378,10 +399,12 @@ async function main() {
   // `count.\n\nreturn` as `count.return`, so tsserver's replacementSpan
   // covers `return` — picking `set` would delete it. The proxy clamps any
   // cross-line span to insert-at-cursor.
-  const lines = readFileSync(counterVerrex, "utf-8").split("\n")
-  // Insert "  count." at index 16 → 1-based line 17, with `return yield* (`
-  // shifted to line 18.
-  lines.splice(16, 0, "  count.")
+  const lines = [...counterLines]
+  // Insert "  count." right after the cell declaration, with the following
+  // lines shifted down by one.
+  const insertAt = countDecl.line // 0-based index of the line AFTER the decl
+  lines.splice(insertAt, 0, "  count.")
+  const editLine = insertAt + 1 // 1-based
   const modified = lines.join("\n")
   await client.send("open", {
     file: counterVerrex,
@@ -392,7 +415,7 @@ async function main() {
 
   const complResp = await client.send("completionInfo", {
     file: counterVerrex,
-    line: 17,
+    line: editLine,
     offset: 9, // right after the `.` in "  count."
     triggerCharacter: ".",
     includeExternalModuleExports: false,
@@ -404,10 +427,10 @@ async function main() {
     )
   } else if (
     replSpan.start.line === replSpan.end.line &&
-    replSpan.start.line === 17
+    replSpan.start.line === editLine
   ) {
     console.log(
-      `   PASS: replacementSpan stays on line 17 (cursor line), cols ${replSpan.start.offset}-${replSpan.end.offset}`,
+      `   PASS: replacementSpan stays on line ${editLine} (cursor line), cols ${replSpan.start.offset}-${replSpan.end.offset}`,
     )
   } else {
     console.log(
@@ -415,16 +438,62 @@ async function main() {
     )
     process.exitCode = 1
   }
-  const setEntry = (complResp.body?.entries || []).find((e) => e.name === "set")
-  if (setEntry) {
-    console.log("   PASS: 'set' entry present (AtomRef members enumerated)")
+  // `count` is an `Atom.Writable` — its members include `key`/`label`/`pipe`.
+  const pipeEntry = (complResp.body?.entries || []).find(
+    (e) => e.name === "pipe",
+  )
+  if (pipeEntry) {
+    console.log("   PASS: 'pipe' entry present (Atom members enumerated)")
   } else {
     console.log(
-      "   FAIL: 'set' entry missing — completion didn't enumerate count's members",
+      "   FAIL: 'pipe' entry missing — completion didn't enumerate count's members",
     )
     process.exitCode = 1
   }
   // Close the modified file so other test runs don't see it
+  await client.send("close", { file: counterVerrex })
+
+  console.log(
+    "\n11. Compiler diagnostic: a get(...) inside a handler is reported AT the get...",
+  )
+  // Replace the handler body with a nested verrex `get` — the compiler's own
+  // diagnostic (not a TS one) must reach the editor through
+  // getSemanticDiagnostics, positioned on the `get(count)` in the .vx source.
+  const badLines = [...counterLines]
+  const handlerIdx = badLines.findIndex((l) => l.includes("(n) => n + 1"))
+  badLines[handlerIdx] = badLines[handlerIdx].replace(
+    "() => Atom.update(count, (n) => n + 1)",
+    "() => get(count)",
+  )
+  const badSrc = badLines.join("\n")
+  const badLine = handlerIdx + 1
+  const badCol = badLines[handlerIdx].indexOf("get(count)") + 1
+  await client.send("open", {
+    file: counterVerrex,
+    fileContent: badSrc,
+    projectRootPath: demoRoot,
+  })
+  await new Promise((r) => setTimeout(r, 500))
+  const badDiags =
+    (await client.send("semanticDiagnosticsSync", { file: counterVerrex }))
+      .body || []
+  for (const d of badDiags) {
+    console.log(`   - [${d.start?.line}:${d.start?.offset}] ${d.text}`)
+  }
+  const own = badDiags.find(
+    (d) =>
+      /not reactive/.test(d.text ?? "") &&
+      d.start?.line === badLine &&
+      d.start?.offset === badCol,
+  )
+  if (own) {
+    console.log(`   PASS: verrex diagnostic at ${badLine}:${badCol}`)
+  } else {
+    console.log(
+      `   FAIL: no verrex diagnostic at ${badLine}:${badCol} (got ${badDiags.length})`,
+    )
+    process.exitCode = 1
+  }
   await client.send("close", { file: counterVerrex })
 
   await client.close()

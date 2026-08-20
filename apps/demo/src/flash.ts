@@ -1,7 +1,7 @@
 /**
- * Visualize fine-grained reactivity: when verrex re-renders a node, briefly flash
- * exactly that node — matching what Chrome DevTools' Elements panel highlights
- * on a DOM change.
+ * Visualize fine-grained reactivity: when verrex re-renders a node, briefly
+ * flash exactly that node — matching what Chrome DevTools' Elements panel
+ * highlights on a DOM change.
  *
  * Parity detail: DevTools targets the *precise* node, not a convenient parent.
  * A reactive text swap (`{count}`) highlights only the text node, so updating
@@ -13,8 +13,9 @@
  * This is pure demo sugar, framework-agnostic: a `MutationObserver` on the app
  * root catches the same DOM ops verrex performs (a `Reactive` node swap is a
  * childList change; a reactive `class` or `style` binding is an attribute
- * change; a list insert/remove adds/removes an element). Overlays are appended to `<body>`,
- * outside the observed root, so they never feed back into the observer.
+ * change; a list insert/remove adds/removes an element). Overlays are appended
+ * to `<body>`, outside the observed root, so they never feed back into the
+ * observer.
  */
 
 const DURATION = 400 // ms — kept shorter than the simulated fetch latency
@@ -71,7 +72,8 @@ export const flashOnUpdate = (root: HTMLElement): MutationObserver => {
           nodes.add(r.target)
         }
       } else {
-        // characterData (in-place text) or attributes (reactive class) → target.
+        // characterData (in-place text) or attributes (reactive class) →
+        // target.
         nodes.add(r.target)
       }
     }

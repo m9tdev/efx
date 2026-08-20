@@ -18,13 +18,13 @@ type GenR<Eff> = [Eff] extends [never]
  * The canonical component constructor — a thin seam over `Effect.fn`, not an
  * abstraction. Exactly three jobs:
  *
- *  1. **Traced by default.** Component bodies run once at construction
+ * 1. **Traced by default.** Component bodies run once at construction
  *     (fine-grained model), so the span costs per-mount, not per-update — and
  *     buys component stack traces in a failure `Cause`
  *     (`App > ProfilePage > UserCard`) plus OTel spans that join UI to backend
- *     (the `asyncRef` supervisor forked during construction inherits the span
- *     context, so refetches nest under the component). Opt out by writing a
- *     plain `Effect.fnUntraced` function — components are just functions;
+ *     (an `atom` body captures the construction context, so it inherits the
+ *     span context, so refetches nest under the component). Opt out by writing
+ *     a plain `Effect.fnUntraced` function — components are just functions;
  *     `make` is a seam, not a gate.
  *  2. **Signature-preserving type.** An Effect-returning component goes
  *     through the identity-typed overload (`(f: F) => F`), so a *generic*
@@ -46,8 +46,8 @@ type GenR<Eff> = [Eff] extends [never]
  *     a `_name:` label in the editor.
  *
  * If it ever grows beyond these three jobs, it's grown too much. (A runtime
- * brand was considered for #71's direct-call tag lowering and deliberately
- * left out until that issue proves the need.)
+ * brand for direct-call tag lowering is deliberately left out until a
+ * real need shows up.)
  *
  * The body takes at most one props object. A propless component takes no
  * parameter at all (`function* ()`): the compiler emits the zero-arg call
@@ -56,8 +56,10 @@ type GenR<Eff> = [Eff] extends [never]
  *
  * ```tsx
  * export const Counter = Component.make(function* () {
- *   const count = AtomRef.make(0)
- *   return yield* <button onclick={() => count.update((n) => n + 1)}>{count}</button>
+ *   const count = Atom.make(0)
+ *   return yield* (
+ *     <button onclick={() => Atom.update(count, (n) => n + 1)}>{count}</button>
+ *   )
  * })
  * ```
  */

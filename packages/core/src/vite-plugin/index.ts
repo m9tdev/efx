@@ -12,8 +12,9 @@ const HAS_IMPORT_RE = /[?&]import(=|&|$)/
  * Vite plugin that handles `.vx` files.
  *
  * Pipeline per `.vx` request (the plugin owns the whole transform):
- *   1. `verrex/compiler`'s `transformVerrex` rewrites JSX → `h()` calls. Output is
- *      plain TypeScript (no JSX nodes left), with a source map back to `.vx`.
+ * 1. `verrex/compiler`'s `transformVerrex` rewrites JSX → `h()` calls. Output
+ *      is plain TypeScript (no JSX nodes left), with a source map back to
+ *      `.vx`.
  *   2. Vite's `transformWithOxc` strips the TypeScript types → JavaScript,
  *      chaining the Babel map (passed as `inMap`) so the final map still
  *      points at the original `.vx` source.
@@ -21,9 +22,8 @@ const HAS_IMPORT_RE = /[?&]import(=|&|$)/
  * We return `moduleType: 'js'` so Rolldown treats the result as plain
  * JavaScript instead of trying to infer a language from the unknown `.vx`
  * extension (Vite 8's Rolldown/Oxc pipeline errors with "Failed to detect the
- * lang" otherwise). Owning both steps keeps the plugin bundler-agnostic — it
- * no longer leans on Vite's built-in transformer to finish `.vx` files, which
- * is what broke across the esbuild → oxc swap.
+ * lang" otherwise). The plugin owns both steps itself, so it stays
+ * bundler-agnostic.
  *
  * TypeScript's JSX type checker never sees the JSX — it sees only the emitted
  * call expressions and runs ordinary generic inference on `h`'s signature.

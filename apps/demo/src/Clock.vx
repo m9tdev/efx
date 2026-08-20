@@ -1,53 +1,52 @@
-import { Component, streamRef } from "@verrex/core"
+import { atom, Component } from "@verrex/core"
 import { Stream } from "effect"
+import { AsyncResult, Atom } from "effect/unstable/reactivity"
 
 /**
  * Push-based fine-grained updates: an Effect `Stream` drives an analog clock
- * through `streamRef` — `asyncRef`'s push sibling.
+ * through `atom(stream)` — the same primitive as `atom(effect)`, fed by a
+ * stream.
  *
  * The stream is the current time once a second (`Stream.tick` emits
- * immediately, then every second). `streamRef(stream)` runs it on the mount
- * fiber and hands back a `ReadonlyRef<Date>` updated per emission — no
+ * immediately, then every second). `atom(stream)` runs it on its own fiber
+ * and hands back an `Atom<AsyncResult<Date>>` updated per emission — no
  * manual fork, no subscription bookkeeping: the fiber dies with the
  * component's `Scope` (the demo's ↻ reset interrupts it), and a
- * service-needing stream would fold its `R` into the component (the
- * thesis, same as `asyncRef`). With no `initial`, construction waits for
- * the first element — `tick`'s immediate first emission makes that instant.
+ * service-needing stream would fold its `R` into the component (the thesis,
+ * same as any `atom`).
  *
- * The fine-grained part is *derivation*: each hand angle is a `now.map(...)`
- * — a derived `ReadonlyRef` that recomputes on every tick but notifies its
- * subscribers only when ITS value actually changed (`MapRef`'s subscribe is
- * equality-deduped). Each hand's `style` is a tracked attr on exactly its
- * own derived ref. Net effect per tick: one DOM write — the second hand's
- * rotation. The minute and hour hands join only at the top of the minute
- * (the hour hand advances 0.5° per minute).
+ * The fine-grained part is *derivation*: each hand angle is an
+ * `Atom.map(now, …)` — a derived atom that recomputes on every tick but
+ * notifies its subscribers only when ITS value actually changed (registry
+ * nodes are equality-deduped). Each hand's `style` is a `get(...)` reader
+ * over exactly its own derived atom. Net effect per tick: one DOM write — the
+ * second hand's rotation. The minute and hour hands join only at the top of
+ * the minute (the hour hand advances 0.5° per minute).
  *
- * Inferred type: `Effect<View, never, Scope>`
- *   — `Scope` is `streamRef`'s contribution; the tick stream can't fail.
+ * Inferred type: `Effect<View, never, AtomRegistry | Scope>`
+ *   — `atom`'s own contribution; the tick stream can't fail.
  */
 export const Clock = Component.make(function* () {
-  const now = yield* streamRef(
+  const now = yield* atom(
     Stream.tick("1 second").pipe(Stream.map(() => new Date())),
   )
+  const date = Atom.map(now, (r) => AsyncResult.getOrElse(r, () => new Date()))
 
-  const second = now.map((d) => d.getSeconds() * 6) // notifies every tick
-  const minute = now.map((d) => d.getMinutes() * 6) // …only when the minute turns
-  const hour = now.map((d) => (d.getHours() % 12) * 30 + d.getMinutes() * 0.5)
+  const second = Atom.map(date, (d) => d.getSeconds() * 6) // notifies every tick
+  const minute = Atom.map(date, (d) => d.getMinutes() * 6) // …only when the minute turns
+  const hour = Atom.map(
+    date,
+    (d) => (d.getHours() % 12) * 30 + d.getMinutes() * 0.5,
+  )
 
   return yield* (
     <div class="aclock">
       {Array.from({ length: 12 }, (_, i) => (
         <span class="mark" style={`transform: rotate(${i * 30}deg)`} />
       ))}
-      <div class="hand hour" style={`transform: rotate(${hour.value}deg)`} />
-      <div
-        class="hand minute"
-        style={`transform: rotate(${minute.value}deg)`}
-      />
-      <div
-        class="hand second"
-        style={`transform: rotate(${second.value}deg)`}
-      />
+      <div class="hand hour" style={`transform: rotate(${get(hour)}deg)`} />
+      <div class="hand minute" style={`transform: rotate(${get(minute)}deg)`} />
+      <div class="hand second" style={`transform: rotate(${get(second)}deg)`} />
       <div class="pin" />
     </div>
   )

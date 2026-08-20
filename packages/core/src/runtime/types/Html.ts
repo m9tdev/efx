@@ -30,8 +30,21 @@
  */
 
 import type { Effect } from "effect"
+import type { Atom, AtomRef } from "effect/unstable/reactivity"
 
-type HandlerSlot<E extends Event> = (event: E) => unknown
+/**
+ * A handler slot accepts the function itself or a REACTIVE handler — an
+ * `Atom`/`AtomRef` holding one — mirroring `applyProp`, which subscribes to a
+ * reactive prop and re-applies the current function as the live listener
+ *. The props fold peels the wrapper
+ * (`HandlerChannels` in Fold.ts), so a reactive handler's `E`/`R` still
+ * surface. Contextual typing of `event` survives the union (pinned in
+ * Fold.test-d.ts).
+ */
+type HandlerSlot<E extends Event> =
+  | ((event: E) => unknown)
+  | Atom.Atom<(event: E) => unknown>
+  | AtomRef.ReadonlyRef<(event: E) => unknown>
 
 /**
  * The annotation type for an extracted handler. Unlike the permissive

@@ -19,7 +19,9 @@ certainly want to depend on this package rather than copy it.
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `language-plugin.ts` | `createVerrexLanguagePlugin<T>(asFileName, options?)` factory. Builds the Volar `LanguagePlugin` with `getLanguageId`, `createVirtualCode`, and `typescript: { extraFileExtensions, getServiceScript }`. Returns each per-`.vx` `VerrexVirtualCode` to Volar, which owns and indexes it. Returns `LanguagePlugin<T, VerrexVirtualCode>` so consumers can rely on the concrete class type at the boundary. `options.onTransformError` picks the parse-failure policy (see below). |
 | `source-map.ts`      | `convertSourceMap` — thin translator from `@verrex/core/compiler`'s `CompilerMapping[]` to Volar's `Mapping<CodeInformation>[]`. Maps the compiler's `"user"` / `"h-call"` / `"punctuation"` kinds to Volar profiles. ~15 LOC of actual logic + the three profile objects.                                                                                                                                                                                                       |
-| `virtual-code.ts`    | `VerrexVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.vx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`.                                                                                                            |
+| `service-plugin.ts`  | `createVerrexServicePlugin()` — a Volar `LanguageServicePlugin` whose `provideDiagnostics` surfaces `VerrexVirtualCode.diagnostics` (compiler diagnostics such as a nested `get(...)`) via `toLspDiagnostics`. Used by `@verrex/core/check`.                                                                                                                                                                                                                                     |
+| `diagnostics.ts`     | Policy for verrex's own diagnostics: `VERREX_DIAGNOSTIC_SOURCE`/`VERREX_DIAGNOSTIC_CODE`, LSP severity constants, `toGeneratedRange`, and the two renderers `toLspDiagnostics` (Volar/LSP, generated offsets) and `toTsDiagnostics` (`ts.Diagnostic`, source offsets).                                                                                                                                                                                                           |
+| `virtual-code.ts`    | `VerrexVirtualCode` class — implements Volar's `VirtualCode` interface so Volar and downstream consumers share one object per `.vx` file. Holds `source` / `compiled` / `mappings` / `jsxRanges` / `diagnostics` alongside Volar's `id` / `languageId` / `snapshot` / `embeddedCodes`. Volar owns the instance; consumers read it back via `language.scripts.get(id).generated.root`.                                                                                            |
 | `source-map.test.ts` | Vitest suite pinning `convertSourceMap`'s span-length passthrough and the user/h-call/punctuation profile assignments.                                                                                                                                                                                                                                                                                                                                                           |
 | `index.ts`           | Re-exports.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -160,6 +162,17 @@ the next section: per-file compile _outputs_ used only when the
 current source won't parse, never an index of live objects.)
 
 ## Transform errors: recover in editors, throw in batch
+
+The plugin compiles with `getInNestedFunction: "report"` (compiler AGENTS): a
+verrex `get(...)` in a nested function/handler is NOT a transform error here
+— it lands on `VerrexVirtualCode.diagnostics` (source offsets). Policy
+(severity, `source: "verrex"`, code 90001, offset mapping) lives once in
+`diagnostics.ts`; two thin renderers consume it: `createVerrexServicePlugin`
+(`service-plugin.ts`, used by verrex-check — Volar hands it the EMBEDDED
+document, `toLspDiagnostics` maps to generated offsets, Volar maps back) and
+the ts-plugin's `getSemanticDiagnostics` override (`toTsDiagnostics`, source
+offsets). So it never trips the recovery path below
+(which would hide it).
 
 `transformVerrex` hard-throws on source Babel can't parse — and
 despite `errorRecovery: true`, that includes the most common mid-edit

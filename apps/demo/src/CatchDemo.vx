@@ -26,18 +26,19 @@ const Crasher = Component.make(function* () {
   )
 })
 
-// tag-map subject: a flaky request. ~50% of attempts fail (at construction) with
-// a random tagged error — the kind a tag-map handler routes on and unwraps — and
-// the rest succeed. So clicking "retry" visibly re-runs the boundary and may
-// recover (or surface a different error).
+// tag-map subject: a flaky request. ~50% of attempts fail (at construction)
+// with a random tagged error — the kind a tag-map handler routes on and unwraps
+// — and the rest succeed. So clicking "retry" visibly re-runs the boundary and
+// may recover (or surface a different error).
 const STATUSES = [500, 503, 429, 404, 418]
 const BadRequest = Component.make(function* () {
   if (Math.random() < 0.5) {
     const status = STATUSES[Math.floor(Math.random() * STATUSES.length)]!
     yield* Effect.fail(new HttpError({ status, message: "request failed" }))
   }
-  // Even on success the subtree stays live — its button fails with an HttpError on
-  // click, which the SAME tag-map catches (a live failure, not just construction).
+  // Even on success the subtree stays live — its button fails with an HttpError
+  // on click, which the SAME tag-map catches (a live failure, not just
+  // construction).
   return yield* (
     <div class="ok">
       <p>request succeeded ✓</p>
@@ -54,38 +55,43 @@ const BadRequest = Component.make(function* () {
 })
 
 /**
- * `Catch` — the view-level error boundary, mirroring Effect's `catch*`. Two forms,
- * both shown here:
+ * `Catch` — the view-level error boundary, mirroring Effect's `catch*`. Two
+ * forms, both shown here:
  *
- *  - **catch-all** — a function handler recovers *any* failure (it gets the full
- *    `Cause`). Here it catches the crash button's live Effect; `reset` re-runs the
- *    child (the button works again).
+ * - **catch-all** — a function handler recovers *any* failure (it gets the full
+ *    `Cause`). Here it catches the crash button's live Effect; `reset` re-runs
+ *    the child (the button works again).
  *  - **tag-map** — an object of `{ Tag: handler }` routes by tag and hands each
- *    handler the *unwrapped* error (`e.status`). Only the listed tags are caught;
- *    anything else flows out to a parent boundary, narrowing the channel.
+ *    handler the *unwrapped* error (`e.status`). Only the listed tags are
+ *    caught; anything else flows out to a parent boundary, narrowing the
+ *    channel.
  *
  * Inferred type: `Effect<View, never, Scope>` — `Scope` is each boundary's own
- * contribution (it forks its reset/report loop into the enclosing scope). `mount`
- * requires every error discharged, so a *forgotten* boundary is a compile error
- * that names the unhandled error.
+ * contribution (it forks its reset/report loop into the enclosing scope).
+ * `mount` requires every error discharged, so a *forgotten* boundary is a
+ * compile error that names the unhandled error.
  */
 export const CatchDemo = Component.make(function* () {
   return yield* (
     <section class="catch-demo">
       {/* catch-all (function): one fallback for any failure */}
-      {Catch(<Crasher />, (cause, reset) => (
-        <div class="boundary-fallback">
-          <p class="caught">catch-all caught:</p>
-          <pre class="cause">{Cause.pretty(cause)}</pre>
-          <button class="reset" onclick={reset}>
-            reset
-          </button>
-        </div>
-      ))}
+      <Catch
+        Failure={(cause, reset) => (
+          <div class="boundary-fallback">
+            <p class="caught">catch-all caught:</p>
+            <pre class="cause">{Cause.pretty(cause)}</pre>
+            <button class="reset" onclick={reset}>
+              reset
+            </button>
+          </div>
+        )}
+      >
+        <Crasher />
+      </Catch>
 
       {/* tag-map (object): route by tag; handler gets the unwrapped error */}
-      {Catch(<BadRequest />, {
-        HttpError: (e, reset) => (
+      <Catch
+        HttpError={(e, reset) => (
           <div class="boundary-fallback">
             <p class="caught">
               caught HttpError {e.status}: {e.message}
@@ -94,8 +100,10 @@ export const CatchDemo = Component.make(function* () {
               retry
             </button>
           </div>
-        ),
-      })}
+        )}
+      >
+        <BadRequest />
+      </Catch>
     </section>
   )
 })

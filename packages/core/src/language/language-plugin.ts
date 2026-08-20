@@ -72,14 +72,14 @@ export interface VerrexLanguagePluginOptions {
  * Build a Volar LanguagePlugin describing `.vx` files for a given Volar host.
  *
  * The factory takes `asFileName` because different Volar hosts identify scripts
- * differently: tsserver passes string paths, `@volar/kit` (used by verrex-check)
- * passes `URI` instances. Internally we always pass to the compiler by
- * file-path string, so the host-specific identity collapses here.
+ * differently: tsserver passes string paths, `@volar/kit` (used by
+ * verrex-check) passes `URI` instances. Internally we always pass to the
+ * compiler by file-path string, so the host-specific identity collapses here.
  *
  * The `VerrexVirtualCode` instance returned from `createVirtualCode` is the one
- * Volar owns and indexes (`language.scripts.get(id).generated.root`). Downstream
- * consumers read it back from Volar's own context rather than a side-channel
- * cache — there is no second index to keep in sync (matches Vue's
+ * Volar owns and indexes (`language.scripts.get(id).generated.root`).
+ * Downstream consumers read it back from Volar's own context rather than a
+ * side-channel cache — there is no second index to keep in sync (matches Vue's
  * `VueVirtualCode` pattern, where `typescript-plugin` resolves the root through
  * `language.scripts`).
  */
@@ -113,7 +113,13 @@ export function createVerrexLanguagePlugin<T>(
       const fileName = asFileName(scriptId)
       const source = snapshot.getText(0, snapshot.getLength())
       try {
-        const result = transformVerrex(source, fileName)
+        // `report`: a `get(...)` in a nested function/handler is a
+        // diagnostic at its position (carried on the virtual code), not a
+        // throw that would drop the whole file to its last-good compile —
+        // invisible in the editor.
+        const result = transformVerrex(source, fileName, {
+          getInNestedFunction: "report",
+        })
         const mappings = convertSourceMap(result.mappings)
         lastGood.set(fileName, { compiled: result.code, mappings })
         return new VerrexVirtualCode(
@@ -121,6 +127,7 @@ export function createVerrexLanguagePlugin<T>(
           result.code,
           mappings,
           result.jsxRanges,
+          result.diagnostics,
         )
       } catch (error) {
         if (onTransformError === "throw") {
@@ -165,11 +172,12 @@ export function createVerrexLanguagePlugin<T>(
       extraFileExtensions: [
         {
           extension: "vx",
-          // `isMixedContent: true` + `Deferred` script kind = the Vue/Astro pattern:
-          // tells tsc that .vx is a host-described file format whose actual script
-          // content is supplied by the LanguagePlugin via `getServiceScript`.
-          // The `parseJsonSourceFileConfigFileContent` glob expander only matches
-          // include-paths against custom extensions when this pair is set this way.
+          // `isMixedContent: true` + `Deferred` script kind = the Vue/Astro
+          // pattern: tells tsc that .vx is a host-described file format whose
+          // actual script content is supplied by the LanguagePlugin via
+          // `getServiceScript`. The `parseJsonSourceFileConfigFileContent` glob
+          // expander only matches include-paths against custom extensions when
+          // this pair is set this way.
           isMixedContent: true,
           scriptKind: 7 as ts.ScriptKind.Deferred,
         },

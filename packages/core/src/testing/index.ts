@@ -1,5 +1,5 @@
 import { Cause, Effect, Exit, Layer, Scope } from "effect"
-import type { AtomRegistry } from "effect/unstable/reactivity"
+import { AtomRegistry } from "effect/unstable/reactivity"
 import { mount, RootSink, type View } from "@verrex/core"
 
 /**
@@ -13,24 +13,44 @@ import { mount, RootSink, type View } from "@verrex/core"
  */
 type Injected = AtomRegistry.AtomRegistry | Scope.Scope
 
-/** The component requirements you must provide — everything except what the harness injects. */
+/**
+ * The component requirements you must provide — everything except what the
+ * harness injects.
+ */
 type Required<R> = Exclude<R, Injected>
 
-/** Handle to a mounted component: query the DOM, fire events, settle async, tear down. */
+/**
+ * Handle to a mounted component: query the DOM, fire events, settle async, tear
+ * down.
+ */
 export interface RenderResult {
-  /** The container the component was mounted into (attached to `document.body`). */
+  /**
+   * The container the component was mounted into (attached to `document.body`).
+   */
   readonly container: HTMLElement
-  /** First match for `selector`, or throw if none (use when you expect it to exist). */
+  /**
+   * First match for `selector`, or throw if none (use when you expect it to
+   * exist).
+   */
   get(selector: string): HTMLElement
   /** First match for `selector`, or `null`. */
   query(selector: string): HTMLElement | null
   /** All matches for `selector`. */
   all(selector: string): HTMLElement[]
-  /** Trimmed `textContent` of the first match (or the container when `selector` is omitted). */
+  /**
+   * Trimmed `textContent` of the first match (or the container when `selector`
+   * is omitted).
+   */
   text(selector?: string): string
-  /** Dispatch a bubbling `click` at the first match — fires the component's `onclick`. */
+  /**
+   * Dispatch a bubbling `click` at the first match — fires the component's
+   * `onclick`.
+   */
   click(selector: string): void
-  /** Dispatch a bubbling event of `type` at the first match (e.g. `"input"`, `"submit"`). */
+  /**
+   * Dispatch a bubbling event of `type` at the first match (e.g. `"input"`,
+   * `"submit"`).
+   */
   fire(selector: string, type: string): void
   /** Flush microtasks + one macrotask so async/atom-driven updates settle. */
   tick(): Promise<void>
@@ -53,6 +73,11 @@ export interface RenderResult {
    * `RootSink`; a `RootSink` in the `layer` argument is not used.
    */
   readonly sinkCauses: ReadonlyArray<Cause.Cause<unknown>>
+  /**
+   * The mount's own `AtomRegistry` — write atoms from the test
+   * (`registry.set(a, v)`).
+   */
+  readonly registry: AtomRegistry.AtomRegistry
 }
 
 const el = (container: HTMLElement, selector: string): HTMLElement => {
@@ -66,13 +91,16 @@ const el = (container: HTMLElement, selector: string): HTMLElement => {
  * Mount a component into an in-process DOM and return a handle to drive it.
  *
  * `app` is a component result — `Component(props)`, what a component tag
- * compiles to since #71 — i.e. an `Effect<View, E, R>`. Provide a `layer` covering every service the
- * component needs (the harness adds the ambient `Scope`); omit it only
- * when the component requires nothing else. A missing service is a compile
+ * compiles to — i.e. an `Effect<View, E, R>`. Provide a `layer` covering every
+ * service the component needs (the harness adds the ambient `Scope`); omit it
+ * only when the component requires nothing else. A missing service is a compile
  * error, exactly as it would be at a real `mount`.
  *
  * ```ts
- * const ui = await render(UserPage({ userId: "42" }), Layer.mergeAll(HttpTest, ThemeTest))
+ * const ui = await render(
+ *   UserPage({ userId: "42" }),
+ *   Layer.mergeAll(HttpTest, ThemeTest),
+ * )
  * expect(ui.text(".user-card strong")).toBe("Ada Lovelace")
  * await ui.unmount()
  * ```
@@ -114,8 +142,15 @@ const renderImpl = async (
   // harness discharges an undischarged construction error by turning it into a
   // defect, so a component that fails to build (with no boundary) rejects the
   // `render(...)` promise loudly — exactly the failure a test wants to see.
-  const discharged = Effect.catchCause(app, (cause) =>
-    Effect.die(Cause.squash(cause)),
+  // ...and captures the mount's own AtomRegistry (mount creates one per
+  // mount; the app runs inside it) so tests can `registry.set(...)` directly.
+  let registry: AtomRegistry.AtomRegistry | undefined
+  const discharged = Effect.catchCause(
+    Effect.flatMap(AtomRegistry.AtomRegistry, (r) => {
+      registry = r
+      return app
+    }),
+    (cause) => Effect.die(Cause.squash(cause)),
   )
   // Build the caller's layer INTO the harness scope (not `Effect.provide`,
   // which would scope it to the mount effect — an effect that completes as
@@ -145,6 +180,7 @@ const renderImpl = async (
   return {
     container,
     sinkCauses,
+    registry: registry!,
     get: (s) => el(container, s),
     query: (s) => container.querySelector(s) as HTMLElement | null,
     all: (s) => Array.from(container.querySelectorAll(s)) as HTMLElement[],

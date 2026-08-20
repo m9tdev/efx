@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { AtomRef } from "effect/unstable/reactivity"
-import { h, list } from "@verrex/core"
+import { For, h } from "@verrex/core"
 import { render } from "./index.ts"
 
 // Each row renders "<index>: <value>". `index` is the reactive ReadonlyRef the
@@ -13,11 +13,16 @@ const IndexedList = (coll: AtomRef.Collection<string>) =>
     return yield* h(
       "ul",
       {},
-      list(coll, (item, index) => h("li", { class: "row" }, index, ": ", item)),
+      For({
+        each: coll,
+        children: [
+          (item, index) => h("li", { class: "row" }, index, ": ", item),
+        ],
+      }),
     )
   })
 
-describe("list() reactive index", () => {
+describe("For reactive index", () => {
   it("updates shifted rows' indices on removal without rebuilding their DOM", async () => {
     const coll = AtomRef.collection<string>(["a", "b", "c"])
     const ui = await render(IndexedList(coll))
@@ -77,7 +82,7 @@ describe("list() reactive index", () => {
   })
 })
 
-describe("list() row lifecycle", () => {
+describe("For row lifecycle", () => {
   // A row whose render returns an Effect with acquireRelease — the release
   // registers on the row's own scope (via coerceSync providing it), so it must
   // fire when THAT row is removed, not only on full unmount. The refactor moved
@@ -87,16 +92,20 @@ describe("list() row lifecycle", () => {
       return yield* h(
         "ul",
         {},
-        list(coll, (item) =>
-          Effect.gen(function* () {
-            const id = item.value
-            yield* Effect.acquireRelease(
-              Effect.sync(() => log.push(`acquire:${id}`)),
-              () => Effect.sync(() => log.push(`release:${id}`)),
-            )
-            return yield* h("li", { class: "row" }, id)
-          }),
-        ),
+        For({
+          each: coll,
+          children: [
+            (item) =>
+              Effect.gen(function* () {
+                const id = item.value
+                yield* Effect.acquireRelease(
+                  Effect.sync(() => log.push(`acquire:${id}`)),
+                  () => Effect.sync(() => log.push(`release:${id}`)),
+                )
+                return yield* h("li", { class: "row" }, id)
+              }),
+          ],
+        }),
       )
     })
 

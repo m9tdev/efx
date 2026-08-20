@@ -34,8 +34,8 @@ const applyToArray = <K>(
   return arr
 }
 
-// The DOM-affecting ops (everything except `keep`) are exactly the mutations
-// the old single-pass cursor loop performed. Project to them to prove parity.
+// The DOM-affecting ops (everything except `keep`) are the mutations the
+// interpreter performs. Project to them.
 const domOps = <K>(ops: ReadonlyArray<ReconcileOp<K>>) =>
   ops.filter((o) => o.op !== "keep")
 
@@ -87,7 +87,7 @@ describe("plan() — op shapes", () => {
     ])
   })
 
-  it("move tail to head is a single move (matches the old single-pass)", () => {
+  it("move tail to head is a single move", () => {
     const ops = plan(["a", "b", "c", "d"], ["d", "a", "b", "c"])
     expect(domOps(ops)).toEqual([
       { op: "move", key: "d", before: "a", index: 0 },
@@ -118,7 +118,7 @@ describe("plan() — op shapes", () => {
   })
 })
 
-describe("plan() — index updates (the bug the old loop had)", () => {
+describe("plan() — index updates", () => {
   it("a shifted-but-unmoved row gets a fresh index via keep", () => {
     // Remove the head: b and c don't move, but their indices change 1→0, 2→1.
     const ops = plan(["a", "b", "c"], ["b", "c"])

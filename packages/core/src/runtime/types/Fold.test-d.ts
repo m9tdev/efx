@@ -72,17 +72,34 @@ assertEquals<FoldR<readonly [string, Eff1, number]>, HttpService>()
 assertEquals<FoldE<readonly [ReadonlyArray<Eff1>]>, HttpError>()
 assertEquals<FoldR<readonly [ReadonlyArray<Eff2>]>, DbService>()
 
-// 6) AtomRef of an Effect peels the ref and surfaces the effect's channels
+// 6) AtomRef/Atom of an Effect: PHASE SWITCH. An emitted Effect runs at render
+//    time (mount re-coerces each emission), so its `E` is LIVE — `View<E>`,
+//    discharged by `Catch` — and construction `E` stays `never`. `R` still
+//    folds. This is how `.onFailure(Effect.failCause)` inside
+//    `Atom.map(result, …)` escalates.
 type Ref = AtomRef.ReadonlyRef<Eff1>
-assertEquals<FoldE<readonly [Ref]>, HttpError>()
+assertEquals<FoldE<readonly [Ref]>, never>()
+assertEquals<FoldLiveE<readonly [Ref]>, HttpError>()
 assertEquals<FoldR<readonly [Ref]>, HttpService>()
+type AtomEff = Atom.Atom<Eff1>
+assertEquals<FoldE<readonly [AtomEff]>, never>()
+assertEquals<FoldLiveE<readonly [AtomEff]>, HttpError>()
+assertEquals<FoldR<readonly [AtomEff]>, HttpService>()
+// An emitted `View<E>` and an emitted failing Effect both land live; a plain
+// value emits nothing.
+type AtomMixed = Atom.Atom<
+  View<NotFound> | Effect.Effect<never, HttpError> | string
+>
+assertEquals<FoldE<readonly [AtomMixed]>, never>()
+assertEquals<FoldLiveE<readonly [AtomMixed]>, NotFound | HttpError>()
 
 // 7) Atom of a View contributes nothing (View has no channels)
 type AtomView = Atom.Atom<View>
 assertEquals<FoldE<readonly [AtomView]>, never>()
 assertEquals<FoldR<readonly [AtomView]>, never>()
 
-// 8) Conditional render (`false | Effect<...>`) — false drops, effect contributes
+// 8) Conditional render (`false | Effect<...>`) — false drops, effect
+//    contributes
 type CondChild = false | Eff1
 assertEquals<FoldE<readonly [CondChild]>, HttpError>()
 assertEquals<FoldR<readonly [CondChild]>, HttpService>()
@@ -92,17 +109,18 @@ type EitherChild = Eff1 | Eff2
 assertEquals<FoldE<readonly [EitherChild]>, HttpError | NotFound>()
 assertEquals<FoldR<readonly [EitherChild]>, HttpService | DbService>()
 
-// ─── View<E> error channel: construction vs live split (the boundary thesis) ──
+// ─── View<E> error channel: construction vs live split (boundary thesis) ──
 
-// 10) A bare View<E> child: its live E rides the View; it's already built, so it
-//     contributes no construction error and no R.
+// 10) A bare View<E> child: its live E rides the View; it's already built, so
+//     it contributes no construction error and no R.
 type ViewErr = View<HttpError>
 assertEquals<ChildLiveE<ViewErr>, HttpError>()
 assertEquals<ChildE<ViewErr>, never>()
 assertEquals<ChildR<ViewErr>, never>()
 
-// 11) An Effect whose SUCCESS is a View<E>: construction and live errors land on
-//     different channels — Effect's own E is construction, the View's E is live.
+// 11) An Effect whose SUCCESS is a View<E>: construction and live errors land
+//     on different channels — Effect's own E is construction, the View's E is
+//     live.
 type EffLive = Effect.Effect<View<HttpError>, NotFound, DbService>
 assertEquals<ChildE<EffLive>, NotFound>()
 assertEquals<ChildLiveE<EffLive>, HttpError>()
@@ -116,7 +134,7 @@ assertEquals<FoldLiveE<readonly [ViewErr, EffLive]>, HttpError>()
 assertEquals<ChildLiveE<View>, never>()
 assertEquals<ChildE<View>, never>()
 
-// ─── Props fold: typed event handlers (#72) ──────────────────────────────
+// ─── Props fold: typed event handlers ───────────────────────────────────
 
 // 14) An Effect-returning handler contributes its E (live) and R.
 type FailingClick = {
@@ -158,15 +176,14 @@ assertEquals<FoldPropsLiveE<OptionalClick>, HttpError>()
 assertEquals<FoldPropsR<OptionalClick>, HttpService>()
 
 // 19) An `unknown`-typed attr contributes nothing — the channels were already
-//     erased upstream, so the fold must not invent any. (Since #159 `h.track`
-//     no longer PRODUCES `unknown`; this pins the general rule, and case 27
-//     pins the tracked shape it produces instead.)
+//     erased upstream, so the fold must not invent any. (This pins the general
+//     rule; case 27 pins the reactive-handler shape.)
 type TrackedClick = { onclick: unknown }
 assertEquals<FoldPropsLiveE<TrackedClick>, never>()
 assertEquals<FoldPropsR<TrackedClick>, never>()
 
 // 20) The empty props object (`h("div", {})` — the compiler's no-attrs shape).
-//     Regression pin for the never-vacuous-conditional trap: `never extends
+//     The never-vacuous-conditional trap: `never extends
 //     [infer E, any]` is true with NO candidates, resolving E to `unknown` —
 //     these must stay literally `never`, not `unknown`.
 assertEquals<FoldPropsLiveE<{}>, never>()
@@ -238,10 +255,10 @@ assertEquals<
 
 // 26) A handler's `Scope` is EXCLUDED from the folded R — `runHandlerEffect`
 //     provides a Scope into the effect, so surfacing it would demand one the
-//     caller never supplies. Mirrors `list`'s `Exclude<R, Scope>` on row
+//     caller never supplies. Mirrors `For`'s `Exclude<R, Scope>` on row
 //     channels. Other services still ride. (The exclusion is sound — a Scope
 //     really is provided: a PER-DISPATCH scope, closed when the handler
-//     settles (#160); see runHandlerEffect in mount.ts and the release-per-
+//     settles; see runHandlerEffect in mount.ts and the release-per-
 //     dispatch pin in testing/context-capture.test.ts.)
 type ScopedHandler = {
   onclick: (e: MouseEvent) => Effect.Effect<void, never, Scope.Scope>
@@ -254,11 +271,9 @@ type ScopedPlusService = {
 }
 assertEquals<FoldPropsR<ScopedPlusService>, HttpService>()
 
-// 27) h.track's HONEST return type folds (#159). The compiler wraps a
-//     `.value`-reading attr in `h.track(() => …)`, which returns `T` (nothing
-//     read) or `Atom<T>` (something read — the demand-driven derived) — a
-//     union, not `unknown`. The `unknown` erasure was #159: invisible on
-//     LISTED keys (it failed HandlerSlot loudly) and silent on UNLISTED ones,
+// 27) A `T | Atom<T>` handler union folds — the shape of a hand-written
+//     reactive handler prop. An `unknown` erasure here would be invisible on
+//     LISTED keys (it fails HandlerSlot loudly) and silent on UNLISTED ones,
 //     which pass through IntrinsicProps' `Record<string, unknown>` half.
 //     NOTE what this pin does and does NOT prove: `HandlerChannels`
 //     DISTRIBUTES over the union, and the plain-`T` member alone yields
@@ -280,7 +295,7 @@ assertEquals<FoldPropsR<{ ontimeupdate: RefWrappedHandler }>, HttpService>()
 //      That shape is reachable — `applyProp` unwraps an Atom-valued prop and
 //      attaches its value as a live listener, so a user holding an
 //      `Atom<handler>` gets it RUN; without the peel its `E`/`R` vanish while
-//      it runs, which is #159 in a different wrapper. Delete the peel and
+//      it runs — the same erasure in a different wrapper. Delete the peel and
 //      exactly these assertions fail.
 type BareAtomHandler = Atom.Atom<
   (e: Event) => Effect.Effect<void, HttpError, HttpService>
@@ -298,7 +313,25 @@ assertEquals<FoldPropsR<{ ontimeupdate: WritableAtomHandler }>, HttpService>()
 
 // 28) …and the same union in CHILD position folds too — a tracked child that
 //     resolves to a failing / service-needing Effect is the children-side
-//     sibling of the same hole.
+//     sibling of the same hole. The bare `Eff1` member is construction; the
+//     `Atom<Eff1>` member is live (phase switch, §6).
 type TrackedChild = Eff1 | Atom.Atom<Eff1>
 assertEquals<FoldE<readonly [TrackedChild]>, HttpError>()
+assertEquals<FoldLiveE<readonly [TrackedChild]>, HttpError>()
 assertEquals<FoldR<readonly [TrackedChild]>, HttpService>()
+
+// 29) Reactive HANDLER SLOTS: a typed
+//     lowercase `on*` key accepts an `Atom`/`AtomRef` holding the handler, the
+//     event stays contextually typed inside a plain function, and the wrapped
+//     handler's channels fold through `h`. Before this, only `Record<string,
+//     unknown>` keys (`onClick`) took a wrapped handler.
+import type { IntrinsicProps } from "./Html.ts"
+type ClickSlot = NonNullable<IntrinsicProps["onclick"]>
+type _AtomHandlerAssignable =
+  Atom.Atom<(e: MouseEvent) => void> extends ClickSlot ? true : never
+type _RefHandlerAssignable =
+  AtomRef.ReadonlyRef<(e: MouseEvent) => void> extends ClickSlot ? true : never
+assertEquals<_AtomHandlerAssignable, true>()
+assertEquals<_RefHandlerAssignable, true>()
+type _StringNotAssignable = string extends ClickSlot ? true : false
+assertEquals<_StringNotAssignable, false>()

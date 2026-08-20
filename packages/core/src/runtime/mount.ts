@@ -1,4 +1,4 @@
-import { Cause, Context, Effect, Exit, Scope } from "effect"
+import { Cause, Context, Effect, Equal, Exit, Option, Scope } from "effect"
 import { Atom, AtomRef, AtomRegistry } from "effect/unstable/reactivity"
 import {
   coerceSync,
@@ -20,7 +20,7 @@ interface BuildCtx {
   readonly context: Context.Context<never>
   readonly sink: ErrorSink
   // The scope that OWNS handler dispatches from elements built under this ctx
-  // (#160/#161): the scope of the dynamic node that ran their construction —
+  // — the scope of the dynamic node that ran their construction —
   // NOT the element build `scope`, which a re-render closes and reforks. Set
   // per call site via `withOwner` (mount root, Reactive, List, Boundary — the
   // table lives in AGENTS.md "Handler-scope semantics"). Consumed only by
@@ -67,7 +67,7 @@ const withOwner = (ctx: BuildCtx, owner: Scope.Scope): BuildCtx =>
 // The deps a prop application consumes: the element's construction-captured
 // `context` (the runtime side of FoldPropsR — a mid-tree provide is honored at
 // dispatch), the `sink` a handler failure routes to, and the `registry` an
-// Atom-valued prop (a `h.track` derived) is read/subscribed through. They
+// Atom-valued prop (an `h.reader` or any Atom) is read/subscribed through. They
 // travel together through applyProps → applyProp → the recursive reactive
 // re-dispatch, so they ride as one value. Deliberately NOT the full
 // `BuildCtx`: the static-element path must not derive a node ctx +
@@ -81,7 +81,7 @@ interface HandlerDeps {
   readonly ownerScope: Scope.Scope
 }
 
-// Fire-and-forget an event-handler Effect (#160/#161). Runs on the element's
+// Fire-and-forget an event-handler Effect. Runs on the element's
 // captured context (the services ambient at construction — incl. a mid-tree
 // Effect.provide).
 //
@@ -89,43 +89,79 @@ interface HandlerDeps {
 // - RESOURCES: a fresh per-dispatch child of `deps.ownerScope`, provided into
 //   the handler and closed when it exits — `Scope.use` (onExit-based, so it
 //   also closes on interruption). `acquireRelease` inside a handler therefore
-//   releases per dispatch (#160), and rapid dispatches don't share a scope.
+//   releases per dispatch, and rapid dispatches don't share a scope.
 //   Corollary: the handler's Scope is DISPATCH-lifetime — `forkScoped`, or an
-//   `asyncRef`/`streamRef` created inside a handler, dies when the dispatch
+//   `atom`/`fn` created inside a handler, dies when the dispatch
 //   settles. Work that must outlive the click forks INTO a scope captured at
 //   construction (`const s = yield* Effect.scope`) or `forkDaemon`s.
 // - INTERRUPTION: the fiber is `forkIn(deps.ownerScope)` — the scope of the
-//   node that RAN the element's construction, not the element's build scope.
-//   The old `forkIn(buildScope)` interrupted a handler at its first suspension
-//   whenever its own ref write re-rendered its subtree (#161); the owner
-//   survives those re-emits, so the pending→run→settle pattern completes, and
-//   the owner's own teardown still interrupts an in-flight handler. Which scope
-//   is the owner per node, and what still interrupts, is in AGENTS.md
-//   "Handler-scope semantics".
+//   node that RAN the element's construction, not the element's build scope. Do
+//   NOT use the element's build scope as the owner — a handler would be
+//   interrupted at its first suspension by the re-render its own write
+//   triggers. The owner survives those re-emits, so the pending→run→settle
+//   pattern completes, and the owner's own teardown still interrupts an
+//   in-flight handler. Which scope is the owner per node, and what still
+//   interrupts, is in AGENTS.md "Handler-scope semantics".
 //
 // Every non-success exit routes to the sink — INCLUDING an interrupt-only
-// cause (#186). Owner teardown interrupts an in-flight handler without running
+// cause. Owner teardown interrupts an in-flight handler without running
 // `matchCause`, so the observation point is `onExit` (a finalizer, which does
 // run). An interrupt is not an error. `Catch.report` does not flip on it; it
 // escalates it to the ambient sink. Mount's default `RootSink` logs it at
 // debug level. This exists to make one symptom visible: "the handler never
-// finished and nothing said so" (#160). The testing harness collects it on
-// `ui.sinkCauses` (#127).
+// finished and nothing said so". The testing harness collects it on
+// `ui.sinkCauses`.
 const runHandlerEffect = (
   effect: Effect.Effect<unknown, unknown, never>,
   deps: HandlerDeps,
 ): void => {
   const dispatchScope = Scope.forkUnsafe(deps.ownerScope, "sequential")
-  Effect.runForkWith(deps.context)(
-    Effect.forkIn(
-      Effect.onExit(Scope.use(effect, dispatchScope), (exit) =>
-        Effect.sync(() => {
-          if (Exit.isFailure(exit)) deps.sink(exit.cause)
-        }),
+  // BATCHING: the handler's SYNCHRONOUS
+  // prefix runs inside `Atom.batch`, so a write that fans out through the
+  // registry graph (a diamond `a → b, a → c, d = b + c`) recomputes `d` once
+  // and writes the DOM once. Two load-bearing details:
+  // - `startImmediately: true` — without it `forkIn` schedules the fiber on
+  //   the dispatcher and the batch closes before a single write runs (the
+  //   batch would cover nothing).
+  // - only when no batch is open (`batchState.depth === 0`). `Registry.batch`
+  //   does not restore the previous phase in `finally`: a batch opened while
+  //   an outer batch is COMMITTING flips the phase back to `collect` and the
+  //   invalidations it records are never rebuilt (dependents freeze until
+  //   read). A handler dispatched synchronously inside a notify (an emission
+  //   that focuses an input, say) is exactly that case, so we skip our batch
+  //   and let the outer one collect the writes. Effect's own `fn` writes
+  //   batch internally too; those nest fine (depth > 1 keeps collecting).
+  // Writes after the first suspension (`yield* sleep`), from atom bodies,
+  // streams or timers stay unbatched — accepted until upstream `batch` saves/
+  // restores its phase.
+  batchIfIdle(() =>
+    Effect.runForkWith(deps.context)(
+      Effect.forkIn(
+        Effect.onExit(Scope.use(effect, dispatchScope), (exit) =>
+          Effect.sync(() => {
+            if (Exit.isFailure(exit)) deps.sink(exit.cause)
+          }),
+        ),
+        deps.ownerScope,
+        { startImmediately: true },
       ),
-      deps.ownerScope,
     ),
   )
+}
+
+// `batchState` is exported from the registry module at runtime but marked
+// `@internal` (absent from the .d.ts), hence the loose read. If a future
+// effect stops exporting it we fall back to "never batch" rather than risk
+// the nested-commit corruption above.
+const registryBatchState = (
+  AtomRegistry as unknown as { batchState?: { depth: number } }
+).batchState
+const batchIfIdle = (f: () => void): void => {
+  if (registryBatchState !== undefined && registryBatchState.depth === 0) {
+    Atom.batch(f)
+  } else {
+    f()
+  }
 }
 
 // Subscribe to a ref and register the unsubscribe as a finalizer on the
@@ -158,7 +194,7 @@ const subscribeAtomScoped = <A>(
 // deferred thunk re-reads the source THEN, so a write landing during the
 // children build isn't clobbered by a stale capture), and subscribe `apply`
 // for the rest of `scope`'s life. Dispatch on Atom (read/subscribe through
-// the registry — an `h.track` derived) vs AtomRef (direct). Both reactive
+// the registry — an `h.reader`) vs AtomRef (direct). Both reactive
 // consumers — `applyProp` and the Reactive child case — go through here; a
 // third source shape means extending this, not a new dispatch site. A value
 // that is neither is a no-op, matching what each call site did before the
@@ -211,7 +247,7 @@ const applyProp = (
   scope: Scope.Scope,
   deferred?: Array<() => void>,
 ): void => {
-  // Reactive prop: Atom (a `h.track` derived) or AtomRef → subscribe and
+  // Reactive prop: Atom (an `h.reader` or any Atom) or AtomRef → subscribe and
   // re-apply on changes. Same rolling child scope either way; only the
   // read/subscribe seam differs.
   if (Atom.isAtom(value) || isAtomRef(value)) {
@@ -326,7 +362,7 @@ const applyProps = (
 // this subtree (BuildCtx.ownerScope): `"child"` = the freshly forked scope —
 // its own close must interrupt them (List rows, Boundary content);
 // `"inherit"` = the caller's owner — Reactive emissions, whose owner is the
-// NODE so a handler survives the re-emit it triggers (#161).
+// NODE so a handler survives the re-emit it triggers.
 const buildScopedChild = (
   value: unknown,
   parent: Scope.Scope,
@@ -409,7 +445,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       // (mid-tree provides reach REBUILDS, not just first paint). Once per
       // node, reused per emission. Handler owner = `scope`, the scope THIS
       // node was built in (its lifetime) — not the per-emit child — so a
-      // handler survives the re-emit its own write triggers (#161).
+      // handler survives the re-emit its own write triggers.
       const nodeCtx = withOwner(withContext(ctx, view.context), scope)
 
       const render = (next: unknown): void => {
@@ -447,34 +483,67 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
       // Per-row: its DOM node, its own scope (holds every finalizer the row
       // registered — subscriptions, user `acquireRelease` releases), and a
       // reactive index ref the planner's `keep`/`move` ops update. Keyed by
-      // AtomRef identity so reactivity is preserved across reorders/inserts.
+      // an opaque KEY: the row's AtomRef (Collection source — identity IS the
+      // key) or the user's key value (Keyed source), so reactivity is
+      // preserved across reorders/inserts.
       type Row = {
         readonly node: Node
         readonly rowScope: Scope.Closeable
         readonly indexRef: AtomRef.AtomRef<number>
       }
-      const rendered = new Map<AtomRef.AtomRef<unknown>, Row>()
+      const rendered = new Map<unknown, Row>()
       // Rows build on the list's construction-captured context — the runtime
-      // side of list()'s folded row R (see ViewList.context).
+      // side of For's folded row R (see ViewList.context).
       const nodeCtx = withContext(ctx, view.context)
-      // Snapshot the array (not just the reference!) — CollectionImpl mutates
-      // its internal array in place on push/remove, so comparing references
-      // would never detect structural changes. This is the planner's `prev`.
-      let snapshot: Array<AtomRef.AtomRef<unknown>> = []
+      // The planner's `prev`. For a Collection, snapshot the ARRAY (not just
+      // the reference!) — CollectionImpl mutates its internal array in place on
+      // push/remove, so comparing references would never detect structural
+      // changes.
+      let snapshot: Array<unknown> = []
 
       // A plan's `before` is a row key; resolve it to the reference node.
-      const nodeBefore = (key: AtomRef.AtomRef<unknown> | null): Node | null =>
+      const nodeBefore = (key: unknown): Node | null =>
         key === null ? null : (rendered.get(key)?.node ?? null)
+
+      // What a key renders as. Collection: the ref itself. Keyed: one derived
+      // `Atom<T>` per key — `Atom.family` memoizes by key (WeakRef'd; released
+      // once its registry node goes), reads the item out of an index Map that
+      // is ITS OWN atom (so the array is indexed once per emission, not once
+      // per row), and `withEquality(Equal.equals)` INSIDE the family fn (the
+      // combinator returns a new atom object; applied at the use site it would
+      // churn node identity per emission) so an unchanged item costs one Equal
+      // check and no DOM write. Pinned by testing/for.test.ts.
+      const rowHandle: (key: unknown) => unknown =
+        view.source._tag === "Collection"
+          ? (key) => key
+          : (() => {
+              const src = view.source
+              const index = Atom.map(src.each, (items) => {
+                const m = new Map<unknown, unknown>()
+                for (const item of items) m.set(src.key(item), item)
+                return m
+              })
+              return Atom.family((key: unknown) =>
+                Atom.readable((get) => {
+                  const m = get(index)
+                  // A removed key's row atom recomputes BEFORE the structural
+                  // reconcile tears the row down (the index atom notifies its
+                  // dependents first): hold the last value rather than emit
+                  // `undefined` into a row that is about to be removed.
+                  return m.has(key)
+                    ? m.get(key)
+                    : Option.getOrUndefined(get.self())
+                }).pipe(Atom.withEquality(Equal.equals)),
+              )
+            })()
 
       const setIndex = (row: Row, index: number): void => {
         if (row.indexRef.value !== index) row.indexRef.set(index)
       }
 
-      // The diff itself lives in the pure `plan` (see reconcile.ts); this is the
-      // interpreter — it just applies the ops to real DOM + scopes.
-      const reconcile = (
-        next: ReadonlyArray<AtomRef.AtomRef<unknown>>,
-      ): void => {
+      // The diff itself lives in the pure `plan` (see reconcile.ts); this is
+      // the interpreter — it just applies the ops to real DOM + scopes.
+      const reconcile = (next: ReadonlyArray<unknown>): void => {
         for (const op of plan(snapshot, next)) {
           switch (op.op) {
             case "remove": {
@@ -494,7 +563,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
               // Handler owner = the rowScope: survives moves (DOM reparenting
               // only), closes on removal.
               const { node, scope: rowScope } = buildScopedChild(
-                view.render(op.key, indexRef),
+                view.render(rowHandle(op.key), indexRef),
                 scope,
                 nodeCtx,
                 "child",
@@ -521,33 +590,44 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
         snapshot = Array.from(next)
       }
 
-      reconcile(view.source.value)
-
-      // Re-reconcile only on structural changes. CollectionImpl also notifies
-      // on per-item value updates (which are handled separately by each row's
-      // own reactive bindings) — those are no-ops here. This is a pure perf
-      // short-circuit, not a correctness gate: a redundant reconcile would just
-      // plan all-`keep`. Don't tighten it into something the diff relies on.
-      subscribeRefScoped(
-        view.source,
-        (next) => {
-          const structural =
-            next.length !== snapshot.length ||
-            next.some((ref, i) => ref !== snapshot[i])
-          if (structural) reconcile(next)
-        },
-        scope,
-      )
+      // Re-reconcile only on structural changes (a different key sequence).
+      // A Collection also notifies on per-item value updates and a Keyed
+      // source on any emission (handled by each row's own reactive bindings)
+      // — those plan all-`keep`, so skipping them is a pure perf short-circuit,
+      // not a correctness gate. Don't tighten it into something the diff
+      // relies on.
+      const onKeys = (next: ReadonlyArray<unknown>): void => {
+        const structural =
+          next.length !== snapshot.length ||
+          next.some((key, i) => key !== snapshot[i])
+        if (structural) reconcile(next)
+      }
+      if (view.source._tag === "Collection") {
+        const collection = view.source.collection
+        reconcile(collection.value)
+        subscribeRefScoped(collection, onKeys, scope)
+      } else {
+        const src = view.source
+        const keysOf = (items: ReadonlyArray<unknown>) => items.map(src.key)
+        // `applyAndSubscribeSource` reads once (initial reconcile) and then
+        // subscribes through the registry, unsubscribing on scope close.
+        applyAndSubscribeSource(
+          src.each,
+          ctx.registry,
+          (items) => onKeys(keysOf(items as ReadonlyArray<unknown>)),
+          scope,
+        )
+      }
 
       return wrapper
     }
 
     case "Boundary": {
       // The child subtree renders with a sink that reports into THIS boundary
-      // (live failures flip its state to `error`); the fallback renders with the
-      // ambient `ctx` sink, so a failure in the fallback bubbles to the next
-      // boundary outward. `setAmbient` hands the boundary the parent sink so a
-      // tag-selective boundary can escalate a cause it doesn't handle.
+      // (live failures flip its state to `error`); the fallback renders with
+      // the ambient `ctx` sink, so a failure in the fallback bubbles to the
+      // next boundary outward. `setAmbient` hands the boundary the parent sink
+      // so a tag-selective boundary can escalate a cause it doesn't handle.
       // Same build-NEW → swap → close-OLD ordering as Reactive.
       view.setAmbient(ctx.sink)
       const childCtx: BuildCtx = { ...ctx, sink: view.report }
@@ -563,7 +643,8 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
         // Handler owner = the per-flip content scope, so a flip interrupts
         // prior-generation dispatches — a stale failure can't re-flip a reset
         // boundary. Boundary state flips only on report/reset, never on an
-        // ordinary handler write, so this doesn't reintroduce #161.
+        // ordinary handler write, so a handler is not interrupted by its own
+        // write.
         const built =
           st._tag === "ok"
             ? buildScopedChild(st.view, scope, childCtx, "child")
@@ -592,7 +673,7 @@ const buildDom = (view: ViewNode, ctx: BuildCtx, scope: Scope.Scope): Node => {
  * The root error sink, as a `Context.Reference` (a service with a default, so
  * it never shows up in `R`). It receives every live `Cause` no `Catch`
  * boundary caught — a failing handler or re-render — and the interrupt-only
- * cause of a handler torn down mid-flight (#186). The default logs: errors via
+ * cause of a handler torn down mid-flight. The default logs: errors via
  * `Effect.logError`, interrupts via `Effect.logDebug` with a hint (below the
  * default `Info` level; raise it to see them).
  *
@@ -644,7 +725,8 @@ export const RootSink = Context.Reference<
  * discharged: construction failures off the Effect `E` channel (via
  * `Effect.catchCause` or a `Catch` boundary) and live failures off the
  * `View<E>` channel (via `Catch`). A leftover error is a compile error here
- * that names it — the runtime counterpart of a forgotten `Layer` naming a service.
+ * that names it — the runtime counterpart of a forgotten `Layer` naming a
+ * service.
  */
 export const mount = <R>(
   app: Effect.Effect<View<never>, never, R>,

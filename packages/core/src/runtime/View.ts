@@ -11,17 +11,19 @@ export type Props = Readonly<Record<string, unknown>>
  * re-render, an event-handler Effect), routed to the nearest `Catch`.
  *
  * Covariant via `() => E`, which gives exactly the variance the thesis needs:
- *  - `View<HttpError>` is NOT assignable to `View<never>`, so `mount` requiring
+ * - `View<HttpError>` is NOT assignable to `View<never>`, so `mount` requiring
  *    `View<never>` is a compile error until every error is discharged by a
- *    boundary (it names the error — the runtime counterpart of a forgotten Layer);
- *  - a phantom-free `ViewNode` (what the constructors produce) IS assignable to
- *    any `View<E>` (the marker is optional and absent), so construction needs no
- *    casts and `View.Empty()` stays a no-arg call.
+ *    boundary (it names the error — the runtime counterpart of a forgotten
+ *    Layer);
+ * - a phantom-free `ViewNode` (what the constructors produce) IS assignable to
+ *    any `View<E>` (the marker is optional and absent), so construction needs
+ *    no casts and `View.Empty()` stays a no-arg call.
  *
  * Kept off the variant interfaces (so `Data.taggedEnum` constructor args don't
- * gain a phantom field) and mixed in only via `View<E> = ViewNode & ViewErr<E>`.
- * The fold (`ChildE` in types/Fold.ts) reads it directly via `infer`; it does
- * not walk a View's children, so the recursion stays shallow.
+ * gain a phantom field) and mixed in only via
+ * `View<E> = ViewNode & ViewErr<E>`. The fold (`ChildE` in types/Fold.ts) reads
+ * it directly via `infer`; it does not walk a View's children, so the recursion
+ * stays shallow.
  */
 declare const ErrorTypeId: unique symbol
 export interface ViewErr<E> {
@@ -34,10 +36,11 @@ export interface ViewErr<E> {
  * `Catch` — construction sets the initial value, a live failure reported
  * from the child subtree flips it to `error`, and `reset` re-runs construction.
  *
- * `gen` is a monotonic generation stamp making every emission distinct: `AtomRef`
- * dedups via `Equal.equals`, and a reset that fails with a structurally-identical
- * `Cause` would otherwise be `Equal`-equal to the current state and silently not
- * notify (a dead retry button). `gen` guarantees the swap always fires.
+ * `gen` is a monotonic generation stamp making every emission distinct:
+ * `AtomRef` dedups via `Equal.equals`, and a reset that fails with a
+ * structurally-identical `Cause` would otherwise be `Equal`-equal to the
+ * current state and silently not notify (a dead retry button). `gen` guarantees
+ * the swap always fires.
  */
 export type BoundaryState =
   | { readonly _tag: "ok"; readonly view: ViewNode; readonly gen: number }
@@ -78,7 +81,8 @@ export interface ViewFragment {
 }
 export interface ViewReactive {
   readonly _tag: "Reactive"
-  // Source can carry any value; mount() normalizes it into a View at render time.
+  // Source can carry any value; mount() normalizes it into a View at render
+  // time.
   readonly source: Atom.Atom<unknown> | AtomRef.ReadonlyRef<unknown>
   /**
    * Ambient context captured at construction — every re-render of this node
@@ -89,20 +93,40 @@ export interface ViewReactive {
    */
   readonly context?: Context.Context<never>
 }
+/**
+ * What a keyed list renders from.
+ * - `Collection`: rows ARE `AtomRef`s, keyed by ref identity — no key fn, no
+ *   value diffing; per-cell reactivity via `row.prop`/`row.map`.
+ * - `Keyed`: any `Atom<ReadonlyArray<T>>` (a cell, `atom(...)`, `Atom.pull`,
+ *   a derived) plus a key fn; mount derives one `Atom<T>` per key
+ *   (`Atom.family` + `withEquality`, so an unchanged item costs one Equal
+ *   check and no DOM write) and reconciles structure by key.
+ */
+type ListSource =
+  | {
+      readonly _tag: "Collection"
+      readonly collection: AtomRef.Collection<unknown>
+    }
+  | {
+      readonly _tag: "Keyed"
+      readonly each: Atom.Atom<ReadonlyArray<unknown>>
+      readonly key: (item: unknown) => unknown
+    }
 export interface ViewList {
   readonly _tag: "List"
-  readonly source: AtomRef.Collection<unknown>
+  readonly source: ListSource
   // Returns a View or a sync Effect of one — mount's coerceSync materializes
   // each row on this node's captured context (fallback: mount's), so row
-  // channels claimed by `list`'s signature are genuinely available, including
+  // channels claimed by `For`'s signature are genuinely available, including
   // under a mid-tree Effect.provide.
-  // `index` is a reactive ref: mount pushes each row's current position into it
-  // on reorder/shift, so `{index.value}` in a row updates without re-rendering.
-  readonly render: (
-    item: AtomRef.AtomRef<unknown>,
-    index: AtomRef.ReadonlyRef<number>,
-  ) => unknown
-  /** Construction-captured context — rows build on it. See ViewReactive.context. */
+  // `row` is an `AtomRef<T>` (Collection source) or an `Atom<T>` (Keyed
+  // source). `index` is a reactive ref: mount pushes each row's current
+  // position into it on reorder/shift, so a row displaying it updates
+  // without re-rendering.
+  readonly render: (row: unknown, index: AtomRef.ReadonlyRef<number>) => unknown
+  /**
+   * Construction-captured context — rows build on it. See ViewReactive.context.
+   */
   readonly context?: Context.Context<never>
 }
 export interface ViewEmpty {
@@ -120,8 +144,8 @@ export interface ViewBoundary {
   readonly handler: (cause: Cause.Cause<unknown>, reset: () => void) => unknown
   readonly reset: () => void
   readonly report: (cause: Cause.Cause<unknown>) => void
-  // `mount` calls this with the ambient (parent) sink before rendering the child,
-  // so a tag-selective `Catch` (object form) can escalate a cause it
+  // `mount` calls this with the ambient (parent) sink before rendering the
+  // child, so a tag-selective `Catch` (object form) can escalate a cause it
   // doesn't handle to the next boundary outward. A catch-all never escalates.
   readonly setAmbient: (sink: (cause: Cause.Cause<unknown>) => void) => void
   /**
@@ -153,9 +177,15 @@ export type View<E = never> = ViewNode & ViewErr<E>
 
 export const View = Data.taggedEnum<ViewNode>()
 
-export const VIEW_TAGS: ReadonlySet<ViewNode["_tag"]> = new Set<
-  ViewNode["_tag"]
->(["Text", "Element", "Fragment", "Reactive", "List", "Boundary", "Empty"])
+const VIEW_TAGS: ReadonlySet<ViewNode["_tag"]> = new Set<ViewNode["_tag"]>([
+  "Text",
+  "Element",
+  "Fragment",
+  "Reactive",
+  "List",
+  "Boundary",
+  "Empty",
+])
 
 export const isView = (u: unknown): u is ViewNode =>
   typeof u === "object" &&

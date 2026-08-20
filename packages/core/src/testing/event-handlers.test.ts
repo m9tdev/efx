@@ -6,14 +6,13 @@ import { h } from "@verrex/core"
 import { stepClick, stepLayer } from "./fixtures.ts"
 import { render, untracked } from "./index.ts"
 
-// PR1 fix: an event handler that returns an Effect used to be added as a raw DOM
-// listener and the returned Effect was DROPPED unexecuted. Now applyProp detects
-// an Effect return and forks it on the mount's captured context, routing failures
-// to the error sink. These tests pin DISPATCH: it runs, it sees the app's
-// services, plain imperative handlers still work, and a failing handler is
-// contained (not thrown out of the DOM dispatch). The per-node context-capture
-// and handler-scope pins live in context-capture.test.ts; the reactive-render
-// sink routing is unit-tested in runtime/coerce.test.ts.
+// applyProp detects an event handler's Effect return and forks it on the
+// mount's captured context, routing failures to the error sink. These tests pin
+// DISPATCH: it runs, it sees the app's services, plain imperative handlers
+// still work, and a failing handler is contained (not thrown out of the DOM
+// dispatch). The per-node context-capture and handler-scope pins live in
+// context-capture.test.ts; the reactive-render sink routing is unit-tested in
+// runtime/coerce.test.ts.
 
 describe("event handlers — Effect-returning", () => {
   it("runs the returned Effect (counter increments on click)", async () => {
@@ -56,8 +55,9 @@ describe("event handlers — Effect-returning", () => {
       )
     })
 
-    // If the handler ran on the default runtime (no captured context), `yield* Step`
-    // would fail and the count would never move — so this asserts context capture.
+    // If the handler ran on the default runtime (no captured context),
+    // `yield* Step` would fail and the count would never move — so this asserts
+    // context capture.
     const ui = await render(ServiceClicker(), stepLayer(10))
     expect(ui.text(".btn")).toBe("count: 0")
 
@@ -95,7 +95,7 @@ describe("event handlers — Effect-returning", () => {
       const count = AtomRef.make(0)
       // The handler is typed HONESTLY (it fails with a string, so this
       // component stamps View<string>); `untracked` below is the harness's
-      // sanctioned hatch for mounting it — since #72 a typed failing handler
+      // sanctioned hatch for mounting it — a typed failing handler
       // can't reach `render`/`mount` otherwise (pinned in channels.test-d.ts).
       // The runtime containment must hold regardless of what the types track.
       return yield* h(
@@ -120,8 +120,8 @@ describe("event handlers — Effect-returning", () => {
 
     const ui = await render(untracked(Mixed()))
 
-    // A failing handler must not throw out of dispatch nor break the app, and the
-    // ACTUAL cause must reach the root sink — the harness collects it (#127).
+    // A failing handler must not throw out of dispatch nor break the app, and
+    // the ACTUAL cause must reach the root sink — the harness collects it.
     ui.click(".bad")
     await ui.tick()
     expect(ui.sinkCauses.map(Cause.squash)).toEqual(["boom-marker"])

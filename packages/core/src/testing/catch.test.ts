@@ -28,9 +28,12 @@ describe("Catch — catch-all (function)", () => {
       return yield* h("p", { class: "child" }, "hello")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) => {
-        calls++
-        return h("p", { class: "fallback" }, Cause.pretty(cause))
+      return yield* Catch({
+        children: [Child()],
+        Failure: (cause) => {
+          calls++
+          return h("p", { class: "fallback" }, Cause.pretty(cause))
+        },
       })
     })
     const ui = await render(App())
@@ -46,9 +49,11 @@ describe("Catch — catch-all (function)", () => {
       return yield* h("p", { class: "child" }, "unreachable")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) =>
-        h("div", { class: "fallback" }, Cause.pretty(cause)),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (cause) =>
+          h("div", { class: "fallback" }, Cause.pretty(cause)),
+      })
     })
     const ui = await render(App())
     expect(ui.query(".child")).toBeNull()
@@ -72,9 +77,11 @@ describe("Catch — catch-all (function)", () => {
       )
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) =>
-        h("div", { class: "fallback" }, Cause.pretty(cause)),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (cause) =>
+          h("div", { class: "fallback" }, Cause.pretty(cause)),
+      })
     })
     const ui = await render(App())
     ui.click(".boom")
@@ -96,9 +103,11 @@ describe("Catch — catch-all (function)", () => {
       )
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (cause) =>
-        h("div", { class: "fallback" }, Cause.pretty(cause)),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (cause) =>
+          h("div", { class: "fallback" }, Cause.pretty(cause)),
+      })
     })
     const ui = await render(App())
     expect(ui.text(".child")).toBe("ok")
@@ -117,9 +126,11 @@ describe("Catch — catch-all (function)", () => {
       return yield* h("p", { class: "child" }, "recovered")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Child(), (_cause, reset) =>
-        h("button", { class: "retry", onClick: reset }, "retry"),
-      )
+      return yield* Catch({
+        children: [Child()],
+        Failure: (_cause, reset) =>
+          h("button", { class: "retry", onClick: reset }, "retry"),
+      })
     })
     const ui = await render(App())
     expect(ui.query(".retry")).not.toBeNull()
@@ -145,7 +156,9 @@ describe("Catch — tag-selective (object)", () => {
   it("dispatches to the handler for the failing tag, unwrapped", async () => {
     const make = (fail: "http" | "parse") =>
       Effect.fn("App")(function* (_props: {} = {}) {
-        return yield* Catch(Child({ fail }), {
+        return yield* Catch({
+          children: [Child({ fail })],
+
           HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
           ParseError: (e) => h("p", { class: "parse" }, `parse ${e.message}`),
         })
@@ -161,14 +174,70 @@ describe("Catch — tag-selective (object)", () => {
     await b.unmount()
   })
 
+  it("a tag arm beside Failure on the SAME boundary: tag first, Failure gets the rest", async () => {
+    const make = (fail: "http" | "parse") =>
+      Effect.fn("App")(function* (_props: {} = {}) {
+        return yield* Catch({
+          children: [Child({ fail })],
+
+          HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
+          Failure: (cause) => h("p", { class: "rest" }, Cause.pretty(cause)),
+        })
+      })()
+    const a = await render(make("http"))
+    expect(a.text(".http")).toBe("http 503")
+    expect(a.query(".rest")).toBeNull()
+    await a.unmount()
+    const b = await render(make("parse"))
+    expect(b.query(".http")).toBeNull()
+    expect(b.text(".rest")).toContain("ParseError")
+    await b.unmount()
+  })
+
+  it("several children are wrapped in a Fragment; a failing one is caught", async () => {
+    const App = Effect.fn("App")(function* (_props: {} = {}) {
+      return yield* Catch({
+        children: [
+          h("p", { class: "one" }, "one"),
+          Child({ fail: "http" }),
+          h("p", { class: "three" }, "three"),
+        ],
+        HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
+      })
+    })
+    const ui = await render(App())
+    expect(ui.text(".http")).toBe("http 503")
+    expect(ui.query(".one")).toBeNull() // the whole fragment failed construction
+    await ui.unmount()
+
+    const Ok = Effect.fn("Ok")(function* (_props: {} = {}) {
+      return yield* Catch({
+        children: [
+          h("p", { class: "one" }, "one"),
+          h("p", { class: "two" }, "two"),
+        ],
+        Failure: () => h("p", { class: "never" }),
+      })
+    })
+    const ok = await render(Ok())
+    expect(ok.text(".one")).toBe("one")
+    expect(ok.text(".two")).toBe("two")
+    await ok.unmount()
+  })
+
   it("passes an unhandled tag through to an outer catch-all", async () => {
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(
-        Catch(Child({ fail: "parse" }), {
-          HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
-        }),
-        (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
-      )
+      return yield* Catch({
+        children: [
+          Catch({
+            children: [Child({ fail: "parse" })],
+
+            HttpError: (e) => h("p", { class: "http" }, `http ${e.status}`),
+          }),
+        ],
+
+        Failure: (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
+      })
     })
     const ui = await render(App())
     expect(ui.query(".http")).toBeNull()
@@ -177,24 +246,28 @@ describe("Catch — tag-selective (object)", () => {
   })
 })
 
-// ─── regression: review findings (MF-1, MF-2, SF-5) ─────────────────────
+// ─── regression: reset, release, escalation ─────────────────────────────
 describe("Catch — lifecycle correctness", () => {
-  it("reset re-renders even when the child fails IDENTICALLY (gen counter, MF-1)", async () => {
-    // Without a generation stamp, AtomRef.set dedups the Equal-equal BoundaryState
-    // and the reset silently no-ops (the retry button is dead on a deterministic
-    // failure). Handler call count proves the fallback re-renders on each reset.
-    // The child must be SPAN-LESS (Effect.fnUntraced, not Effect.fn): a span
-    // annotation makes every Cause Equal-unequal, which would mask the dedup
-    // this test guards against — an Effect.fn child passes even with `gen` removed.
+  it("reset re-renders even when the child fails IDENTICALLY (gen counter)", async () => {
+    // Without a generation stamp, AtomRef.set dedups the Equal-equal
+    // BoundaryState and the reset silently no-ops (the retry button is dead on
+    // a deterministic failure). Handler call count proves the fallback
+    // re-renders on each reset. The child must be SPAN-LESS (Effect.fnUntraced,
+    // not Effect.fn): a span annotation makes every Cause Equal-unequal, which
+    // would mask the dedup this test guards against — an Effect.fn child passes
+    // even with `gen` removed.
     let handlerCalls = 0
     const AlwaysFails = Effect.fnUntraced(function* (_props: {} = {}) {
       yield* Effect.fail(new BoomError({ why: "always identical" }))
       return yield* h("p", { class: "child" }, "unreachable")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(AlwaysFails(), (_cause, reset) => {
-        handlerCalls++
-        return h("button", { class: "retry", onClick: reset }, "retry")
+      return yield* Catch({
+        children: [AlwaysFails()],
+        Failure: (_cause, reset) => {
+          handlerCalls++
+          return h("button", { class: "retry", onClick: reset }, "retry")
+        },
       })
     })
     const ui = await render(App())
@@ -208,11 +281,11 @@ describe("Catch — lifecycle correctness", () => {
     await ui.unmount()
   })
 
-  it("releases a failed build's construction-scope resources immediately (no leak, MF-2)", async () => {
-    // A child's construction-time `acquireRelease` must bind to a per-build scope —
-    // not leaked to the mount scope. A FAILED build's scope closes as soon as the
-    // failure is accepted (nothing renders from it), so its resources never idle
-    // behind the fallback.
+  it("releases a failed build's construction-scope resources immediately (no leak)", async () => {
+    // A child's construction-time `acquireRelease` must bind to a per-build
+    // scope — not leaked to the mount scope. A FAILED build's scope closes as
+    // soon as the failure is accepted (nothing renders from it), so its
+    // resources never idle behind the fallback.
     let acquired = 0
     let released = 0
     const Leaky = Effect.fn("Leaky")(function* (_props: {} = {}) {
@@ -229,9 +302,11 @@ describe("Catch — lifecycle correctness", () => {
       return yield* h("p", { class: "child" }, "unreachable")
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(Leaky(), (_cause, reset) =>
-        h("button", { class: "retry", onClick: reset }, "retry"),
-      )
+      return yield* Catch({
+        children: [Leaky()],
+        Failure: (_cause, reset) =>
+          h("button", { class: "retry", onClick: reset }, "retry"),
+      })
     })
     const ui = await render(App())
     expect(acquired).toBe(1)
@@ -241,17 +316,18 @@ describe("Catch — lifecycle correctness", () => {
     ui.click(".retry")
     await ui.tick()
     // Every failed build released its own resource immediately — the leak
-    // (released stuck at 0 until unmount) is what MF-2 fixes.
+    // (released stuck at 0 until unmount) is the leak this pins against.
     expect(acquired).toBe(3)
     expect(released).toBe(3)
     await ui.unmount()
     expect(released).toBe(acquired) // nothing left for teardown to find
   })
 
-  it("escalates a LIVE non-matching error to an outer boundary (SF-5)", async () => {
-    // `trip:false` keeps ParseError in Child's type (so the inner tag-map is valid)
-    // while the runtime failure is a LIVE HttpError from the button — which the
-    // inner tag-map rejects and escalates via the ambient sink to the outer catch-all.
+  it("escalates a LIVE non-matching error to an outer boundary", async () => {
+    // `trip:false` keeps ParseError in Child's type (so the inner tag-map is
+    // valid) while the runtime failure is a LIVE HttpError from the button —
+    // which the inner tag-map rejects and escalates via the ambient sink to the
+    // outer catch-all.
     const Child = Effect.fn("Child")(function* (props: {
       readonly trip: boolean
     }) {
@@ -270,12 +346,17 @@ describe("Catch — lifecycle correctness", () => {
       )
     })
     const App = Effect.fn("App")(function* (_props: {} = {}) {
-      return yield* Catch(
-        Catch(Child({ trip: false }), {
-          ParseError: () => h("p", { class: "inner" }, "parse"),
-        }),
-        (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
-      )
+      return yield* Catch({
+        children: [
+          Catch({
+            children: [Child({ trip: false })],
+
+            ParseError: () => h("p", { class: "inner" }, "parse"),
+          }),
+        ],
+
+        Failure: (cause) => h("p", { class: "outer" }, Cause.pretty(cause)),
+      })
     })
     const ui = await render(App())
     expect(ui.query(".child")).not.toBeNull()

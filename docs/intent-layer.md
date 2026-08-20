@@ -215,19 +215,17 @@ always-loaded root equals the full ancestor chain here, since the tree
 has no intermediate nodes; if one is ever added between root and a leaf,
 extend the hook to inject every node on the walk up.)
 
-Approaches tested and rejected (2026-06, fresh-session experiments):
+The alternatives, and why the hook wins:
 
-- **Per-directory `CLAUDE.md` symlinks** — works natively but litters the
-  tree with nine symlinks.
-- **`.claude/rules/` with `@`-imports** — imports expand **eagerly** at
-  session start regardless of `paths` scoping, loading the entire node
-  tree (~36k tokens) into every session.
-- **`.claude/rules/` pointer instructions** — lazy and correct, but needs
-  a mapping rule per node (brittle parallel structure), and relies on the
-  agent following the instruction rather than mechanical injection.
-
-The hook's injection behavior (PostToolUse `additionalContext`) was
-verified end-to-end in a live session.
+- **Per-directory `CLAUDE.md` symlinks** — work natively (Claude Code loads
+  nested `CLAUDE.md` on demand) but litter the tree with one symlink per
+  node. Use this if the hook is ever unavailable.
+- **`.claude/rules/` with `@`-imports** — do NOT use: imports expand
+  eagerly at session start regardless of `paths` scoping, loading the whole
+  node tree into every session.
+- **`.claude/rules/` pointer instructions** — lazy and correct, but need a
+  mapping rule per node (a brittle parallel structure) and rely on the agent
+  following the instruction rather than mechanical injection.
 
 ## Naive vs. Effective Implementation
 

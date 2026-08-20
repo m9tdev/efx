@@ -53,7 +53,7 @@ assertEquals<
 
 // 2) A propless component needs NO props parameter at all — `function* ()`
 //    is the idiom; the `_props: {} = {}` boilerplate is gone. `<Counter />`
-//    compiles to the direct call `Counter()` (#71), and the component's
+//    compiles to the direct call `Counter()`, and the component's
 //    channels fold into a surrounding `h()` as an ordinary Effect child.
 declare const counterBody: () => Generator<never, View, never>
 const Counter = Component.make(counterBody, "Counter")
@@ -82,7 +82,7 @@ assertEquals<typeof _rowCall, Effect.Effect<View, never, never>>()
 
 // 4) A made component composes as a child: its construction E/R and the live
 //    E riding its View success fold through the surrounding h() (FoldE /
-//    FoldLiveE / FoldR — no Tag* family since #71's direct-call lowering).
+//    FoldLiveE / FoldR — no Tag* family — component tags are direct calls).
 const _genInTree = h("section", {}, Gen({ id: "1" }))
 assertEquals<
   typeof _genInTree,
