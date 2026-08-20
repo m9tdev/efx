@@ -43,8 +43,8 @@ export type CompilerMappingKind = "user" | "h-call" | "punctuation"
  *      consecutive differences.
  *   4. Compute generated spans by sorting INDEPENDENTLY by generated offset
  *      and taking consecutive differences. Source and generated spans can
- *      differ because Babel transforms (paren strip, `.value` → `h.read(x)`,
- *      JSX → `h(...)`) shift byte counts.
+ *      differ because Babel transforms (paren strip, JSX → `h(...)`,
+ *      `get(...)` expressions → `h.reader(() => …)`) shift byte counts.
  *   5. Classify each mapping's `kind` by intersecting its source offset
  *      against `jsxRanges` (punctuation inside tag spans, h-call inside any
  *      JSX range, otherwise user code).

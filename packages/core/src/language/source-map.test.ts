@@ -9,11 +9,11 @@ import { convertSourceMap } from "./source-map.ts"
  *
  * The point of these tests is to lock in the bidirectional position-mapping
  * contract: every Babel transform that shifts byte counts (paren strip on
- * single-arg arrows, `.value` → `h.read(x)`, `.value.map(arrow → JSX)` →
- * `list(...)`, etc.) produces mappings where source and generated lengths
- * can differ. If we ever lose track of that asymmetry, inlay-hint / hover /
- * go-to-def positions silently drift in the editor — PR #12 was one such
- * regression.
+ * single-arg arrows, JSX → `h(...)`, `get(...)` expressions →
+ * `h.reader(() => …)`, etc.) produces mappings where source and generated
+ * lengths can differ. If we ever lose track of that asymmetry, inlay-hint /
+ * hover / go-to-def positions silently drift in the editor — PR #12 was one
+ * such regression.
  */
 
 const buildMappings = (src: string) => {
