@@ -1,7 +1,7 @@
 import { assertHandlerMap, matchTagArm, type Tagged } from "./tag-dispatch.ts"
 import { Cause, Effect, type Types } from "effect"
 import { Atom, AtomRef } from "effect/unstable/reactivity"
-import { bridgeAtom, isAtomRef } from "./coerce.ts"
+import { guardRegistryRead, readSource } from "./reader.ts"
 import type { ChildE, ChildLiveE, ChildR } from "./types/Fold.ts"
 import type { View } from "./View.ts"
 
@@ -153,19 +153,13 @@ export function On(
   // including an unhandled failure raised as `Effect.failCause` — is a
   // render-time emission, so its E is LIVE (View<E>) uniformly.
   const source = Atom.readable((get) => {
-    const value = Atom.isAtom(on)
-      ? get(on)
-      : isAtomRef(on)
-        ? get(bridgeAtom(on))
-        : on
-    // A throw must not escape the registry read (it would freeze this node's
-    // siblings for good — see `h.reader`); an arm that throws is a defect →
-    // `Effect.die`, a live failure for the nearest `Catch` / the root sink.
-    try {
-      return dispatch(value as Tagged, handlers, failure, waiting)
-    } catch (error) {
-      return Effect.die(error)
-    }
+    const value = readSource(get, on)
+    // An arm that throws must not escape the registry read: `guardRegistryRead`
+    // turns it into `Effect.die` — a live failure for the nearest `Catch` /
+    // the root sink (see `reader.ts`).
+    return guardRegistryRead(() =>
+      dispatch(value as Tagged, handlers, failure, waiting),
+    )
   })
   return Effect.succeed(source as unknown as View<any>) as any
 }
