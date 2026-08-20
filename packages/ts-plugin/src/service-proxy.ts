@@ -3,6 +3,7 @@ import type { Language } from "@volar/language-core"
 import type * as ts from "typescript"
 import {
   createVerrexLanguagePlugin,
+  toTsDiagnostics,
   VerrexVirtualCode,
 } from "@verrex/core/language"
 import { findJsxTagPair, type JsxTagProvider } from "./jsx-tags.ts"
@@ -12,12 +13,6 @@ import {
   sortClassifiedRefs,
 } from "./classify-references.ts"
 import { hintText, SUPPRESS_RE } from "./hint-text.ts"
-
-/**
- * Diagnostic code for verrex's own (compiler) diagnostics; well outside TS's
- * range.
- */
-const VERREX_DIAGNOSTIC_CODE = 90001
 
 // tsserver identifies scripts by file path strings — asFileName is identity.
 const verrexLanguagePlugin = createVerrexLanguagePlugin<string>(
@@ -255,25 +250,15 @@ export const pluginFactory: ts.server.PluginModuleFactory = (modules) => {
             return wrapMethod("getSemanticDiagnostics", (diags, fileName) => {
               if (!fileName.endsWith(".vx")) return diags
               // The compiler's own diagnostics (a `get(...)` in a nested
-              // function/handler), carried on the virtual code in SOURCE
-              // offsets — the coordinates Volar's decorated TS diagnostics
-              // arrive in here too, so they print side by side. `file` is the
-              // program's SourceFile: tsserver only uses its name to find the
-              // script (source text) for line/column conversion.
+              // function/handler), rendered by the shared policy module
+              // (`@verrex/core/language` `toTsDiagnostics`) in SOURCE offsets
+              // — the coordinates Volar's decorated TS diagnostics arrive in
+              // here too, so they print side by side.
               const code = getVerrexVirtualCode(fileName)
               if (!code || code.diagnostics.length === 0) return diags
               const file = service.getProgram()?.getSourceFile(fileName)
               if (!file) return diags
-              const own: ts.Diagnostic[] = code.diagnostics.map((d) => ({
-                file,
-                start: d.start,
-                length: d.end - d.start,
-                messageText: d.message,
-                category: 1 satisfies ts.DiagnosticCategory.Error,
-                code: VERREX_DIAGNOSTIC_CODE,
-                source: "verrex",
-              }))
-              return [...diags, ...own]
+              return [...diags, ...toTsDiagnostics(code, file)]
             })
           }
 
