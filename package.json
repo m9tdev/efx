@@ -8,7 +8,7 @@
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
     "size": "pnpm -r build 2>&1 | grep -E 'dist/.*\\.(js|html)' | sed 's/^.*demo build: //'",
-    "test": "pnpm -r --workspace-concurrency=1 test",
+    "test": "pnpm -r --workspace-concurrency=1 test && node --test scripts/comment-width.test.mjs",
     "lint": "oxlint && node scripts/vx-oxc.mjs lint && node scripts/comment-width.mjs",
     "lint:fix": "oxlint --fix && node scripts/vx-oxc.mjs lint:fix",
     "format": "oxfmt . && node scripts/vx-oxc.mjs format && node scripts/comment-width.mjs --fix",

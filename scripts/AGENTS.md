@@ -79,6 +79,14 @@ section headers, fenced code, and indented lines that look like code or
 diagrams; a backtick span is one unbreakable token. Those exempt lines are
 still reported when over 80 (they need a hand edit). Idempotent.
 
+The reflow logic is pure — `processSource(src, { width, fix })` and
+`overlongCommentLines(src)` in `comment-width-core.mjs`; `comment-width.mjs`
+is the shell (git file list, writes, exit code). `comment-width.test.mjs`
+pins the tricky shapes (one-line docblocks, list hangs, backtick spans,
+fences, headers, tables) and runs from the root `pnpm test` via
+`node --test scripts/comment-width.test.mjs` — plain `node:test`, no vitest,
+because `scripts/` is not a workspace package.
+
 ## `vx-oxc.mjs` — linting and formatting `.vx`
 
 `pnpm lint`, `pnpm lint:fix`, `pnpm format` and `pnpm format:check` each
