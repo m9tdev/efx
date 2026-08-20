@@ -124,3 +124,9 @@ test("overlongCommentLines reports unfixable lines, skips URLs", () => {
     [1],
   )
 })
+
+test("a fixable paragraph is not reported as needing a hand edit", () => {
+  const src = "// " + "word ".repeat(30).trim() + "\n"
+  const r = fix(src)
+  assert.deepEqual(overlongCommentLines(r.text), [])
+})

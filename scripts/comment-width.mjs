@@ -20,20 +20,19 @@ const files = execSync(
   .split("\n")
   .filter((f) => f && !f.includes("/dist/") && !f.endsWith("CHANGELOG.md"))
 
+// One pass per file: reflow (in memory always, on disk when --fix), then
+// report the hand-edit lines from the REFLOWED text — so a fixable paragraph
+// is never double-reported as "needs a hand edit". Line numbers in that list
+// are post-reflow; with the tree formatted (the normal state) they match the
+// source exactly, and when they don't, the fix hint comes first anyway.
 let bad = 0
-for (const file of files) {
-  const src = readFileSync(file, "utf8")
-  const { text, paragraphs, changed } = processSource(src, { fix })
-  bad += paragraphs
-  if (fix && changed) writeFileSync(file, text)
-}
-// Report: reflowable overflow (fixable) plus every exempt comment line that is
-// still too long (URLs aside — those cannot be shortened by hand either).
 const long = []
 for (const file of files) {
-  for (const { line, length } of overlongCommentLines(
-    readFileSync(file, "utf8"),
-  ))
+  const src = readFileSync(file, "utf8")
+  const fixed = processSource(src, { fix: true })
+  bad += fixed.paragraphs
+  if (fix && fixed.changed) writeFileSync(file, fixed.text)
+  for (const { line, length } of overlongCommentLines(fixed.text))
     long.push(`${file}:${line} (${length})`)
 }
 if (fix) console.log(`comment-width: reflowed ${bad} paragraph(s)`)
@@ -47,4 +46,6 @@ if (long.length > 0) {
   )
   for (const l of long) console.error("  " + l)
 }
-if ((bad > 0 && !fix) || long.length > 0) process.exit(1)
+// --fix exits 0: it fixed everything fixable; the hand-edit list is
+// informational there, and the check mode (pnpm lint) is the gate.
+if (!fix && (bad > 0 || long.length > 0)) process.exit(1)

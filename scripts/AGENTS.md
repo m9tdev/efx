@@ -77,7 +77,10 @@ at 80, list items with a hanging indent, indented sub-paragraphs with their
 indent. Never touched: URLs, `|` table rows, directives (`@ts-…`), `───`
 section headers, fenced code, and indented lines that look like code or
 diagrams; a backtick span is one unbreakable token. Those exempt lines are
-still reported when over 80 (they need a hand edit). Idempotent.
+still reported when over 80 (they need a hand edit) — computed from the
+reflowed text, so a fixable paragraph is never double-reported. `--fix`
+always exits 0 (it fixed everything fixable; the check in `pnpm lint` is
+the gate). Idempotent.
 
 The reflow logic is pure — `processSource(src, { width, fix })` and
 `overlongCommentLines(src)` in `comment-width-core.mjs`; `comment-width.mjs`
