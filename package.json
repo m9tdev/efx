@@ -15,12 +15,12 @@
     "format:check": "oxfmt --check . && node scripts/vx-oxc.mjs format:check"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
-    "oxfmt": "0.61.0",
-    "oxlint": "1.76.0",
-    "playwright-core": "^1.62.0",
+    "@types/node": "^26.2.0",
+    "oxfmt": "0.64.0",
+    "oxlint": "1.79.0",
+    "playwright-core": "^1.62.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "packageManager": "pnpm@11.3.0"
 }
